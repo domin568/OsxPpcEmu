@@ -34,6 +34,10 @@ std::expected<COsxPpcEmu, common::Error> COsxPpcEmu::init( const std::string &ex
     if (!loader->mapMemory( uc ))
         return std::unexpected( common::Error{ common::Error::Type::Memory_Map_Error, "Could not map memory." } );
 
+    if (!loader->setUnixThread( uc ))
+        return std::unexpected{
+            common::Error{ common::Error::Type::No_Unix_Thread_Command_Error, "Could not set Unix thread context." } };
+
     return COsxPpcEmu{ uc, std::move( loader.value() ) };
 }
 

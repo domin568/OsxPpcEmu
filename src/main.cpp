@@ -17,7 +17,7 @@ int main( int argc, char *argv[] )
         return -1;
     }
 
-    std::expected<COsxPpcEmu, common::Error> emu{ COsxPpcEmu::create( argv[1] ) };
+    std::expected<COsxPpcEmu, common::Error> emu{ COsxPpcEmu::init( argv[1] ) };
     if (!emu)
     {
         std::cerr << emu.error().message << std::endl;
