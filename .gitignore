@@ -1,4 +1,8 @@
 /test
 .DS_Store
 /build
-/xcode_project
+/cmake-build-debug
+/test
+/thirdparty
+/.idea
+/resources

@@ -8,8 +8,8 @@ find_package(LIEF REQUIRED COMPONENTS STATIC)
 
 add_subdirectory(thirdparty/unicorn)
 
-set (SOURCE_FILES src/main.cpp src/CMachoLoader.cpp)
-set (HEADER_FILES include/CMachoLoader.hpp)
+set(SOURCE_FILES src/main.cpp src/CMachoLoader.cpp src/COsxPpcEmu.cpp)
+set(HEADER_FILES include/CMachoLoader.hpp include/COsxPpcEmu.hpp include/Common.hpp)
 
 add_executable(osxppcemu ${SOURCE_FILES} ${HEADER_FILES})
 
