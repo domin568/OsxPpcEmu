@@ -10,19 +10,25 @@
 #include <iostream>
 #include <unicorn/unicorn.h>
 
-int main( int argc, char *argv[] )
+int main( int argc, const char *argv[] )
 {
     if (argc < 2)
     {
         return -1;
     }
 
-    std::expected<COsxPpcEmu, common::Error> emu{ COsxPpcEmu::init( argv[1] ) };
+    const std::array<std::string, 2> env{
+        "MANPATH=/opt/local/share/man:",
+        "MWMacOSXPPCLibraryFiles=MSL_All_Mach-O.lib",
+    };
+
+    std::expected<COsxPpcEmu, common::Error> emu{ COsxPpcEmu::init( argc, argv, env ) };
     if (!emu)
     {
         std::cerr << emu.error().message << std::endl;
         return emu.error().type;
     }
+    emu->print_vm_map( std::cout );
     emu->run();
 
     return 0;

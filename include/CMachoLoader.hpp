@@ -60,46 +60,46 @@ struct ppc_thread_state32_t
             return {};
         std::memcpy( &st, raw.data(), raw.size() );
         return {
-            .srr0{ common::to_host( st.srr0, order ) },
-            .srr1{ common::to_host( st.srr1, order ) },
-            .r0{ common::to_host( st.r0, order ) },
-            .r1{ common::to_host( st.r1, order ) },
-            .r2{ common::to_host( st.r2, order ) },
-            .r3{ common::to_host( st.r3, order ) },
-            .r4{ common::to_host( st.r4, order ) },
-            .r5{ common::to_host( st.r5, order ) },
-            .r6{ common::to_host( st.r6, order ) },
-            .r7{ common::to_host( st.r7, order ) },
-            .r8{ common::to_host( st.r8, order ) },
-            .r9{ common::to_host( st.r9, order ) },
-            .r10{ common::to_host( st.r10, order ) },
-            .r11{ common::to_host( st.r11, order ) },
-            .r12{ common::to_host( st.r12, order ) },
-            .r13{ common::to_host( st.r13, order ) },
-            .r14{ common::to_host( st.r14, order ) },
-            .r15{ common::to_host( st.r15, order ) },
-            .r16{ common::to_host( st.r16, order ) },
-            .r17{ common::to_host( st.r17, order ) },
-            .r18{ common::to_host( st.r18, order ) },
-            .r19{ common::to_host( st.r19, order ) },
-            .r20{ common::to_host( st.r20, order ) },
-            .r21{ common::to_host( st.r21, order ) },
-            .r22{ common::to_host( st.r22, order ) },
-            .r23{ common::to_host( st.r23, order ) },
-            .r24{ common::to_host( st.r24, order ) },
-            .r25{ common::to_host( st.r25, order ) },
-            .r26{ common::to_host( st.r26, order ) },
-            .r27{ common::to_host( st.r27, order ) },
-            .r28{ common::to_host( st.r28, order ) },
-            .r29{ common::to_host( st.r29, order ) },
-            .r30{ common::to_host( st.r30, order ) },
-            .r31{ common::to_host( st.r31, order ) },
-            .cr{ common::to_host( st.cr, order ) },
-            .xer{ common::to_host( st.xer, order ) },
-            .lr{ common::to_host( st.lr, order ) },
-            .ctr{ common::to_host( st.ctr, order ) },
-            .mq{ common::to_host( st.mq, order ) },
-            .vrsave{ common::to_host( st.vrsave, order ) },
+            .srr0{ common::ensure_endianness( st.srr0, order ) },
+            .srr1{ common::ensure_endianness( st.srr1, order ) },
+            .r0{ common::ensure_endianness( st.r0, order ) },
+            .r1{ common::ensure_endianness( st.r1, order ) },
+            .r2{ common::ensure_endianness( st.r2, order ) },
+            .r3{ common::ensure_endianness( st.r3, order ) },
+            .r4{ common::ensure_endianness( st.r4, order ) },
+            .r5{ common::ensure_endianness( st.r5, order ) },
+            .r6{ common::ensure_endianness( st.r6, order ) },
+            .r7{ common::ensure_endianness( st.r7, order ) },
+            .r8{ common::ensure_endianness( st.r8, order ) },
+            .r9{ common::ensure_endianness( st.r9, order ) },
+            .r10{ common::ensure_endianness( st.r10, order ) },
+            .r11{ common::ensure_endianness( st.r11, order ) },
+            .r12{ common::ensure_endianness( st.r12, order ) },
+            .r13{ common::ensure_endianness( st.r13, order ) },
+            .r14{ common::ensure_endianness( st.r14, order ) },
+            .r15{ common::ensure_endianness( st.r15, order ) },
+            .r16{ common::ensure_endianness( st.r16, order ) },
+            .r17{ common::ensure_endianness( st.r17, order ) },
+            .r18{ common::ensure_endianness( st.r18, order ) },
+            .r19{ common::ensure_endianness( st.r19, order ) },
+            .r20{ common::ensure_endianness( st.r20, order ) },
+            .r21{ common::ensure_endianness( st.r21, order ) },
+            .r22{ common::ensure_endianness( st.r22, order ) },
+            .r23{ common::ensure_endianness( st.r23, order ) },
+            .r24{ common::ensure_endianness( st.r24, order ) },
+            .r25{ common::ensure_endianness( st.r25, order ) },
+            .r26{ common::ensure_endianness( st.r26, order ) },
+            .r27{ common::ensure_endianness( st.r27, order ) },
+            .r28{ common::ensure_endianness( st.r28, order ) },
+            .r29{ common::ensure_endianness( st.r29, order ) },
+            .r30{ common::ensure_endianness( st.r30, order ) },
+            .r31{ common::ensure_endianness( st.r31, order ) },
+            .cr{ common::ensure_endianness( st.cr, order ) },
+            .xer{ common::ensure_endianness( st.xer, order ) },
+            .lr{ common::ensure_endianness( st.lr, order ) },
+            .ctr{ common::ensure_endianness( st.ctr, order ) },
+            .mq{ common::ensure_endianness( st.mq, order ) },
+            .vrsave{ common::ensure_endianness( st.vrsave, order ) },
         };
     }
 };
@@ -108,14 +108,24 @@ class CMachoLoader
 {
   public:
     static std::expected<CMachoLoader, common::Error> init( const std::string &path );
-    bool mapMemory( uc_engine *uc );
-    bool setUnixThread( uc_engine *uc );
+    bool map_image_memory( uc_engine *uc );
+    bool set_unix_thread( uc_engine *uc );
+    std::expected<std::map<std::string, uint32_t>, common::Error> get_import_fnc_ptrs();
+    uint32_t get_ep();
+    std::optional<LIEF::MachO::SegmentCommand> get_text_segment();
 
   private:
     explicit CMachoLoader( std::unique_ptr<LIEF::MachO::Binary> executable );
 
     static constexpr size_t Max_Segment_File_Size{ 0x100'000 };
     static constexpr size_t Ppc_Thread_State{ 1 };
+    static constexpr size_t Dyld_Section_Symbol_Count{ 2 };
+    static constexpr std::string Non_Lazy_Symbols_Ptr_Section_Name{ "__nl_symbol_ptr" };
+    static constexpr std::string Lazy_Symbols_Ptr_Section_Name{ "__la_symbol_ptr" };
+    static constexpr std::string Dyld_Symbol_Ptr_Section_Name{ "__dyld" };
+    static constexpr std::string Text_Segment_Name{ "__TEXT" };
+
+    uint32_t m_ep{};
 
     std::unique_ptr<LIEF::MachO::Binary> m_executable;
 };
