@@ -12,6 +12,7 @@ set(SOURCE_FILES src/main.cpp src/CMachoLoader.cpp src/COsxPpcEmu.cpp)
 set(HEADER_FILES include/CMachoLoader.hpp include/COsxPpcEmu.hpp include/Common.hpp include/ApiDispatch.hpp)
 
 add_executable(osxppcemu ${SOURCE_FILES} ${HEADER_FILES})
+target_compile_definitions(osxppcemu PRIVATE DEBUG)
 
 target_include_directories(osxppcemu PRIVATE ${CMAKE_SOURCE_DIR}/thirdparty/unicorn/include)
 

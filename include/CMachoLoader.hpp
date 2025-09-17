@@ -7,6 +7,8 @@
 #include "../include/Common.hpp"
 #include <LIEF/MachO.hpp>
 #include <expected>
+#include <flat_map>
+#include <optional>
 #include <span>
 #include <unicorn/unicorn.h>
 
@@ -112,10 +114,12 @@ class CMachoLoader
     bool set_unix_thread( uc_engine *uc );
     std::expected<std::map<std::string, uint32_t>, common::Error> get_import_fnc_ptrs();
     uint32_t get_ep();
-    std::optional<LIEF::MachO::SegmentCommand> get_text_segment();
+    std::optional<std::pair<uint64_t, uint64_t>> get_text_segment_va_range();
+    std::optional<std::string> get_text_symbol_name_for_va( uint32_t va );
 
   private:
-    explicit CMachoLoader( std::unique_ptr<LIEF::MachO::Binary> executable );
+    explicit CMachoLoader( std::unique_ptr<LIEF::MachO::Binary> executable,
+                           std::optional<std::flat_map<uint32_t, std::string>> symbols );
 
     static constexpr size_t Max_Segment_File_Size{ 0x100'000 };
     static constexpr size_t Ppc_Thread_State{ 1 };
@@ -126,6 +130,10 @@ class CMachoLoader
     static constexpr std::string Text_Segment_Name{ "__TEXT" };
 
     uint32_t m_ep{};
-
     std::unique_ptr<LIEF::MachO::Binary> m_executable;
+    std::optional<std::flat_map<uint32_t, std::string>> m_symbols;
+
+    // initialize functions
+    static std::optional<LIEF::MachO::SegmentCommand> get_text_segment( LIEF::MachO::Binary &executable );
+    static std::optional<std::flat_map<uint32_t, std::string>> parse_symbols( LIEF::MachO::Binary &executable );
 };

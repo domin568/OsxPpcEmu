@@ -9,8 +9,10 @@
 #include <LIEF/MachO.hpp>
 #include <bit>
 #include <filesystem>
+#include <flat_map>
 #include <fstream>
 #include <iostream>
+#include <ranges>
 #include <span>
 
 static int translate_prot( uint32_t lief_prot )
@@ -26,7 +28,9 @@ static int translate_prot( uint32_t lief_prot )
     return prot;
 }
 
-CMachoLoader::CMachoLoader( std::unique_ptr<LIEF::MachO::Binary> executable ) : m_executable( std::move( executable ) )
+CMachoLoader::CMachoLoader( std::unique_ptr<LIEF::MachO::Binary> executable,
+                            std::optional<std::flat_map<uint32_t, std::string>> symbols )
+    : m_executable( std::move( executable ) ), m_symbols( symbols )
 {
 }
 
@@ -47,7 +51,9 @@ std::expected<CMachoLoader, common::Error> CMachoLoader::init( const std::string
         return std::unexpected{
             common::Error{ common::Error::Type::Unsupported, "Only PowerPC binaries are supported." } };
 
-    CMachoLoader loader{ std::move( ppcBinary ) };
+    const std::optional<std::flat_map<uint32_t, std::string>> symbols{ parse_symbols( *ppcBinary ) };
+
+    CMachoLoader loader{ std::move( ppcBinary ), symbols };
     return loader;
 }
 
@@ -194,11 +200,47 @@ uint32_t CMachoLoader::get_ep()
     return m_ep;
 }
 
-std::optional<LIEF::MachO::SegmentCommand> CMachoLoader::get_text_segment()
+std::optional<std::pair<uint64_t, uint64_t>> CMachoLoader::get_text_segment_va_range()
+{
+    const std::optional<LIEF::MachO::SegmentCommand> textSegment{ get_text_segment( *m_executable ) };
+    if (!textSegment)
+        return std::nullopt;
+    return std::optional<std::pair<uint64_t, uint64_t>>(
+        { textSegment->virtual_address(), textSegment->virtual_address() + textSegment->virtual_size() } );
+}
+
+std::optional<LIEF::MachO::SegmentCommand> CMachoLoader::get_text_segment( LIEF::MachO::Binary &executable )
 {
     auto pred{ []( const LIEF::MachO::SegmentCommand &c ) { return c.name() == Text_Segment_Name; } };
-    const auto textSegIt{ std::find_if( m_executable->segments().cbegin(), m_executable->segments().cend(), pred ) };
-    if (textSegIt == m_executable->segments().cend())
+    const auto textSegIt{ std::find_if( executable.segments().cbegin(), executable.segments().cend(), pred ) };
+    if (textSegIt == executable.segments().cend())
         return std::nullopt;
     return *textSegIt;
+}
+
+std::optional<std::flat_map<uint32_t, std::string>> CMachoLoader::parse_symbols( LIEF::MachO::Binary &executable )
+{
+    const std::optional<LIEF::MachO::SegmentCommand> textSegment{ get_text_segment( executable ) };
+    if (!textSegment.has_value())
+        return std::nullopt;
+
+    std::flat_map<uint32_t, std::string> textSymbolMap{};
+    for (const auto &s : executable.symbols())
+    {
+        if (s.value() < textSegment->virtual_address() ||
+            s.value() >= textSegment->virtual_address() + textSegment->virtual_size())
+            continue;
+        textSymbolMap.emplace( s.value(), s.name() );
+    }
+    return textSymbolMap;
+}
+
+std::optional<std::string> CMachoLoader::get_text_symbol_name_for_va( uint32_t va )
+{
+    if (!m_symbols.has_value())
+        return std::nullopt;
+    const auto it{ m_symbols->upper_bound( va ) };
+    if (it == m_symbols->begin())
+        return std::nullopt;
+    return ( it - 1 )->second;
 }

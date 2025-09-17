@@ -5,6 +5,7 @@
  **/
 #pragma once
 
+#include "CMachoLoader.hpp"
 #include <unicorn/unicorn.h>
 #include <vector>
 
@@ -31,7 +32,7 @@ struct Api_Dispatch_Data
 
 struct Api_Item
 {
-    std::vector<uint8_t> ppcCode{};
+    std::span<const uint8_t> ppcCode{};
     ApiPtr hook{};
 };
 
@@ -43,5 +44,11 @@ static bool api_mach_init_routine( uc_engine *uc )
 {
     return true;
 }
+
+static const std::array<uint8_t, 4> Blr_Opcode{ 0x4E, 0x80, 0x00, 0x20 };
+static const api::Api_Item Unknown_Api{
+    .ppcCode{ Blr_Opcode },
+    .hook{ api::api_unknown },
+};
 
 } // namespace api

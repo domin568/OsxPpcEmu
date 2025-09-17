@@ -90,17 +90,15 @@ bool COsxPpcEmu::run()
 {
     size_t apiDispatchTableSize{ m_redirectApiData.apiRedirectEntries.size() *
                                  ( 1u << m_redirectApiData.apiRedirectEntrySizePow2 ) };
-    const std::optional<LIEF::MachO::SegmentCommand> textSegment{ m_loader.get_text_segment() };
+    const std::optional<std::pair<uint64_t, uint64_t>> textSegment{ m_loader.get_text_segment_va_range() };
     if (!textSegment.has_value())
         return false;
-    const uint64_t textSegmentEnd{ textSegment->virtual_address() + textSegment->virtual_size() };
+    const auto [textSegStart, textSegEnd]{ *textSegment };
 
-    uc_err errApiHook{ uc_hook_add( m_uc, &m_instructionHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_code ),
-                                    &m_redirectApiData, Api_Dispatch_Table_Address,
-                                    Api_Dispatch_Table_Address + apiDispatchTableSize ) };
+    uc_err errApiHook{ uc_hook_add( m_uc, &m_instructionHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_code ), this,
+                                    Api_Dispatch_Table_Address, Api_Dispatch_Table_Address + apiDispatchTableSize ) };
     uc_err errIntHook{ uc_hook_add( m_uc, &m_interruptHook, UC_HOOK_INTR, reinterpret_cast<void *>( hook_intr ),
-                                    nullptr, textSegment->virtual_address(),
-                                    textSegmentEnd ) }; // delete reinterpret cast
+                                    nullptr, textSegStart, textSegEnd ) }; // delete reinterpret cast
 
     uc_err errMemInvalidHook{ uc_hook_add( m_uc, &m_memInvalidHook, UC_HOOK_MEM_INVALID,
                                            reinterpret_cast<void *>( hook_mem_invalid ), nullptr, 1, 0 ) };
@@ -110,7 +108,7 @@ bool COsxPpcEmu::run()
         std::cerr << "Could not create hooks." << std::endl;
         return false;
     }
-    return uc_emu_start( m_uc, m_loader.get_ep(), textSegmentEnd, 0, 0 ) == UC_ERR_OK;
+    return uc_emu_start( m_uc, m_loader.get_ep(), textSegEnd, 0, 0 ) == UC_ERR_OK;
 }
 
 bool COsxPpcEmu::set_stack( uc_engine *uc, const std::span<const std::string> args,
@@ -270,7 +268,7 @@ std::optional<api::Api_Dispatch_Data> COsxPpcEmu::redirect_apis( uc_engine *uc, 
         return std::nullopt;
     }
 
-    const auto ppcMaxCodeSize{ get_max_ppc_code_entry_size( Name_To_Api_Hook ) };
+    const auto ppcMaxCodeSize{ get_max_ppc_code_entry_size( Name_To_Api_Item ) };
     if (!ppcMaxCodeSize.has_value())
         return std::nullopt;
     uint32_t dispatchMapEntrySize{ static_cast<uint32_t>( sizeof( uint32_t ) + *ppcMaxCodeSize ) };
@@ -293,7 +291,7 @@ std::optional<api::Api_Dispatch_Data> COsxPpcEmu::redirect_apis( uc_engine *uc, 
     std::vector<api::ApiPtr> apiPtrs{ api::api_unknown };
     constexpr uint32_t unknownApiPpcCodePtrOffset{ common::ensure_endianness(
         static_cast<uint32_t>( Api_Dispatch_Table_Address + sizeof( uint32_t ) ), std::endian::big ) };
-    if (!write_import_dispatch_entry( uc, currentOff, unknownApiPpcCodePtrOffset, Blr_Opcode ))
+    if (!write_import_dispatch_entry( uc, currentOff, unknownApiPpcCodePtrOffset, api::Blr_Opcode ))
     {
         std::cerr << "Could not write first API dispatch entry (unknown API) at " << std::hex << currentOff
                   << std::endl;
@@ -303,8 +301,8 @@ std::optional<api::Api_Dispatch_Data> COsxPpcEmu::redirect_apis( uc_engine *uc, 
 
     for (const auto &[name, address] : *importFncPtrs)
     {
-        const auto apiIt{ Name_To_Api_Hook.find( name ) };
-        const bool knownSymbol{ apiIt != Name_To_Api_Hook.end() };
+        const auto apiIt{ Name_To_Api_Item.find( name ) };
+        const bool knownSymbol{ apiIt != Name_To_Api_Item.end() };
 
         if (!patch_symbol_indirect_ptr( uc, currentOff, address, knownSymbol ))
         {
@@ -335,12 +333,16 @@ std::optional<api::Api_Dispatch_Data> COsxPpcEmu::redirect_apis( uc_engine *uc, 
         }
     }
     int dispatchMapEntrySizePow2{ std::countr_zero( dispatchMapEntryAligned ) };
-    return std::optional<api::Api_Dispatch_Data>{ std::in_place, Api_Dispatch_Table_Address, dispatchMapEntrySizePow2,
-                                                  std::move( apiPtrs ) };
+    return std::optional<api::Api_Dispatch_Data>{
+        std::in_place,
+        Api_Dispatch_Table_Address,
+        dispatchMapEntrySizePow2,
+        std::move( apiPtrs ),
+    };
 }
 
 bool COsxPpcEmu::write_import_dispatch_entry( uc_engine *uc, size_t offset, uint32_t ptrToPpcCode,
-                                              const std::vector<uint8_t> &data )
+                                              const std::span<const uint8_t> data )
 {
     uc_err err{ uc_mem_write( uc, offset, &ptrToPpcCode, sizeof( ptrToPpcCode ) ) };
     if (err != UC_ERR_OK)
@@ -378,11 +380,36 @@ std::optional<size_t> COsxPpcEmu::get_max_ppc_code_entry_size(
     return max;
 }
 
-void hook_code( uc_engine *uc, uint64_t address, uint32_t size, api::Api_Dispatch_Data *user_data )
+void hook_code( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 {
+    const size_t idx{ ( address - emu->m_redirectApiData.apiDispatchTableVa ) >>
+                      emu->m_redirectApiData.apiRedirectEntrySizePow2 };
+#ifdef DEBUG
     g_lastAddr.store( address, std::memory_order_relaxed );
-    const size_t idx{ ( address - user_data->apiDispatchTableVa ) >> user_data->apiRedirectEntrySizePow2 };
-    user_data->apiRedirectEntries[idx]( uc );
+
+    uint32_t callerVa{};
+    uc_err err{ uc_reg_read( uc, UC_PPC_REG_LR, &callerVa ) };
+    if (err != UC_ERR_OK)
+    {
+        std::cerr << "Could not read caller function address." << std::endl;
+        return;
+    }
+
+    std::cout << callerVa;
+    const std::optional<std::string> funcName{ emu->m_loader.get_text_symbol_name_for_va( callerVa ) };
+    if (funcName.has_value())
+        std::cout << " (" << *funcName << ")";
+    std::cout << " -> 0x" << std::hex << address;
+
+    if (idx >= emu->Api_Names.size())
+    {
+        std::cerr << std::endl << "Could not read API name." << std::endl;
+        return;
+    }
+    std::cout << " (" << emu->Api_Names[idx] << ")" << std::endl;
+#endif
+
+    emu->m_redirectApiData.apiRedirectEntries[idx]( uc );
 }
 
 void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
