@@ -152,9 +152,9 @@ bool CMachoLoader::set_unix_thread( uc_engine *uc )
 
 // __nl_symbol_ptr and __la_symbol_ptr are sections that contains 4 byte addresses
 // we want to overwrite all the pointers to point to our stub that dispatches all API calls
-std::expected<std::map<std::string, uint32_t>, common::Error> CMachoLoader::get_import_ptrs()
+std::expected<std::map<std::string, std::pair<uint32_t, common::ImportType>>, common::Error> CMachoLoader::get_imports()
 {
-    std::map<std::string, uint32_t> m{};
+    std::map<std::string, std::pair<uint32_t, common::ImportType>> m{};
 
     if (!m_executable->has_dynamic_symbol_command())
         return std::unexpected{ common::Error{ common::Error::Type::Missing_Dynamic_Bind_Command_Error,
@@ -171,11 +171,15 @@ std::expected<std::map<std::string, uint32_t>, common::Error> CMachoLoader::get_
             if (indirectSymbolsIdx + symbolCount > m_executable->dynamic_symbol_command()->indirect_symbols().size())
                 return std::unexpected{ common::Error{ common::Error::Type::Indirect_Symbols_Error,
                                                        "Indirect symbol idx is greater than indirect symbol size." } };
+
+            const common::ImportType importType{ s.name() == Non_Lazy_Symbols_Ptr_Section_Name
+                                                     ? common::ImportType::Indirect
+                                                     : common::ImportType::Direct };
             for (size_t idx{ 0 }; idx < symbolCount; idx++)
             {
                 const LIEF::MachO::Symbol importSymbol{
                     m_executable->dynamic_symbol_command()->indirect_symbols()[indirectSymbolsIdx + idx] };
-                m[importSymbol.name()] = s.virtual_address() + idx * sizeof( uint32_t );
+                m[importSymbol.name()] = { s.virtual_address() + idx * sizeof( uint32_t ), importType };
             }
         }
         else if (s.name() == Dyld_Symbol_Ptr_Section_Name)
@@ -184,8 +188,9 @@ std::expected<std::map<std::string, uint32_t>, common::Error> CMachoLoader::get_
                 return std::unexpected{ common::Error{ common::Error::Type::Bad_Dyld_Section_Error,
                                                        "__dyld section should be at least 8 bytes in size." } };
             size_t symbolCount{ Dyld_Section_Symbol_Count };
-            m["_stub_binding_helper_ptr_in_dyld"] = s.virtual_address();
-            m["_dyld_func_lookup_ptr_in_dyld"] = s.virtual_address() + sizeof( uint32_t );
+            m["_stub_binding_helper_ptr_in_dyld"] = { s.virtual_address(), common::ImportType::Direct };
+            m["_dyld_func_lookup_ptr_in_dyld"] = { s.virtual_address() + sizeof( uint32_t ),
+                                                   common::ImportType::Direct };
         }
     }
     return m;
@@ -237,6 +242,14 @@ std::optional<std::string> CMachoLoader::get_symbol_name_for_va( const uint32_t 
     auto it{ symbolsByType.upper_bound( va ) };
     if (it == symbolsByType.begin())
         return std::nullopt;
-    it--;
+    --it;
     return it->second;
+}
+
+std::optional<LIEF::MachO::Section> CMachoLoader::get_section_for_va( const uint32_t va )
+{
+    LIEF::MachO::Section *s{ m_executable->section_from_virtual_address( va ) };
+    if (s == nullptr)
+        return std::nullopt;
+    return *s;
 }

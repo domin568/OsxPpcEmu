@@ -4,12 +4,19 @@
  * Brief:     Common types
  **/
 #pragma once
+#include <algorithm>
 #include <bit>
 #include <span>
 #include <string>
 
 namespace common
 {
+
+enum class ImportType
+{
+    Direct,
+    Indirect,
+};
 
 struct Error
 {

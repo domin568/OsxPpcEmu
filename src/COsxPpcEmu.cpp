@@ -49,8 +49,8 @@ std::expected<COsxPpcEmu, common::Error> COsxPpcEmu::init( int argc, const char 
         return std::unexpected{
             common::Error{ common::Error::Type::No_Unix_Thread_Command_Error, "Could not set Unix thread context." } };
 
-    const std::optional<import::Import_Dispatch_Data> redirectApiData{ resolve_imports( uc, *loader ) };
-    if (!redirectApiData)
+    const bool importResolveSuccess{ resolve_imports( uc, *loader ) };
+    if (!importResolveSuccess)
         return std::unexpected{
             common::Error{ common::Error::Type::Redirect_Api_Error, "Could not set up API calls." } };
 
@@ -81,6 +81,12 @@ bool COsxPpcEmu::print_vm_map( std::ostream &os )
             os << "X";
         os << "\n";
     }
+#ifdef DEBUG
+    std::vector<uint8_t> importEntriesBuf( import::Import_Table_Size );
+    if (uc_mem_read( m_uc, Import_Dispatch_Table_Address, importEntriesBuf.data(), importEntriesBuf.size() ) !=
+        UC_ERR_OK)
+        return false;
+#endif
     return true;
 }
 
@@ -91,16 +97,19 @@ bool COsxPpcEmu::run()
         return false;
     const auto [textSegStart, textSegEnd]{ *textSegment };
 
-    uc_err errApiHook{ uc_hook_add( m_uc, &m_instructionHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_code ), this,
+    uc_err errApiHook{ uc_hook_add( m_uc, &m_apiHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_api ), this,
                                     Import_Dispatch_Table_Address,
                                     Import_Dispatch_Table_Address + import::Import_Table_Size ) };
+    uc_err errTraceHook{ uc_hook_add( m_uc, &m_traceHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_trace ), this,
+                                      textSegStart, textSegEnd ) };
     uc_err errIntHook{ uc_hook_add( m_uc, &m_interruptHook, UC_HOOK_INTR, reinterpret_cast<void *>( hook_intr ),
                                     nullptr, textSegStart, textSegEnd ) }; // delete reinterpret cast
 
     uc_err errMemInvalidHook{ uc_hook_add( m_uc, &m_memInvalidHook, UC_HOOK_MEM_INVALID,
                                            reinterpret_cast<void *>( hook_mem_invalid ), nullptr, 1, 0 ) };
 
-    if (errApiHook != UC_ERR_OK && errIntHook != UC_ERR_OK && errMemInvalidHook != UC_ERR_OK)
+    if (errApiHook != UC_ERR_OK && errTraceHook != UC_ERR_OK && errIntHook != UC_ERR_OK &&
+        errMemInvalidHook != UC_ERR_OK)
     {
         std::cerr << "Could not create hooks." << std::endl;
         return false;
@@ -258,10 +267,11 @@ bool COsxPpcEmu::set_args_on_stack( uc_engine *uc, const std::span<const std::st
 
 bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
 {
-    const std::expected<std::map<std::string, uint32_t>, common::Error> importFncPtrs{ loader.get_import_ptrs() };
-    if (!importFncPtrs)
+    const std::expected<std::map<std::string, std::pair<uint32_t, common::ImportType>>, common::Error> imports{
+        loader.get_imports() };
+    if (!imports)
     {
-        std::cerr << importFncPtrs.error().message << std::endl;
+        std::cerr << imports.error().message << std::endl;
         return false;
     }
 
@@ -274,9 +284,10 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
     }
 
     // first API is always "unknown API" entry
-    import::Import_Entry unknownImportEntry{
-        .ptrToData = Import_Dispatch_Table_Address + sizeof( import::Import_Entry::ptrToData ), // points in memory
-        .data{ import::Blr_Opcode },                                                            // <- here
+    import::Runtime_Import_Table_Entry unknownImportEntry{
+        .ptrToData =
+            Import_Dispatch_Table_Address + sizeof( import::Runtime_Import_Table_Entry::ptrToData ), // points in memory
+        .data{ import::data::Blr_Opcode },                                                           // <- here
     };
     if (!write_import_entry( uc, Import_Dispatch_Table_Address, unknownImportEntry ))
     {
@@ -285,18 +296,21 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
         return false;
     }
 
-    for (const auto &[name, address] : *importFncPtrs)
+    for (const auto &[name, addressAndType] : *imports)
     {
+        const auto [address, type] = addressAndType;
+
         auto importNameMatches{
-            [&name]( const std::pair<std::string_view, import::Import_Item> &p ) { return p.first == name; } };
+            [&name]( const std::pair<std::string_view, import::Known_Import_Entry> &p ) { return p.first; } };
         const auto importIt{
-            std::ranges::find_if( import::Name_To_Import_Item_Flat, importNameMatches ) }; // O(n), index matters
-        const bool knownImport{ importIt != import::Name_To_Import_Item_Flat.end() };
+            std::ranges::lower_bound( import::Name_To_Import_Item_Flat, name, std::less<>{}, importNameMatches ) };
+        const bool knownImport{ importIt != import::Name_To_Import_Item_Flat.end() && importIt->first == name };
         const ptrdiff_t idx{ std::distance( import::Name_To_Import_Item_Flat.begin(), importIt ) };
 
-        const uint32_t currentImportEntryOffset{
-            knownImport ? Import_Dispatch_Table_Address + static_cast<uint32_t>( idx ) * import::Import_Entry_Size
-                        : Import_Dispatch_Table_Address };
+        const uint32_t currentImportEntryOffset{ knownImport
+                                                     ? Import_Dispatch_Table_Address + import::Import_Entry_Size +
+                                                           static_cast<uint32_t>( idx ) * import::Import_Entry_Size
+                                                     : Import_Dispatch_Table_Address };
         if (currentImportEntryOffset + import::Import_Entry_Size >
             Import_Dispatch_Table_Address + import::Import_Table_Size)
         {
@@ -304,7 +318,13 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
             return false;
         }
 
-        if (!patch_import_indirect_ptr( uc, currentImportEntryOffset, address ))
+        uint32_t offset{
+            type == common::ImportType::Indirect
+                ? currentImportEntryOffset
+                : currentImportEntryOffset +
+                      static_cast<uint32_t>(
+                          sizeof( import::Runtime_Import_Table_Entry::ptrToData ) ) }; // point to ptr or data directly?
+        if (!patch_import_ptr( uc, offset, address ))
         {
             std::cerr << "Could not update pointer to API dispatch entry for " << name << " at " << std::hex
                       << currentImportEntryOffset << std::endl;
@@ -312,9 +332,10 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
         }
         if (knownImport)
         {
-            import::Import_Entry knownImportEntry{
-                .ptrToData =
-                    currentImportEntryOffset + static_cast<uint32_t>( sizeof( import::Import_Entry::ptrToData ) ),
+            uint32_t ptrToData{ currentImportEntryOffset +
+                                static_cast<uint32_t>( sizeof( import::Runtime_Import_Table_Entry::ptrToData ) ) };
+            import::Runtime_Import_Table_Entry knownImportEntry{
+                .ptrToData = type == common::ImportType::Indirect ? ptrToData : 0,
                 // points in memory, e.g. 0xF0000004
                 .data{ importIt->second.data }, // <- here
             };
@@ -329,18 +350,22 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
     return true;
 }
 
-bool COsxPpcEmu::write_import_entry( uc_engine *uc, size_t offset, const import::Import_Entry &entry )
+bool COsxPpcEmu::write_import_entry( uc_engine *uc, size_t offset, const import::Runtime_Import_Table_Entry &entry )
 {
-    const uint32_t ptrToDataBe{
-        common::ensure_endianness( static_cast<uint32_t>( entry.ptrToData ), std::endian::big ) };
-    uc_err err{ uc_mem_write( uc, offset, &ptrToDataBe, sizeof( ptrToDataBe ) ) };
-    if (err != UC_ERR_OK)
-        return false;
-    err = uc_mem_write( uc, offset + sizeof( ptrToDataBe ), entry.data.data(), entry.data.size() );
+    if (entry.ptrToData != 0)
+    {
+        const uint32_t ptrToDataBe{
+            common::ensure_endianness( static_cast<uint32_t>( entry.ptrToData ), std::endian::big ) };
+        uc_err err{ uc_mem_write( uc, offset, &ptrToDataBe, sizeof( ptrToDataBe ) ) };
+        if (err != UC_ERR_OK)
+            return false;
+    }
+
+    uc_err err{ uc_mem_write( uc, offset + sizeof( entry.ptrToData ), entry.data.data(), entry.data.size() ) };
     return err == UC_ERR_OK;
 }
 
-bool COsxPpcEmu::patch_import_indirect_ptr( uc_engine *uc, size_t importEntryOffset, uint32_t symbolAddress )
+bool COsxPpcEmu::patch_import_ptr( uc_engine *uc, size_t importEntryOffset, uint32_t symbolAddress )
 {
     // e.g. 0xF0000000
     uint32_t ptrToImportData{
@@ -349,57 +374,29 @@ bool COsxPpcEmu::patch_import_indirect_ptr( uc_engine *uc, size_t importEntryOff
     return err == UC_ERR_OK;
 }
 
-std::optional<size_t> COsxPpcEmu::get_max_import_data_size(
-    const std::span<const std::pair<std::string_view, import::Import_Item>> &knownImports )
+void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 {
-    if (knownImports.empty())
-        return std::nullopt;
-    const auto values{ knownImports | std::views::values };
-    size_t max{ 0 };
-    for (const auto &val : values)
-    {
-        if (val.data.size() > max)
-            max = val.data.size();
-    }
-    return max;
-}
-
-void hook_code( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
-{
-    const size_t idx{ ( address - emu->Import_Dispatch_Table_Address ) >> import::Import_Entry_Size_Pow2 };
+    const size_t idx{ ( address - COsxPpcEmu::Import_Dispatch_Table_Address ) >> import::Import_Entry_Size_Pow2 };
 #ifdef DEBUG
     g_lastAddr.store( address, std::memory_order_relaxed );
-
-    uint32_t callerVa{};
-    uc_err err{ uc_reg_read( uc, UC_PPC_REG_LR, &callerVa ) };
-    if (err != UC_ERR_OK)
-    {
-        std::cerr << "Could not read caller function address." << std::endl;
-        return;
-    }
-
-    std::cout << callerVa;
-    const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
-        callerVa, LIEF::MachO::Symbol::TYPE::SECTION, CMachoLoader::SymbolSection::TEXT ) };
-    if (funcName.has_value())
-        std::cout << " (" << *funcName << ")";
-    std::cout << " -> 0x" << std::hex << address;
-
-    if (idx >= import::Known_Import_Names.size())
-    {
-        std::cerr << std::endl << "Could not read API name." << std::endl;
-        return;
-    }
-    std::cout << " (" << import::Known_Import_Names[idx] << ")" << std::endl;
+    write_api_call_source( uc, address, idx, emu );
 #endif
+    import::Import_Items[idx - import::Unknown_Import_Shift].hook( uc, &emu->m_loader ); // call API dispatch function
+}
 
-    import::Import_Items[idx].hook( uc );
+void hook_trace( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
+{
+    std::cout << "Tracing: 0x" << std::hex << address;
+    const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
+        address, LIEF::MachO::Symbol::TYPE::SECTION, CMachoLoader::SymbolSection::TEXT ) };
+    if (funcName.has_value())
+        std::cout << " (" << *funcName << ")" << std::endl;
 }
 
 void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
 {
     uint32_t addr{ g_lastAddr.load() };
-    // std::cout << ">>> interrupt/exception #" << intno << std::endl;
+    std::cout << ">>> interrupt/exception #" << intno << std::endl;
     std::cout << "addr = " << std::hex << addr << std::endl;
     std::vector<uint8_t> buf( 4 );
     if (uc_mem_read( uc, addr, buf.data(), buf.size() ) == UC_ERR_OK)
@@ -418,4 +415,34 @@ void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
 void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data )
 {
     std::cerr << "MEM_INVALID type=" << type << " @ 0x" << std::hex << address << " size=" << size << std::dec << "\n";
+}
+
+static void write_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu )
+{
+    uint32_t callerVa{};
+    uc_err err{ uc_reg_read( uc, UC_PPC_REG_LR, &callerVa ) };
+    if (err != UC_ERR_OK)
+    {
+        std::cerr << "Could not read caller function address." << std::endl;
+        return;
+    }
+
+    std::cout << callerVa;
+    const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
+        callerVa, LIEF::MachO::Symbol::TYPE::SECTION, CMachoLoader::SymbolSection::TEXT ) };
+    if (funcName.has_value())
+        std::cout << " (" << *funcName << ")";
+    std::cout << " -> 0x" << std::hex << address;
+
+    if (idx == import::Unknown_Import_Index)
+    {
+        std::cout << " (unknown)" << std::endl;
+        return;
+    }
+    if (idx - import::Unknown_Import_Shift >= import::Known_Import_Names.size())
+    {
+        std::cerr << std::endl << "Could not read API name." << std::endl;
+        return;
+    }
+    std::cout << " (" << import::Known_Import_Names[idx - import::Unknown_Import_Shift] << ")" << std::endl;
 }

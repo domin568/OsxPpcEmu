@@ -9,7 +9,6 @@
 #include <expected>
 #include <flat_map>
 #include <optional>
-#include <span>
 #include <unicorn/unicorn.h>
 
 class CMachoLoader
@@ -23,11 +22,12 @@ class CMachoLoader
     static std::expected<CMachoLoader, common::Error> init( const std::string &path );
     bool map_image_memory( uc_engine *uc );
     bool set_unix_thread( uc_engine *uc );
-    std::expected<std::map<std::string, uint32_t>, common::Error> get_import_ptrs();
+    std::expected<std::map<std::string, std::pair<uint32_t, common::ImportType>>, common::Error> get_imports();
     uint32_t get_ep();
     std::optional<std::pair<uint64_t, uint64_t>> get_text_segment_va_range();
     std::optional<std::string> get_symbol_name_for_va( const uint32_t va, LIEF::MachO::Symbol::TYPE type,
                                                        SymbolSection section );
+    std::optional<LIEF::MachO::Section> get_section_for_va( const uint32_t va );
 
   private:
     explicit CMachoLoader( std::unique_ptr<LIEF::MachO::Binary> executable );

@@ -10,7 +10,6 @@
 #include <expected>
 #include <flat_map>
 #include <unicorn/unicorn.h>
-#include <unordered_map>
 
 class COsxPpcEmu
 {
@@ -39,28 +38,31 @@ class COsxPpcEmu
         Stack_Max_Address - Stack_Dyld_Region_Size }; // it is also initial stack address
 
     uc_engine *m_uc;
-    uc_hook m_instructionHook{};
+    uc_hook m_apiHook{};
+    uc_hook m_traceHook{};
     uc_hook m_basicBlockHook{};
     uc_hook m_interruptHook{};
     uc_hook m_memInvalidHook{};
 
     // static initialization functions
     static std::optional<size_t> get_max_import_data_size(
-        const std::span<const std::pair<std::string_view, import::Import_Item>> &knownImports );
-
+        const std::span<const std::pair<std::string_view, import::Known_Import_Entry>> &knownImports );
     static bool set_stack( uc_engine *uc, const std::span<const std::string> args,
                            const std::span<const std::string> env );
     static bool set_args_on_stack( uc_engine *uc, const std::span<const std::string> args,
                                    const std::span<const std::string> env );
 
     static bool resolve_imports( uc_engine *uc, CMachoLoader &loader );
-    static bool write_import_entry( uc_engine *uc, size_t offset, const import::Import_Entry &entry );
-    static bool patch_import_indirect_ptr( uc_engine *uc, size_t offset, uint32_t symbolAddress );
+    static bool write_import_entry( uc_engine *uc, size_t offset, const import::Runtime_Import_Table_Entry &entry );
+    static bool patch_import_ptr( uc_engine *uc, size_t offset, uint32_t symbolAddress );
 };
 
 // unicorn hooks
 static void hook_block( uc_engine *uc, uint64_t address, uint32_t size, void *user_data );
-static void hook_code( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *user_data );
+static void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu );
+static void hook_trace( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu );
 static void hook_intr( uc_engine *uc, uint32_t intno, void *user_data );
 static void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value,
                               void *user_data );
+
+static void write_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu );
