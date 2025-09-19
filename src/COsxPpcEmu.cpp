@@ -5,18 +5,16 @@
  **/
 
 #include "../include/COsxPpcEmu.hpp"
-#include "../include/ApiDispatch.hpp"
 #include "../include/CMachoLoader.hpp"
 #include "../include/Common.hpp"
-#include <cmath>
+#include "../include/ImportDispatch.hpp"
 #include <filesystem>
 #include <iostream>
 #include <ranges>
 
 std::atomic<uint32_t> g_lastAddr{ 0 };
 
-COsxPpcEmu::COsxPpcEmu( uc_engine *uc, CMachoLoader &&loader, const api::Api_Dispatch_Data &redirectApiData )
-    : m_uc( uc ), m_loader( std::move( loader ) ), m_redirectApiData( redirectApiData )
+COsxPpcEmu::COsxPpcEmu( uc_engine *uc, CMachoLoader &&loader ) : m_uc( uc ), m_loader( std::move( loader ) )
 {
 }
 
@@ -51,7 +49,7 @@ std::expected<COsxPpcEmu, common::Error> COsxPpcEmu::init( int argc, const char 
         return std::unexpected{
             common::Error{ common::Error::Type::No_Unix_Thread_Command_Error, "Could not set Unix thread context." } };
 
-    const std::optional<api::Api_Dispatch_Data> redirectApiData{ redirect_apis( uc, *loader ) };
+    const std::optional<import::Import_Dispatch_Data> redirectApiData{ resolve_imports( uc, *loader ) };
     if (!redirectApiData)
         return std::unexpected{
             common::Error{ common::Error::Type::Redirect_Api_Error, "Could not set up API calls." } };
@@ -59,7 +57,7 @@ std::expected<COsxPpcEmu, common::Error> COsxPpcEmu::init( int argc, const char 
     if (!set_stack( uc, args, env ))
         return std::unexpected( common::Error{ common::Error::Type::Stack_Map_Error, "Could not map memory." } );
 
-    return COsxPpcEmu{ uc, std::move( loader.value() ), *redirectApiData };
+    return COsxPpcEmu{ uc, std::move( loader.value() ) };
 }
 
 bool COsxPpcEmu::print_vm_map( std::ostream &os )
@@ -88,15 +86,14 @@ bool COsxPpcEmu::print_vm_map( std::ostream &os )
 
 bool COsxPpcEmu::run()
 {
-    size_t apiDispatchTableSize{ m_redirectApiData.apiRedirectEntries.size() *
-                                 ( 1u << m_redirectApiData.apiRedirectEntrySizePow2 ) };
     const std::optional<std::pair<uint64_t, uint64_t>> textSegment{ m_loader.get_text_segment_va_range() };
     if (!textSegment.has_value())
         return false;
     const auto [textSegStart, textSegEnd]{ *textSegment };
 
     uc_err errApiHook{ uc_hook_add( m_uc, &m_instructionHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_code ), this,
-                                    Api_Dispatch_Table_Address, Api_Dispatch_Table_Address + apiDispatchTableSize ) };
+                                    Import_Dispatch_Table_Address,
+                                    Import_Dispatch_Table_Address + import::Import_Table_Size ) };
     uc_err errIntHook{ uc_hook_add( m_uc, &m_interruptHook, UC_HOOK_INTR, reinterpret_cast<void *>( hook_intr ),
                                     nullptr, textSegStart, textSegEnd ) }; // delete reinterpret cast
 
@@ -259,131 +256,117 @@ bool COsxPpcEmu::set_args_on_stack( uc_engine *uc, const std::span<const std::st
     return true;
 }
 
-std::optional<api::Api_Dispatch_Data> COsxPpcEmu::redirect_apis( uc_engine *uc, CMachoLoader &loader )
+bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
 {
-    const std::expected<std::map<std::string, uint32_t>, common::Error> importFncPtrs{ loader.get_import_fnc_ptrs() };
+    const std::expected<std::map<std::string, uint32_t>, common::Error> importFncPtrs{ loader.get_import_ptrs() };
     if (!importFncPtrs)
     {
         std::cerr << importFncPtrs.error().message << std::endl;
-        return std::nullopt;
+        return false;
     }
 
-    const auto ppcMaxCodeSize{ get_max_ppc_code_entry_size( Name_To_Api_Item ) };
-    if (!ppcMaxCodeSize.has_value())
-        return std::nullopt;
-    uint32_t dispatchMapEntrySize{ static_cast<uint32_t>( sizeof( uint32_t ) + *ppcMaxCodeSize ) };
-    // optimization for shift right later in code as API dispatch code is really hot
-    uint32_t dispatchMapEntryAligned{ std::bit_ceil( dispatchMapEntrySize ) };
-    // 0xF0000000: 0xF0000004
-    // 0xF0000004: 0x4E, 0x80, 0x00, 0x20,  blr
-    // means dispatchMapEntrySize = 8
-
-    const size_t mapSize{ common::page_align_up( dispatchMapEntryAligned * importFncPtrs->size() ) };
-    uc_err err{ uc_mem_map( uc, Api_Dispatch_Table_Address, mapSize, UC_PROT_ALL ) };
+    uc_err err{ uc_mem_map( uc, Import_Dispatch_Table_Address, common::page_align_up( import::Import_Table_Size ),
+                            UC_PROT_ALL ) };
     if (err != UC_ERR_OK)
     {
         std::cerr << "Could not map api trampoline memory." << std::endl;
-        return std::nullopt;
+        return false;
     }
-    size_t currentOff{ Api_Dispatch_Table_Address };
 
     // first API is always "unknown API" entry
-    std::vector<api::ApiPtr> apiPtrs{ api::api_unknown };
-    constexpr uint32_t unknownApiPpcCodePtrOffset{ common::ensure_endianness(
-        static_cast<uint32_t>( Api_Dispatch_Table_Address + sizeof( uint32_t ) ), std::endian::big ) };
-    if (!write_import_dispatch_entry( uc, currentOff, unknownApiPpcCodePtrOffset, api::Blr_Opcode ))
+    import::Import_Entry unknownImportEntry{
+        .ptrToData = Import_Dispatch_Table_Address + sizeof( import::Import_Entry::ptrToData ), // points in memory
+        .data{ import::Blr_Opcode },                                                            // <- here
+    };
+    if (!write_import_entry( uc, Import_Dispatch_Table_Address, unknownImportEntry ))
     {
-        std::cerr << "Could not write first API dispatch entry (unknown API) at " << std::hex << currentOff
-                  << std::endl;
-        return std::nullopt;
+        std::cerr << "Could not write first API dispatch entry (unknown API) at " << std::hex
+                  << Import_Dispatch_Table_Address << std::endl;
+        return false;
     }
-    currentOff += dispatchMapEntryAligned;
 
     for (const auto &[name, address] : *importFncPtrs)
     {
-        const auto apiIt{ Name_To_Api_Item.find( name ) };
-        const bool knownSymbol{ apiIt != Name_To_Api_Item.end() };
+        auto importNameMatches{
+            [&name]( const std::pair<std::string_view, import::Import_Item> &p ) { return p.first == name; } };
+        const auto importIt{
+            std::ranges::find_if( import::Name_To_Import_Item_Flat, importNameMatches ) }; // O(n), index matters
+        const bool knownImport{ importIt != import::Name_To_Import_Item_Flat.end() };
+        const ptrdiff_t idx{ std::distance( import::Name_To_Import_Item_Flat.begin(), importIt ) };
 
-        if (!patch_symbol_indirect_ptr( uc, currentOff, address, knownSymbol ))
+        const uint32_t currentImportEntryOffset{
+            knownImport ? Import_Dispatch_Table_Address + static_cast<uint32_t>( idx ) * import::Import_Entry_Size
+                        : Import_Dispatch_Table_Address };
+        if (currentImportEntryOffset + import::Import_Entry_Size >
+            Import_Dispatch_Table_Address + import::Import_Table_Size)
+        {
+            std::cerr << "Not enough mapped memory for API trampoline." << std::endl;
+            return false;
+        }
+
+        if (!patch_import_indirect_ptr( uc, currentImportEntryOffset, address ))
         {
             std::cerr << "Could not update pointer to API dispatch entry for " << name << " at " << std::hex
-                      << currentOff << std::endl;
-            return std::nullopt;
+                      << currentImportEntryOffset << std::endl;
+            return false;
         }
-        if (knownSymbol)
+        if (knownImport)
         {
-            // e.g. 0xF0000004
-            uint32_t ppcCodeOffset{ common::ensure_endianness( static_cast<uint32_t>( currentOff + sizeof( uint32_t ) ),
-                                                               std::endian::big ) };
-            const api::Api_Item &item{ apiIt->second };
-            if (!write_import_dispatch_entry( uc, currentOff, ppcCodeOffset, item.ppcCode ))
+            import::Import_Entry knownImportEntry{
+                .ptrToData =
+                    currentImportEntryOffset + static_cast<uint32_t>( sizeof( import::Import_Entry::ptrToData ) ),
+                // points in memory, e.g. 0xF0000004
+                .data{ importIt->second.data }, // <- here
+            };
+            if (!write_import_entry( uc, currentImportEntryOffset, knownImportEntry ))
             {
-                std::cerr << "Could not write API dispatch entry for " << name << " at " << std::hex << currentOff
-                          << std::endl;
-                return std::nullopt;
+                std::cerr << "Could not write API dispatch entry for " << name << " at " << std::hex
+                          << currentImportEntryOffset << std::endl;
+                return false;
             }
-            currentOff += dispatchMapEntryAligned;
-            if (currentOff >= Api_Dispatch_Table_Address + mapSize)
-            {
-                std::cerr << "Not enough mapped memory for API trampoline." << std::endl;
-                return std::nullopt;
-            }
-
-            apiPtrs.push_back( item.hook );
         }
     }
-    int dispatchMapEntrySizePow2{ std::countr_zero( dispatchMapEntryAligned ) };
-    return std::optional<api::Api_Dispatch_Data>{
-        std::in_place,
-        Api_Dispatch_Table_Address,
-        dispatchMapEntrySizePow2,
-        std::move( apiPtrs ),
-    };
+    return true;
 }
 
-bool COsxPpcEmu::write_import_dispatch_entry( uc_engine *uc, size_t offset, uint32_t ptrToPpcCode,
-                                              const std::span<const uint8_t> data )
+bool COsxPpcEmu::write_import_entry( uc_engine *uc, size_t offset, const import::Import_Entry &entry )
 {
-    uc_err err{ uc_mem_write( uc, offset, &ptrToPpcCode, sizeof( ptrToPpcCode ) ) };
+    const uint32_t ptrToDataBe{
+        common::ensure_endianness( static_cast<uint32_t>( entry.ptrToData ), std::endian::big ) };
+    uc_err err{ uc_mem_write( uc, offset, &ptrToDataBe, sizeof( ptrToDataBe ) ) };
     if (err != UC_ERR_OK)
         return false;
-    err = uc_mem_write( uc, offset + sizeof( uint32_t ), data.data(), data.size() );
+    err = uc_mem_write( uc, offset + sizeof( ptrToDataBe ), entry.data.data(), entry.data.size() );
     return err == UC_ERR_OK;
 }
 
-bool COsxPpcEmu::patch_symbol_indirect_ptr( uc_engine *uc, size_t offset, uint32_t symbolAddress, bool knownSymbol )
+bool COsxPpcEmu::patch_import_indirect_ptr( uc_engine *uc, size_t importEntryOffset, uint32_t symbolAddress )
 {
-    // 0xF0000000
-    uint32_t ptrToPpcCodeOffset{};
-    if (knownSymbol)
-        ptrToPpcCodeOffset = common::ensure_endianness( static_cast<uint32_t>( offset ), std::endian::big );
-    else
-        ptrToPpcCodeOffset =
-            common::ensure_endianness( static_cast<uint32_t>( Api_Dispatch_Table_Address ), std::endian::big );
-
-    uc_err err{ uc_mem_write( uc, symbolAddress, &ptrToPpcCodeOffset, sizeof( ptrToPpcCodeOffset ) ) };
+    // e.g. 0xF0000000
+    uint32_t ptrToImportData{
+        common::ensure_endianness( static_cast<uint32_t>( importEntryOffset ), std::endian::big ) };
+    uc_err err{ uc_mem_write( uc, symbolAddress, &ptrToImportData, sizeof( ptrToImportData ) ) };
     return err == UC_ERR_OK;
 }
 
-std::optional<size_t> COsxPpcEmu::get_max_ppc_code_entry_size(
-    const std::unordered_map<std::string, api::Api_Item> &map )
+std::optional<size_t> COsxPpcEmu::get_max_import_data_size(
+    const std::span<const std::pair<std::string_view, import::Import_Item>> &knownImports )
 {
-    if (map.empty())
+    if (knownImports.empty())
         return std::nullopt;
-    const auto values{ map | std::views::values };
+    const auto values{ knownImports | std::views::values };
     size_t max{ 0 };
     for (const auto &val : values)
     {
-        if (val.ppcCode.size() > max)
-            max = val.ppcCode.size();
+        if (val.data.size() > max)
+            max = val.data.size();
     }
     return max;
 }
 
 void hook_code( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 {
-    const size_t idx{ ( address - emu->m_redirectApiData.apiDispatchTableVa ) >>
-                      emu->m_redirectApiData.apiRedirectEntrySizePow2 };
+    const size_t idx{ ( address - emu->Import_Dispatch_Table_Address ) >> import::Import_Entry_Size_Pow2 };
 #ifdef DEBUG
     g_lastAddr.store( address, std::memory_order_relaxed );
 
@@ -396,20 +379,21 @@ void hook_code( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu 
     }
 
     std::cout << callerVa;
-    const std::optional<std::string> funcName{ emu->m_loader.get_text_symbol_name_for_va( callerVa ) };
+    const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
+        callerVa, LIEF::MachO::Symbol::TYPE::SECTION, CMachoLoader::SymbolSection::TEXT ) };
     if (funcName.has_value())
         std::cout << " (" << *funcName << ")";
     std::cout << " -> 0x" << std::hex << address;
 
-    if (idx >= emu->Api_Names.size())
+    if (idx >= import::Known_Import_Names.size())
     {
         std::cerr << std::endl << "Could not read API name." << std::endl;
         return;
     }
-    std::cout << " (" << emu->Api_Names[idx] << ")" << std::endl;
+    std::cout << " (" << import::Known_Import_Names[idx] << ")" << std::endl;
 #endif
 
-    emu->m_redirectApiData.apiRedirectEntries[idx]( uc );
+    import::Import_Items[idx].hook( uc );
 }
 
 void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )

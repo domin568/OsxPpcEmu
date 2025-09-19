@@ -28,9 +28,7 @@ static int translate_prot( uint32_t lief_prot )
     return prot;
 }
 
-CMachoLoader::CMachoLoader( std::unique_ptr<LIEF::MachO::Binary> executable,
-                            std::optional<std::flat_map<uint32_t, std::string>> symbols )
-    : m_executable( std::move( executable ) ), m_symbols( symbols )
+CMachoLoader::CMachoLoader( std::unique_ptr<LIEF::MachO::Binary> executable ) : m_executable( std::move( executable ) )
 {
 }
 
@@ -51,9 +49,7 @@ std::expected<CMachoLoader, common::Error> CMachoLoader::init( const std::string
         return std::unexpected{
             common::Error{ common::Error::Type::Unsupported, "Only PowerPC binaries are supported." } };
 
-    const std::optional<std::flat_map<uint32_t, std::string>> symbols{ parse_symbols( *ppcBinary ) };
-
-    CMachoLoader loader{ std::move( ppcBinary ), symbols };
+    CMachoLoader loader{ std::move( ppcBinary ) };
     return loader;
 }
 
@@ -102,8 +98,8 @@ bool CMachoLoader::set_unix_thread( uc_engine *uc )
     if (m_executable->thread_command()->flavor() != Ppc_Thread_State)
         return false;
 
-    ppc_thread_state32_t st{
-        ppc_thread_state32_t::from_bytes( m_executable->thread_command()->state(), std::endian::big ) };
+    common::ppc_thread_state32_t st{
+        common::ppc_thread_state32_t::from_bytes( m_executable->thread_command()->state(), std::endian::big ) };
 
     uc_err err{};
     // entrypoint
@@ -156,7 +152,7 @@ bool CMachoLoader::set_unix_thread( uc_engine *uc )
 
 // __nl_symbol_ptr and __la_symbol_ptr are sections that contains 4 byte addresses
 // we want to overwrite all the pointers to point to our stub that dispatches all API calls
-std::expected<std::map<std::string, uint32_t>, common::Error> CMachoLoader::get_import_fnc_ptrs()
+std::expected<std::map<std::string, uint32_t>, common::Error> CMachoLoader::get_import_ptrs()
 {
     std::map<std::string, uint32_t> m{};
 
@@ -218,29 +214,29 @@ std::optional<LIEF::MachO::SegmentCommand> CMachoLoader::get_text_segment( LIEF:
     return *textSegIt;
 }
 
-std::optional<std::flat_map<uint32_t, std::string>> CMachoLoader::parse_symbols( LIEF::MachO::Binary &executable )
+std::optional<std::string> CMachoLoader::get_symbol_name_for_va( const uint32_t va, LIEF::MachO::Symbol::TYPE type,
+                                                                 SymbolSection section )
 {
-    const std::optional<LIEF::MachO::SegmentCommand> textSegment{ get_text_segment( executable ) };
-    if (!textSegment.has_value())
+    const auto secNameIt{ Symbol_Section_Name.find( section ) };
+    if (secNameIt == Symbol_Section_Name.end())
+        return std::nullopt;
+    const std::string &sectionName{ secNameIt->second };
+
+    auto sectMatches{ [&sectionName]( const LIEF::MachO::Section &s ) { return s.name() == sectionName; } };
+    const auto sectIt{ std::find_if( m_executable->sections().begin(), m_executable->sections().end(), sectMatches ) };
+    if (sectIt == m_executable->sections().end())
         return std::nullopt;
 
-    std::flat_map<uint32_t, std::string> textSymbolMap{};
-    for (const auto &s : executable.symbols())
+    std::map<uint32_t, std::string> symbolsByType{};
+    for (const auto &s : m_executable->symbols())
     {
-        if (s.value() < textSegment->virtual_address() ||
-            s.value() >= textSegment->virtual_address() + textSegment->virtual_size())
+        if (s.type() != type)
             continue;
-        textSymbolMap.emplace( s.value(), s.name() );
+        symbolsByType[static_cast<uint32_t>( s.value() )] = s.name();
     }
-    return textSymbolMap;
-}
-
-std::optional<std::string> CMachoLoader::get_text_symbol_name_for_va( uint32_t va )
-{
-    if (!m_symbols.has_value())
+    auto it{ symbolsByType.upper_bound( va ) };
+    if (it == symbolsByType.begin())
         return std::nullopt;
-    const auto it{ m_symbols->upper_bound( va ) };
-    if (it == m_symbols->begin())
-        return std::nullopt;
-    return ( it - 1 )->second;
+    it--;
+    return it->second;
 }
