@@ -391,6 +391,7 @@ void hook_trace( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu
         address, LIEF::MachO::Symbol::TYPE::SECTION, CMachoLoader::SymbolSection::TEXT ) };
     if (funcName.has_value())
         std::cout << " (" << *funcName << ")" << std::endl;
+    // write_registers( uc );
 }
 
 void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
@@ -414,7 +415,8 @@ void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
 
 void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data )
 {
-    std::cerr << "MEM_INVALID type=" << type << " @ 0x" << std::hex << address << " size=" << size << std::dec << "\n";
+    std::cerr << "MEM_INVALID type=" << type << " @ 0x" << std::hex << address << " size=" << size << " value=" << value
+              << std::dec << "\n";
 }
 
 static void write_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu )
@@ -445,4 +447,11 @@ static void write_api_call_source( uc_engine *uc, uint64_t address, size_t idx, 
         return;
     }
     std::cout << " (" << import::Known_Import_Names[idx - import::Unknown_Import_Shift] << ")" << std::endl;
+}
+
+static void write_registers( uc_engine *uc )
+{
+    uint32_t reg0{};
+    uc_reg_read( uc, UC_PPC_REG_0, &reg0 );
+    std::cout << "R0 = " << std::hex << reg0 << std::endl;
 }

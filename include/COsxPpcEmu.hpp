@@ -66,3 +66,4 @@ static void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address,
                               void *user_data );
 
 static void write_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu );
+static void write_registers( uc_engine *uc );
