@@ -6,6 +6,8 @@
 
 #include "../include/CMachoLoader.hpp"
 #include "../include/Common.hpp"
+#include "../include/ImportDispatch.hpp"
+
 #include <LIEF/MachO.hpp>
 #include <bit>
 #include <filesystem>
@@ -152,9 +154,10 @@ bool CMachoLoader::set_unix_thread( uc_engine *uc )
 
 // __nl_symbol_ptr and __la_symbol_ptr are sections that contains 4 byte addresses
 // we want to overwrite all the pointers to point to our stub that dispatches all API calls
-std::expected<std::map<std::string, std::pair<uint32_t, common::ImportType>>, common::Error> CMachoLoader::get_imports()
+std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, common::Error>
+CMachoLoader::get_imports()
 {
-    std::map<std::string, std::pair<uint32_t, common::ImportType>> m{};
+    std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>> imports{};
 
     if (!m_executable->has_dynamic_symbol_command())
         return std::unexpected{ common::Error{ common::Error::Type::Missing_Dynamic_Bind_Command_Error,
@@ -179,7 +182,8 @@ std::expected<std::map<std::string, std::pair<uint32_t, common::ImportType>>, co
             {
                 const LIEF::MachO::Symbol importSymbol{
                     m_executable->dynamic_symbol_command()->indirect_symbols()[indirectSymbolsIdx + idx] };
-                m[importSymbol.name()] = { s.virtual_address() + idx * sizeof( uint32_t ), importType };
+                imports.push_back(
+                    { importSymbol.name(), { s.virtual_address() + idx * sizeof( uint32_t ), importType } } );
             }
         }
         else if (s.name() == Dyld_Symbol_Ptr_Section_Name)
@@ -188,12 +192,13 @@ std::expected<std::map<std::string, std::pair<uint32_t, common::ImportType>>, co
                 return std::unexpected{ common::Error{ common::Error::Type::Bad_Dyld_Section_Error,
                                                        "__dyld section should be at least 8 bytes in size." } };
             size_t symbolCount{ Dyld_Section_Symbol_Count };
-            m["_stub_binding_helper_ptr_in_dyld"] = { s.virtual_address(), common::ImportType::Direct };
-            m["_dyld_func_lookup_ptr_in_dyld"] = { s.virtual_address() + sizeof( uint32_t ),
-                                                   common::ImportType::Direct };
+            imports.push_back(
+                { "_stub_binding_helper_ptr_in_dyld", { s.virtual_address(), common::ImportType::Direct } } );
+            imports.push_back( { "_dyld_func_lookup_ptr_in_dyld",
+                                 { s.virtual_address() + sizeof( uint32_t ), common::ImportType::Direct } } );
         }
     }
-    return m;
+    return imports;
 }
 
 uint32_t CMachoLoader::get_ep()

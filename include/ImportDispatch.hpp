@@ -44,17 +44,25 @@ struct Known_Import_Entry
     callback::CallbackPtr hook{};
 };
 
-struct Runtime_Import_Table_Entry
+struct Runtime_Import_Table_Entry // import redirection entry starting at 0xF0 00 00 00
 {
     uint32_t ptrToData{};            // points to
     std::span<const uint8_t> data{}; // <- here, in runtime
 };
 
+struct Import_Info
+{
+    std::string name{};
+    uint32_t importVa{};
+    common::ImportType type{};
+};
+
 // BEWARE! items must be sorted in Known_Import_Names and Import_Items
+// static imports
 inline constexpr size_t Unknown_Import_Index{ 0 };
 inline constexpr size_t Unknown_Import_Shift{ 1 };
-inline constexpr size_t Known_Import_Count{ 9 };
-inline constexpr std::array<std::string_view, Known_Import_Count> Known_Import_Names{
+inline constexpr size_t Known_Static_Import_Count{ 9 };
+inline constexpr std::array<std::string_view, Known_Static_Import_Count> Known_Import_Names{
     "___keymgr_dwarf2_register_sections",
     "__cthread_init_routine",
     "__dyld_make_delayed_module_initializer_calls",
@@ -67,7 +75,7 @@ inline constexpr std::array<std::string_view, Known_Import_Count> Known_Import_N
 };
 static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 
-inline constexpr std::array<Known_Import_Entry, Known_Import_Count> Import_Items{ {
+inline constexpr std::array<Known_Import_Entry, Known_Static_Import_Count> Import_Items{ {
     // crt1.o stub
     { data::Blr_Opcode, callback::keymgr_dwarf2_register_sections }, // ___keymgr_dwarf2_register_sections
     { data::Blr_Opcode, callback::cthread_init_routine },            // __cthread_init_routine
@@ -81,13 +89,11 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Count> Import_Items
     { data::Blr_Opcode, callback::dyld_stub_binding_helper }, // _stub_binding_helper_ptr_in_dyld
 } };
 
-inline constexpr std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Import_Count>
+inline constexpr std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Static_Import_Count>
     Name_To_Import_Item_Flat{ []() {
-        std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Import_Count> result{};
-        for (size_t idx{ 0 }; idx < Known_Import_Count; idx++)
-        {
+        std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Static_Import_Count> result{};
+        for (size_t idx{ 0 }; idx < Known_Static_Import_Count; idx++)
             result[idx] = { Known_Import_Names[idx], Import_Items[idx] };
-        }
         return result;
     }() };
 
@@ -103,5 +109,12 @@ inline constexpr uint32_t Import_Entry_Size{ []() -> uint32_t {
 inline constexpr int Import_Entry_Size_Pow2{ []() { return std::countr_zero( Import_Entry_Size ); }() };
 inline constexpr size_t Import_Table_Size{ Import_Entry_Size * Import_Items.size() +
                                            Import_Entry_Size }; // additional Import_Entry_Size for unknown imports
+
+// dynamic imports e.g obtained by dyld_func_lookup
+
+inline constexpr size_t Known_Dynamic_Import_Count{ 1 };
+inline constexpr std::array<std::string_view, Known_Dynamic_Import_Count> Dynamic_Imports_Names{
+    "__dyld_make_delayed_module_initializer_calls",
+};
 
 } // namespace import

@@ -267,11 +267,11 @@ bool COsxPpcEmu::set_args_on_stack( uc_engine *uc, const std::span<const std::st
 
 bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
 {
-    const std::expected<std::map<std::string, std::pair<uint32_t, common::ImportType>>, common::Error> imports{
-        loader.get_imports() };
-    if (!imports)
+    const std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, common::Error>
+        staticImports{ loader.get_imports() }; // imports from parsed MachO file
+    if (!staticImports)
     {
-        std::cerr << imports.error().message << std::endl;
+        std::cerr << staticImports.error().message << std::endl;
         return false;
     }
 
@@ -279,24 +279,26 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
                             common::page_align_up( import::Import_Table_Size ), UC_PROT_ALL ) };
     if (err != UC_ERR_OK)
     {
-        std::cerr << "Could not map api trampoline memory." << std::endl;
+        std::cerr << "Could not map import entries memory." << std::endl;
         return false;
     }
-
-    // first API is always "unknown API" entry
-    import::Runtime_Import_Table_Entry unknownImportEntry{
-        .ptrToData = common::Import_Dispatch_Table_Address +
-                     sizeof( import::Runtime_Import_Table_Entry::ptrToData ), // points in memory
-        .data{ import::data::Blr_Opcode },                                    // <- here
-    };
-    if (!write_import_entry( uc, common::Import_Dispatch_Table_Address, unknownImportEntry ))
-    {
-        std::cerr << "Could not write first API dispatch entry (unknown API) at " << std::hex
-                  << common::Import_Dispatch_Table_Address << std::endl;
+    // first import is always "unknown API" entry at 0xF0000000
+    if (!write_unknown_import_entry( uc ))
         return false;
-    }
+    // then known static imports (got by parsing MachO) are resolved and import entries table filled
+    if (!redirect_known_imports( uc, loader, *staticImports ))
+        return false;
+    // then fill entries for dynamic imoprts (e.g. using dyld_lookup_func)
+    if (!write_dynamic_import_entries( uc ))
+        return false;
+    return true;
+}
 
-    for (const auto &[name, addressAndType] : *imports)
+bool COsxPpcEmu::redirect_known_imports(
+    uc_engine *uc, CMachoLoader &loader,
+    const std::span<const std::pair<std::string, std::pair<uint32_t, common::ImportType>>> &imports )
+{
+    for (const auto &[name, addressAndType] : imports)
     {
         const auto [address, type] = addressAndType;
 
@@ -350,6 +352,56 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
     return true;
 }
 
+bool COsxPpcEmu::write_unknown_import_entry( uc_engine *uc )
+{
+    import::Runtime_Import_Table_Entry unknownImportEntry{
+        .ptrToData = common::Import_Dispatch_Table_Address +
+                     sizeof( import::Runtime_Import_Table_Entry::ptrToData ), // points in memory
+        .data{ import::data::Blr_Opcode },                                    // <- here
+    };
+    if (!write_import_entry( uc, common::Import_Dispatch_Table_Address, unknownImportEntry ))
+    {
+        std::cerr << "Could not write first API dispatch entry (unknown API) at " << std::hex
+                  << common::Import_Dispatch_Table_Address << std::endl;
+        return false;
+    }
+    return true;
+}
+
+bool COsxPpcEmu::write_dynamic_import_entries( uc_engine *uc ) // TODO refactor to not duplicate code
+{
+    for (const std::string_view s : import::Dynamic_Imports_Names)
+    {
+        auto importNameMatches{
+            []( const std::pair<std::string_view, import::Known_Import_Entry> &p ) { return p.first; } };
+        const auto importIt{
+            std::ranges::lower_bound( import::Name_To_Import_Item_Flat, s, std::less<>{}, importNameMatches ) };
+        const bool knownImport{ importIt != import::Name_To_Import_Item_Flat.end() && importIt->first == s };
+        if (!knownImport)
+        {
+            std::cerr << "Missing dynamic import entry for " << s << std::endl;
+            return false;
+        }
+
+        const ptrdiff_t idx{ std::distance( import::Name_To_Import_Item_Flat.begin(), importIt ) };
+        const uint32_t currentImportEntryOffset{ common::Import_Dispatch_Table_Address + import::Import_Entry_Size +
+                                                 static_cast<uint32_t>( idx ) * import::Import_Entry_Size };
+
+        import::Runtime_Import_Table_Entry knownImportEntry{
+            .ptrToData = 0,
+            // points in memory, e.g. 0xF0000004
+            .data{ importIt->second.data }, // <- here
+        };
+        if (!write_import_entry( uc, currentImportEntryOffset, knownImportEntry ))
+        {
+            std::cerr << "Could not write API dispatch entry for " << s << " at " << std::hex
+                      << currentImportEntryOffset << std::endl;
+            return false;
+        }
+    }
+    return true;
+}
+
 bool COsxPpcEmu::write_import_entry( uc_engine *uc, size_t offset, const import::Runtime_Import_Table_Entry &entry )
 {
     if (entry.ptrToData != 0)
@@ -379,7 +431,8 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
     const size_t idx{ ( address - common::Import_Dispatch_Table_Address ) >> import::Import_Entry_Size_Pow2 };
 #ifdef DEBUG
     g_lastAddr.store( address, std::memory_order_relaxed );
-    write_api_call_source( uc, address, idx, emu );
+    print_api_call_source( uc, address, idx, emu );
+    print_context( uc );
 #endif
     import::Import_Items[idx - import::Unknown_Import_Shift].hook( uc, &emu->m_loader ); // call API dispatch function
 }
@@ -419,7 +472,7 @@ void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int si
               << std::dec << "\n";
 }
 
-static void write_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu )
+static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu )
 {
     uint32_t callerVa{};
     uc_err err{ uc_reg_read( uc, UC_PPC_REG_LR, &callerVa ) };
@@ -449,9 +502,35 @@ static void write_api_call_source( uc_engine *uc, uint64_t address, size_t idx, 
     std::cout << " (" << import::Known_Import_Names[idx - import::Unknown_Import_Shift] << ")" << std::endl;
 }
 
-static void write_registers( uc_engine *uc )
+static void print_context( uc_engine *uc )
 {
-    uint32_t reg0{};
-    uc_reg_read( uc, UC_PPC_REG_0, &reg0 );
-    std::cout << "R0 = " << std::hex << reg0 << std::endl;
+    uint32_t pc{};
+    uc_reg_read( uc, UC_PPC_REG_PC, &pc );
+    uint32_t pcOpcodeBe{};
+    uc_mem_read( uc, pc, &pcOpcodeBe, sizeof( pcOpcodeBe ) );
+    uint32_t pcOpcodeHost{ common::ensure_endianness( pcOpcodeBe, std::endian::big ) };
+    std::cout << "PC=0x" << std::hex << pc << " -> 0x" << pcOpcodeHost << std::endl;
+
+    for (size_t i{ UC_PPC_REG_0 }; i < UC_PPC_REG_31; i++)
+    {
+        uint32_t reg{};
+        uc_reg_read( uc, static_cast<int>( i ), &reg );
+        std::cout << "R" << std::dec << i - 2 << "=0x" << std::hex << reg << " ";
+        if (i % 10 == 0)
+            std::cout << std::endl;
+    }
+    std::cout << std::endl;
+    uint32_t reg{};
+    uc_reg_read( uc, UC_PPC_REG_LR, &reg );
+    std::cout << "LR=0x" << std::hex << reg << std::endl;
+    uc_reg_read( uc, UC_PPC_REG_XER, &reg );
+    std::cout << "XER=0x" << std::hex << reg << std::endl;
+    uc_reg_read( uc, UC_PPC_REG_CTR, &reg );
+    std::cout << "CTR=0x" << std::hex << reg << std::endl;
+    uc_reg_read( uc, UC_PPC_REG_MSR, &reg );
+    std::cout << "MSR=0x" << std::hex << reg << std::endl;
+    uc_reg_read( uc, UC_PPC_REG_FPSCR, &reg );
+    std::cout << "FPSCR=0x" << std::hex << reg << std::endl;
+    uc_reg_read( uc, UC_PPC_REG_CR, &reg );
+    std::cout << "CR=0x" << std::hex << reg << std::endl;
 }

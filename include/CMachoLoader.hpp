@@ -22,7 +22,8 @@ class CMachoLoader
     static std::expected<CMachoLoader, common::Error> init( const std::string &path );
     bool map_image_memory( uc_engine *uc );
     bool set_unix_thread( uc_engine *uc );
-    std::expected<std::map<std::string, std::pair<uint32_t, common::ImportType>>, common::Error> get_imports();
+    std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, common::Error>
+    get_imports();
     uint32_t get_ep();
     std::optional<std::pair<uint64_t, uint64_t>> get_text_segment_va_range();
     std::optional<std::string> get_symbol_name_for_va( const uint32_t va, LIEF::MachO::Symbol::TYPE type,

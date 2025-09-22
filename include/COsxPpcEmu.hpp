@@ -51,6 +51,11 @@ class COsxPpcEmu
                                    const std::span<const std::string> env );
 
     static bool resolve_imports( uc_engine *uc, CMachoLoader &loader );
+    static bool redirect_known_imports(
+        uc_engine *uc, CMachoLoader &loader,
+        const std::span<const std::pair<std::string, std::pair<uint32_t, common::ImportType>>> &imports );
+    static bool write_unknown_import_entry( uc_engine *uc );
+    static bool write_dynamic_import_entries( uc_engine *uc );
     static bool write_import_entry( uc_engine *uc, size_t offset, const import::Runtime_Import_Table_Entry &entry );
     static bool patch_import_ptr( uc_engine *uc, size_t offset, uint32_t symbolAddress );
 };
@@ -63,5 +68,5 @@ static void hook_intr( uc_engine *uc, uint32_t intno, void *user_data );
 static void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value,
                               void *user_data );
 
-static void write_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu );
-static void write_registers( uc_engine *uc );
+static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu );
+static void print_context( uc_engine *uc );
