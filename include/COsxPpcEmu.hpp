@@ -19,8 +19,6 @@ class COsxPpcEmu
     bool print_vm_map( std::ostream &os );
     bool run();
 
-    // public for unicorn hooks
-    static constexpr uint32_t Import_Dispatch_Table_Address{ 0xF0'00'00'00 };
 #ifndef DEBUG
   private:
 #endif

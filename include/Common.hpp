@@ -4,13 +4,20 @@
  * Brief:     Common types
  **/
 #pragma once
-#include <algorithm>
+#include <LIEF/MachO.hpp>
 #include <bit>
+#include <expected>
+#include <optional>
 #include <span>
 #include <string>
+#include <unicorn/unicorn.h>
+
+class CMachoLoader;
 
 namespace common
 {
+
+inline constexpr uint32_t Import_Dispatch_Table_Address{ 0xF0'00'00'00 };
 
 enum class ImportType
 {
@@ -32,7 +39,8 @@ struct Error
         Redirect_Api_Error,
         Missing_Dynamic_Bind_Command_Error,
         Indirect_Symbols_Error,
-        Bad_Dyld_Section_Error
+        Bad_Dyld_Section_Error,
+        Read_Memory_Error,
     };
     Type type;
     std::string message{};
@@ -51,17 +59,11 @@ template <std::integral T> constexpr T align_up( T v, size_t alignment )
     return ( v + alignment - 1 ) & ~( alignment - 1 );
 }
 
-static inline uint64_t page_align_down( uint64_t a )
-{
-    uint64_t ps = 0x1000;
-    return a & ~( ps - 1 );
-}
+uint64_t page_align_down( uint64_t a );
+uint64_t page_align_up( uint64_t a );
 
-static inline uint64_t page_align_up( uint64_t a )
-{
-    uint64_t ps = 0x1000;
-    return ( a + ps - 1 ) & ~( ps - 1 );
-}
+std::expected<std::string, common::Error> read_string_at_va( uint32_t va, uc_engine *uc, CMachoLoader &macho );
+std::optional<uint32_t> get_import_entry_va_by_name( const std::string &name );
 
 struct ppc_thread_state32_t
 {

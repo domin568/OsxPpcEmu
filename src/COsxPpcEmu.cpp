@@ -83,7 +83,7 @@ bool COsxPpcEmu::print_vm_map( std::ostream &os )
     }
 #ifdef DEBUG
     std::vector<uint8_t> importEntriesBuf( import::Import_Table_Size );
-    if (uc_mem_read( m_uc, Import_Dispatch_Table_Address, importEntriesBuf.data(), importEntriesBuf.size() ) !=
+    if (uc_mem_read( m_uc, common::Import_Dispatch_Table_Address, importEntriesBuf.data(), importEntriesBuf.size() ) !=
         UC_ERR_OK)
         return false;
 #endif
@@ -98,8 +98,8 @@ bool COsxPpcEmu::run()
     const auto [textSegStart, textSegEnd]{ *textSegment };
 
     uc_err errApiHook{ uc_hook_add( m_uc, &m_apiHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_api ), this,
-                                    Import_Dispatch_Table_Address,
-                                    Import_Dispatch_Table_Address + import::Import_Table_Size ) };
+                                    common::Import_Dispatch_Table_Address,
+                                    common::Import_Dispatch_Table_Address + import::Import_Table_Size ) };
     uc_err errTraceHook{ uc_hook_add( m_uc, &m_traceHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_trace ), this,
                                       textSegStart, textSegEnd ) };
     uc_err errIntHook{ uc_hook_add( m_uc, &m_interruptHook, UC_HOOK_INTR, reinterpret_cast<void *>( hook_intr ),
@@ -275,8 +275,8 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
         return false;
     }
 
-    uc_err err{ uc_mem_map( uc, Import_Dispatch_Table_Address, common::page_align_up( import::Import_Table_Size ),
-                            UC_PROT_ALL ) };
+    uc_err err{ uc_mem_map( uc, common::Import_Dispatch_Table_Address,
+                            common::page_align_up( import::Import_Table_Size ), UC_PROT_ALL ) };
     if (err != UC_ERR_OK)
     {
         std::cerr << "Could not map api trampoline memory." << std::endl;
@@ -285,14 +285,14 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
 
     // first API is always "unknown API" entry
     import::Runtime_Import_Table_Entry unknownImportEntry{
-        .ptrToData =
-            Import_Dispatch_Table_Address + sizeof( import::Runtime_Import_Table_Entry::ptrToData ), // points in memory
-        .data{ import::data::Blr_Opcode },                                                           // <- here
+        .ptrToData = common::Import_Dispatch_Table_Address +
+                     sizeof( import::Runtime_Import_Table_Entry::ptrToData ), // points in memory
+        .data{ import::data::Blr_Opcode },                                    // <- here
     };
-    if (!write_import_entry( uc, Import_Dispatch_Table_Address, unknownImportEntry ))
+    if (!write_import_entry( uc, common::Import_Dispatch_Table_Address, unknownImportEntry ))
     {
         std::cerr << "Could not write first API dispatch entry (unknown API) at " << std::hex
-                  << Import_Dispatch_Table_Address << std::endl;
+                  << common::Import_Dispatch_Table_Address << std::endl;
         return false;
     }
 
@@ -301,18 +301,18 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
         const auto [address, type] = addressAndType;
 
         auto importNameMatches{
-            [&name]( const std::pair<std::string_view, import::Known_Import_Entry> &p ) { return p.first; } };
+            []( const std::pair<std::string_view, import::Known_Import_Entry> &p ) { return p.first; } };
         const auto importIt{
             std::ranges::lower_bound( import::Name_To_Import_Item_Flat, name, std::less<>{}, importNameMatches ) };
         const bool knownImport{ importIt != import::Name_To_Import_Item_Flat.end() && importIt->first == name };
         const ptrdiff_t idx{ std::distance( import::Name_To_Import_Item_Flat.begin(), importIt ) };
 
-        const uint32_t currentImportEntryOffset{ knownImport
-                                                     ? Import_Dispatch_Table_Address + import::Import_Entry_Size +
-                                                           static_cast<uint32_t>( idx ) * import::Import_Entry_Size
-                                                     : Import_Dispatch_Table_Address };
+        const uint32_t currentImportEntryOffset{
+            knownImport ? common::Import_Dispatch_Table_Address + import::Import_Entry_Size +
+                              static_cast<uint32_t>( idx ) * import::Import_Entry_Size
+                        : common::Import_Dispatch_Table_Address };
         if (currentImportEntryOffset + import::Import_Entry_Size >
-            Import_Dispatch_Table_Address + import::Import_Table_Size)
+            common::Import_Dispatch_Table_Address + import::Import_Table_Size)
         {
             std::cerr << "Not enough mapped memory for API trampoline." << std::endl;
             return false;
@@ -376,7 +376,7 @@ bool COsxPpcEmu::patch_import_ptr( uc_engine *uc, size_t importEntryOffset, uint
 
 void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 {
-    const size_t idx{ ( address - COsxPpcEmu::Import_Dispatch_Table_Address ) >> import::Import_Entry_Size_Pow2 };
+    const size_t idx{ ( address - common::Import_Dispatch_Table_Address ) >> import::Import_Entry_Size_Pow2 };
 #ifdef DEBUG
     g_lastAddr.store( address, std::memory_order_relaxed );
     write_api_call_source( uc, address, idx, emu );
