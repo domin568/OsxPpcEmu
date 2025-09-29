@@ -100,16 +100,15 @@ bool COsxPpcEmu::run()
     uc_err errApiHook{ uc_hook_add( m_uc, &m_apiHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_api ), this,
                                     common::Import_Dispatch_Table_Address,
                                     common::Import_Dispatch_Table_Address + import::Import_Table_Size ) };
-    uc_err errTraceHook{ uc_hook_add( m_uc, &m_traceHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_trace ), this,
-                                      textSegStart, textSegEnd ) };
+    // uc_err errTraceHook{ uc_hook_add( m_uc, &m_traceHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_trace ), this,
+    //                                   textSegStart, textSegEnd ) };
     uc_err errIntHook{ uc_hook_add( m_uc, &m_interruptHook, UC_HOOK_INTR, reinterpret_cast<void *>( hook_intr ),
                                     nullptr, textSegStart, textSegEnd ) }; // delete reinterpret cast
 
     uc_err errMemInvalidHook{ uc_hook_add( m_uc, &m_memInvalidHook, UC_HOOK_MEM_INVALID,
                                            reinterpret_cast<void *>( hook_mem_invalid ), nullptr, 1, 0 ) };
-
-    if (errApiHook != UC_ERR_OK && errTraceHook != UC_ERR_OK && errIntHook != UC_ERR_OK &&
-        errMemInvalidHook != UC_ERR_OK)
+    // && errTraceHook != UC_ERR_OK
+    if (errApiHook != UC_ERR_OK && errIntHook != UC_ERR_OK && errMemInvalidHook != UC_ERR_OK)
     {
         std::cerr << "Could not create hooks." << std::endl;
         return false;
@@ -432,7 +431,7 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 #ifdef DEBUG
     g_lastAddr.store( address, std::memory_order_relaxed );
     print_api_call_source( uc, address, idx, emu );
-    print_context( uc );
+    // print_context( uc );
 #endif
     import::Import_Items[idx - import::Unknown_Import_Shift].hook( uc, &emu->m_loader ); // call API dispatch function
 }
@@ -443,8 +442,19 @@ void hook_trace( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu
     const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
         address, LIEF::MachO::Symbol::TYPE::SECTION, CMachoLoader::SymbolSection::TEXT ) };
     if (funcName.has_value())
+    {
         std::cout << " (" << *funcName << ")" << std::endl;
-    // write_registers( uc );
+    }
+    else
+    {
+        const std::optional<LIEF::MachO::Section> s{ emu->m_loader.get_section_for_va( address ) };
+        if (!s.has_value())
+        {
+            std::cerr << "Not mapped memory: 0x" << address << std::endl;
+            return;
+        }
+        std::cout << " unknown@" << s->name() << std::endl;
+    }
 }
 
 void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )

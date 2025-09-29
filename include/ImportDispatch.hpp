@@ -27,6 +27,8 @@ bool dyld_func_lookup( uc_engine *uc, CMachoLoader *macho );
 bool atexit( uc_engine *uc, CMachoLoader *macho );
 bool exit( uc_engine *uc, CMachoLoader *macho );
 bool mach_init_routine( uc_engine *uc, CMachoLoader *macho );
+bool puts( uc_engine *uc, CMachoLoader *macho );
+bool strncpy( uc_engine *uc, CMachoLoader *macho );
 bool dyld_stub_binding_helper( uc_engine *uc, CMachoLoader *emu );
 
 } // namespace callback
@@ -61,7 +63,7 @@ struct Import_Info
 // static imports
 inline constexpr size_t Unknown_Import_Index{ 0 };
 inline constexpr size_t Unknown_Import_Shift{ 1 };
-inline constexpr size_t Known_Static_Import_Count{ 9 };
+inline constexpr size_t Known_Static_Import_Count{ 11 };
 inline constexpr std::array<std::string_view, Known_Static_Import_Count> Known_Import_Names{
     "___keymgr_dwarf2_register_sections",
     "__cthread_init_routine",
@@ -71,6 +73,8 @@ inline constexpr std::array<std::string_view, Known_Static_Import_Count> Known_I
     "_errno",
     "_exit",
     "_mach_init_routine",
+    "_puts",
+    "_strncpy_ptr",
     "_stub_binding_helper_ptr_in_dyld",
 };
 static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
@@ -86,6 +90,8 @@ inline constexpr std::array<Known_Import_Entry, Known_Static_Import_Count> Impor
     { data::Dword_Mem, nullptr },                             // _errno
     { data::Trap_Opcode, callback::exit },                    // _exit
     { data::Blr_Opcode, callback::mach_init_routine },        // _mach_init_routine
+    { data::Blr_Opcode, callback::puts },                     // _puts
+    { data::Blr_Opcode, callback::strncpy },                  // _strncpy
     { data::Blr_Opcode, callback::dyld_stub_binding_helper }, // _stub_binding_helper_ptr_in_dyld
 } };
 

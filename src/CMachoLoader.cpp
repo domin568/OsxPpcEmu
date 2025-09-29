@@ -236,6 +236,8 @@ std::optional<std::string> CMachoLoader::get_symbol_name_for_va( const uint32_t 
     const auto sectIt{ std::find_if( m_executable->sections().begin(), m_executable->sections().end(), sectMatches ) };
     if (sectIt == m_executable->sections().end())
         return std::nullopt;
+    if (va >= sectIt->virtual_address() + sectIt->size())
+        return std::nullopt;
 
     std::map<uint32_t, std::string> symbolsByType{};
     for (const auto &s : m_executable->symbols())

@@ -85,6 +85,30 @@ bool mach_init_routine( uc_engine *uc, CMachoLoader *macho )
     return true;
 }
 
+// int puts(const char *str);
+bool puts( uc_engine *uc, CMachoLoader *macho )
+{
+    uint32_t nameVa{};
+    if (uc_reg_read( uc, UC_PPC_REG_3, &nameVa ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not read dyld_func_lookup function name pointer" << std::endl;
+        return false;
+    }
+    const std::expected<std::string, common::Error> name{ common::read_string_at_va( nameVa, uc, *macho ) };
+    if (!name.has_value())
+    {
+        std::cerr << name.error().message << std::endl;
+        return false;
+    }
+    std::cout << name.value() << std::endl;
+    return true;
+}
+
+bool strncpy( uc_engine *uc, CMachoLoader *macho )
+{
+    return true;
+}
+
 bool dyld_stub_binding_helper( uc_engine *uc, CMachoLoader *emu )
 {
     return true;

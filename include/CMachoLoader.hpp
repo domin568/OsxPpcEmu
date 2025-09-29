@@ -33,7 +33,7 @@ class CMachoLoader
   private:
     explicit CMachoLoader( std::unique_ptr<LIEF::MachO::Binary> executable );
 
-    static constexpr size_t Max_Segment_File_Size{ 0x100'000 };
+    static constexpr size_t Max_Segment_File_Size{ 32u * 1024 * 1024 };
     static constexpr size_t Ppc_Thread_State{ 1 };
     static constexpr size_t Dyld_Section_Symbol_Count{ 2 };
     static constexpr std::string Non_Lazy_Symbols_Ptr_Section_Name{ "__nl_symbol_ptr" };
