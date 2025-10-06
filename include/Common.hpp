@@ -41,6 +41,7 @@ struct Error
         Indirect_Symbols_Error,
         Bad_Dyld_Section_Error,
         Read_Memory_Error,
+        Unmapped_Memory_Access_Error,
     };
     Type type;
     std::string message{};
@@ -62,7 +63,7 @@ template <std::integral T> constexpr T align_up( T v, size_t alignment )
 uint64_t page_align_down( uint64_t a );
 uint64_t page_align_up( uint64_t a );
 
-std::expected<std::string, common::Error> read_string_at_va( uint32_t va, uc_engine *uc, CMachoLoader &macho );
+std::expected<std::string, common::Error> read_string_at_va( uc_engine *uc, uint32_t va );
 std::optional<uint32_t> get_import_entry_va_by_name( const std::string &name );
 
 struct ppc_thread_state32_t

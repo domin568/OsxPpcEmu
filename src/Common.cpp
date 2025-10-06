@@ -22,17 +22,29 @@ uint64_t page_align_up( uint64_t a )
     return ( a + ps - 1 ) & ~( ps - 1 );
 }
 
-std::expected<std::string, common::Error> read_string_at_va( uint32_t va, uc_engine *uc, CMachoLoader &macho )
+std::expected<std::string, common::Error> read_string_at_va( uc_engine *uc, uint32_t va )
 {
-    const std::optional<LIEF::MachO::Section> sec{ macho.get_section_for_va( va ) };
-    if (!sec.has_value())
+    static constexpr size_t Max_String_Size{ 0x1000 };
+
+    uc_mem_region *regions;
+    uint32_t count{};
+    if (uc_mem_regions( uc, &regions, &count ) != UC_ERR_OK)
+        return std::unexpected{ common::Error{ common::Error::Type::Memory_Map_Error, "Cannot read memory regions." } };
+    std::optional<uint32_t> endVa{ std::nullopt };
+    for (uint32_t i = 0; i < count; i++)
     {
-        return std::unexpected{
-            common::Error{ common::Error::Type::Read_Memory_Error, "Could not find section for specific address" } };
+        if (va >= regions[i].begin && va <= regions[i].end)
+        {
+            endVa = regions[i].end;
+            break;
+        }
     }
-    static constexpr size_t Max_Func_Name_Size{ 0x100 };
-    const size_t leftBytesInSection{ sec->virtual_address() + sec->size() - va };
-    const size_t toRead{ std::min<size_t>( Max_Func_Name_Size, leftBytesInSection ) };
+    if (!endVa)
+        return std::unexpected{
+            common::Error{ common::Error::Type::Unmapped_Memory_Access_Error, "Reading unmapped memory region." } };
+
+    const size_t leftBytesInRegion{ *endVa - va };
+    const size_t toRead{ std::min<size_t>( Max_String_Size, leftBytesInRegion ) };
     std::string name{};
     name.resize( toRead );
     if (uc_mem_read( uc, va, name.data(), name.size() ) != UC_ERR_OK)

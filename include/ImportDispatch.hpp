@@ -17,19 +17,44 @@ namespace import
 
 namespace callback
 {
-
 using CallbackPtr = bool ( * )( uc_engine *, CMachoLoader *macho );
-bool unknown( uc_engine *uc );
-bool keymgr_dwarf2_register_sections( uc_engine *uc, CMachoLoader *macho );
-bool cthread_init_routine( uc_engine *uc, CMachoLoader *macho );
-bool dyld_make_delayed_module_initializer_calls( uc_engine *uc, CMachoLoader *macho );
-bool dyld_func_lookup( uc_engine *uc, CMachoLoader *macho );
-bool atexit( uc_engine *uc, CMachoLoader *macho );
-bool exit( uc_engine *uc, CMachoLoader *macho );
-bool mach_init_routine( uc_engine *uc, CMachoLoader *macho );
-bool puts( uc_engine *uc, CMachoLoader *macho );
-bool strncpy( uc_engine *uc, CMachoLoader *macho );
-bool dyld_stub_binding_helper( uc_engine *uc, CMachoLoader *emu );
+#define callback( name ) bool name( uc_engine *, CMachoLoader * )
+callback( unknown );
+callback( keymgr_dwarf2_register_sections );
+callback( cthread_init_routine );
+callback( dyld_make_delayed_module_initializer_calls );
+callback( dyld_func_lookup );
+callback( atexit );
+callback( exit );
+callback( mach_init_routine );
+callback( memmove );
+callback( memset );
+callback( puts );
+callback( setvbuf );
+callback( strcat );
+callback( strchr );
+callback( strcpy );
+callback( strlen );
+callback( strrchr );
+callback( strncpy );
+callback( dyld_stub_binding_helper );
+
+template <std::size_t U> std::optional<std::array<uint32_t, U>> get_arguments( uc_engine *uc )
+{
+    static_assert( U <= 8, "stack arguments not implemented yet" );
+    std::array<uint32_t, U> args{};
+    int regId{ UC_PPC_REG_3 };
+    for (size_t i{ 0 }; i < U; i++)
+    {
+        if (uc_reg_read( uc, regId, &args[i] ) != UC_ERR_OK)
+        {
+            std::cerr << "Could not read argument" << std::endl;
+            return {};
+        }
+        regId++;
+    }
+    return args;
+}
 
 } // namespace callback
 
@@ -63,8 +88,7 @@ struct Import_Info
 // static imports
 inline constexpr size_t Unknown_Import_Index{ 0 };
 inline constexpr size_t Unknown_Import_Shift{ 1 };
-inline constexpr size_t Known_Static_Import_Count{ 11 };
-inline constexpr std::array<std::string_view, Known_Static_Import_Count> Known_Import_Names{
+inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "___keymgr_dwarf2_register_sections",
     "__cthread_init_routine",
     "__dyld_make_delayed_module_initializer_calls",
@@ -73,13 +97,21 @@ inline constexpr std::array<std::string_view, Known_Static_Import_Count> Known_I
     "_errno",
     "_exit",
     "_mach_init_routine",
+    "_memmove",
+    "_memset",
     "_puts",
-    "_strncpy_ptr",
+    "_setvbuf",
+    "_strcat",
+    "_strchr",
+    "_strcpy",
+    "_strlen",
+    "_strncpy",
+    "_strrchr",
     "_stub_binding_helper_ptr_in_dyld",
-};
+} ) };
 static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 
-inline constexpr std::array<Known_Import_Entry, Known_Static_Import_Count> Import_Items{ {
+inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Import_Items{ {
     // crt1.o stub
     { data::Blr_Opcode, callback::keymgr_dwarf2_register_sections }, // ___keymgr_dwarf2_register_sections
     { data::Blr_Opcode, callback::cthread_init_routine },            // __cthread_init_routine
@@ -90,15 +122,23 @@ inline constexpr std::array<Known_Import_Entry, Known_Static_Import_Count> Impor
     { data::Dword_Mem, nullptr },                             // _errno
     { data::Trap_Opcode, callback::exit },                    // _exit
     { data::Blr_Opcode, callback::mach_init_routine },        // _mach_init_routine
+    { data::Blr_Opcode, callback::memmove },                  // _memmove
+    { data::Blr_Opcode, callback::memset },                   // _memset
     { data::Blr_Opcode, callback::puts },                     // _puts
+    { data::Blr_Opcode, callback::setvbuf },                  // _setvbuf
+    { data::Blr_Opcode, callback::strcat },                   // _strcat
+    { data::Blr_Opcode, callback::strchr },                   // _strchr
+    { data::Blr_Opcode, callback::strcpy },                   // _strcpy
+    { data::Blr_Opcode, callback::strlen },                   // _strlen
     { data::Blr_Opcode, callback::strncpy },                  // _strncpy
+    { data::Blr_Opcode, callback::strrchr },                  // _strrchr
     { data::Blr_Opcode, callback::dyld_stub_binding_helper }, // _stub_binding_helper_ptr_in_dyld
 } };
 
-inline constexpr std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Static_Import_Count>
+inline constexpr std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Import_Names.size()>
     Name_To_Import_Item_Flat{ []() {
-        std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Static_Import_Count> result{};
-        for (size_t idx{ 0 }; idx < Known_Static_Import_Count; idx++)
+        std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Import_Names.size()> result{};
+        for (size_t idx{ 0 }; idx < Known_Import_Names.size(); idx++)
             result[idx] = { Known_Import_Names[idx], Import_Items[idx] };
         return result;
     }() };
