@@ -6,7 +6,6 @@
 #pragma once
 #include <LIEF/MachO.hpp>
 #include <bit>
-#include <expected>
 #include <optional>
 #include <span>
 #include <string>
@@ -25,28 +24,6 @@ enum class ImportType
     Indirect,
 };
 
-struct Error
-{
-    enum Type
-    {
-        Argument_Parsing_Error,
-        NotFound,
-        Unsupported,
-        Unicorn_Open_Error,
-        Memory_Map_Error,
-        No_Unix_Thread_Command_Error,
-        Stack_Map_Error,
-        Redirect_Api_Error,
-        Missing_Dynamic_Bind_Command_Error,
-        Indirect_Symbols_Error,
-        Bad_Dyld_Section_Error,
-        Read_Memory_Error,
-        Unmapped_Memory_Access_Error,
-    };
-    Type type;
-    std::string message{};
-};
-
 template <std::integral T> constexpr T ensure_endianness( T v, std::endian data_order )
 {
     if (data_order == std::endian::native)
@@ -63,7 +40,7 @@ template <std::integral T> constexpr T align_up( T v, size_t alignment )
 uint64_t page_align_down( uint64_t a );
 uint64_t page_align_up( uint64_t a );
 
-std::expected<std::string, common::Error> read_string_at_va( uc_engine *uc, uint32_t va );
+std::optional<std::string> read_string_at_va( uc_engine *uc, uint32_t va );
 std::optional<uint32_t> get_import_entry_va_by_name( const std::string &name );
 
 struct ppc_thread_state32_t

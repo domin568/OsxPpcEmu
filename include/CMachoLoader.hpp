@@ -11,6 +11,24 @@
 #include <optional>
 #include <unicorn/unicorn.h>
 
+namespace loader
+{
+
+struct Error
+{
+    enum Type
+    {
+        FileNotFound,
+        FatMacho,
+        NotPowerPc,
+        Missing_Dynamic_Bind_Command,
+        Bad_Indirect_Symbols,
+        Bad_Dyld_Section,
+    };
+    Type type;
+    std::string message{};
+};
+
 class CMachoLoader
 {
   public:
@@ -19,11 +37,10 @@ class CMachoLoader
         TEXT,
     };
 
-    static std::expected<CMachoLoader, common::Error> init( const std::string &path );
+    static std::expected<CMachoLoader, Error> init( const std::string &path );
     bool map_image_memory( uc_engine *uc );
     bool set_unix_thread( uc_engine *uc );
-    std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, common::Error>
-    get_imports();
+    std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, Error> get_imports();
     uint32_t get_ep();
     std::optional<std::pair<uint64_t, uint64_t>> get_text_segment_va_range();
     std::optional<std::string> get_symbol_name_for_va( const uint32_t va, LIEF::MachO::Symbol::TYPE type,
@@ -51,3 +68,4 @@ class CMachoLoader
     // initialize functions
     static std::optional<LIEF::MachO::SegmentCommand> get_text_segment( LIEF::MachO::Binary &executable );
 };
+} // namespace loader

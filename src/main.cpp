@@ -13,16 +13,14 @@
 int main( int argc, const char *argv[] )
 {
     if (argc < 2)
-    {
         return -1;
-    }
 
     const std::array<std::string, 2> env{
         "MANPATH=/opt/local/share/man:",
         "MWMacOSXPPCLibraryFiles=MSL_All_Mach-O.lib",
     };
 
-    std::expected<COsxPpcEmu, common::Error> emu{ COsxPpcEmu::init( argc, argv, env ) };
+    std::expected<emu::COsxPpcEmu, emu::Error> emu{ emu::COsxPpcEmu::init( argc, argv, env ) };
     if (!emu)
     {
         std::cerr << emu.error().message << std::endl;

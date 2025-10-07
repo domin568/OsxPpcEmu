@@ -6,6 +6,7 @@
 
 #include "../include/COsxPpcEmu.hpp"
 #include "../include/CMachoLoader.hpp"
+#include "../include/CMemory.hpp"
 #include "../include/Common.hpp"
 #include "../include/ImportDispatch.hpp"
 #include <filesystem>
@@ -13,49 +14,51 @@
 #include <ranges>
 
 std::atomic<uint32_t> g_lastAddr{ 0 };
-
-COsxPpcEmu::COsxPpcEmu( uc_engine *uc, CMachoLoader &&loader ) : m_uc( uc ), m_loader( std::move( loader ) )
+namespace emu
+{
+COsxPpcEmu::COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader ) : m_uc( uc ), m_loader( std::move( loader ) )
 {
 }
 
-std::expected<COsxPpcEmu, common::Error> COsxPpcEmu::init( int argc, const char **argv,
-                                                           const std::span<const std::string> env )
+std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, const std::span<const std::string> env )
 {
     if (argc < 2 || argv == nullptr || env.data() == nullptr)
-        return std::unexpected(
-            common::Error{ common::Error::Type::Argument_Parsing_Error, "Could not parse command line arguments" } );
+        return std::unexpected( Error{ Error::Type::Bad_Arguments, "Could not parse command line arguments" } );
 
     const std::vector<std::string> args( argv, argv + argc );
     const std::string &emuTarget{ args[1] };
     if (!std::filesystem::exists( emuTarget ))
-        return std::unexpected( common::Error{ common::Error::Type::NotFound, "File not found." } );
+        return std::unexpected( Error{ Error::Type::FileNotFound, "File not found." } );
 
-    std::expected<CMachoLoader, common::Error> loader{ CMachoLoader::init( emuTarget ) };
+    /*
+    std::expected<memory::CMemory, memory::Error> memory{ memory::CMemory::init( Guest_Virtual_Memory_Size ) };
+    if (!memory)
+        return std::unexpected( Error{ Error::Type::MemoryError, std::move( memory.error().message ) } );
+    */
+    std::expected<loader::CMachoLoader, loader::Error> loader{ loader::CMachoLoader::init( emuTarget ) };
     if (!loader)
-        return std::unexpected{ std::move( loader ).error() };
+        return std::unexpected{ Error{ Error::Type::ImageLoaderError, std::move( loader.error().message ) } };
 
     uc_err err;
     uc_engine *uc;
     uc_mode ppcMode{ static_cast<uc_mode>( UC_MODE_PPC32 | UC_MODE_BIG_ENDIAN ) };
     err = uc_open( UC_ARCH_PPC, ppcMode, &uc );
     if (err != UC_ERR_OK)
-        return std::unexpected(
-            common::Error{ common::Error::Type::Unicorn_Open_Error, "Could not create ppc32 unicorn emulator." } );
+        return std::unexpected( Error{ Error::Type::UnicornOpenError, "Could not create ppc32 unicorn emulator." } );
 
     if (!loader->map_image_memory( uc ))
-        return std::unexpected( common::Error{ common::Error::Type::Memory_Map_Error, "Could not map memory." } );
+        return std::unexpected( Error{ Error::Type::ImageLoaderError, "Could not map image memory." } );
 
     if (!loader->set_unix_thread( uc ))
-        return std::unexpected{
-            common::Error{ common::Error::Type::No_Unix_Thread_Command_Error, "Could not set Unix thread context." } };
+        return std::unexpected{ Error{ Error::Type::ImageLoaderError, "Could not set Unix thread context." } };
 
     const bool importResolveSuccess{ resolve_imports( uc, *loader ) };
     if (!importResolveSuccess)
-        return std::unexpected{
-            common::Error{ common::Error::Type::Redirect_Api_Error, "Could not set up API calls." } };
+        return std::unexpected{ Error{ Error::Type::ImportRedirectionError, "Could not redirect imports." } };
 
     if (!set_stack( uc, args, env ))
-        return std::unexpected( common::Error{ common::Error::Type::Stack_Map_Error, "Could not map memory." } );
+        return std::unexpected(
+            Error{ Error::Type::StackInitializationError, "Stack initialization error (argc, argv, envp)." } );
 
     return COsxPpcEmu{ uc, std::move( loader.value() ) };
 }
@@ -264,9 +267,9 @@ bool COsxPpcEmu::set_args_on_stack( uc_engine *uc, const std::span<const std::st
     return true;
 }
 
-bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
+bool COsxPpcEmu::resolve_imports( uc_engine *uc, loader::CMachoLoader &loader )
 {
-    const std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, common::Error>
+    const std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, loader::Error>
         staticImports{ loader.get_imports() }; // imports from parsed MachO file
     if (!staticImports)
     {
@@ -294,7 +297,7 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, CMachoLoader &loader )
 }
 
 bool COsxPpcEmu::redirect_known_imports(
-    uc_engine *uc, CMachoLoader &loader,
+    uc_engine *uc, loader::CMachoLoader &loader,
     const std::span<const std::pair<std::string, std::pair<uint32_t, common::ImportType>>> &imports )
 {
     for (const auto &[name, addressAndType] : imports)
@@ -440,7 +443,7 @@ void hook_trace( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu
 {
     std::cout << "Tracing: 0x" << std::hex << address;
     const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
-        address, LIEF::MachO::Symbol::TYPE::SECTION, CMachoLoader::SymbolSection::TEXT ) };
+        address, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
     if (funcName.has_value())
     {
         std::cout << " (" << *funcName << ")" << std::endl;
@@ -494,7 +497,7 @@ static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, 
 
     std::cout << callerVa;
     const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
-        callerVa, LIEF::MachO::Symbol::TYPE::SECTION, CMachoLoader::SymbolSection::TEXT ) };
+        callerVa, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
     if (funcName.has_value())
         std::cout << " (" << *funcName << ")";
     std::cout << " -> 0x" << std::hex << address;
@@ -544,3 +547,5 @@ static void print_context( uc_engine *uc )
     uc_reg_read( uc, UC_PPC_REG_CR, &reg );
     std::cout << "CR=0x" << std::hex << reg << std::endl;
 }
+
+} // namespace emu

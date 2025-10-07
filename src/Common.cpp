@@ -22,14 +22,14 @@ uint64_t page_align_up( uint64_t a )
     return ( a + ps - 1 ) & ~( ps - 1 );
 }
 
-std::expected<std::string, common::Error> read_string_at_va( uc_engine *uc, uint32_t va )
+std::optional<std::string> read_string_at_va( uc_engine *uc, uint32_t va )
 {
     static constexpr size_t Max_String_Size{ 0x1000 };
 
     uc_mem_region *regions;
     uint32_t count{};
     if (uc_mem_regions( uc, &regions, &count ) != UC_ERR_OK)
-        return std::unexpected{ common::Error{ common::Error::Type::Memory_Map_Error, "Cannot read memory regions." } };
+        return {};
     std::optional<uint32_t> endVa{ std::nullopt };
     for (uint32_t i = 0; i < count; i++)
     {
@@ -40,17 +40,14 @@ std::expected<std::string, common::Error> read_string_at_va( uc_engine *uc, uint
         }
     }
     if (!endVa)
-        return std::unexpected{
-            common::Error{ common::Error::Type::Unmapped_Memory_Access_Error, "Reading unmapped memory region." } };
+        return {};
 
     const size_t leftBytesInRegion{ *endVa - va };
     const size_t toRead{ std::min<size_t>( Max_String_Size, leftBytesInRegion ) };
     std::string name{};
     name.resize( toRead );
     if (uc_mem_read( uc, va, name.data(), name.size() ) != UC_ERR_OK)
-    {
-        return std::unexpected{ common::Error{ common::Error::Type::Read_Memory_Error, "Could not read string" } };
-    }
+        return {};
     name.resize( strnlen( name.c_str(), name.size() ) );
     return name;
 }

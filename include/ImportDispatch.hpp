@@ -10,15 +10,14 @@
 #include <algorithm>
 #include <iostream>
 #include <unicorn/unicorn.h>
-#include <vector>
 
 namespace import
 {
 
 namespace callback
 {
-using CallbackPtr = bool ( * )( uc_engine *, CMachoLoader *macho );
-#define callback( name ) bool name( uc_engine *, CMachoLoader * )
+using CallbackPtr = bool ( * )( uc_engine *, loader::CMachoLoader *macho );
+#define callback( name ) bool name( uc_engine *, loader::CMachoLoader * )
 callback( unknown );
 callback( keymgr_dwarf2_register_sections );
 callback( cthread_init_routine );
