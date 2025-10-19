@@ -16,9 +16,8 @@ namespace import
 
 namespace callback
 {
-using CallbackPtr = bool ( * )( uc_engine *, loader::CMachoLoader *macho );
-#define callback( name ) bool name( uc_engine *, loader::CMachoLoader * )
-callback( unknown );
+using CallbackPtr = bool ( * )( uc_engine *, memory::CMemory *mem );
+#define callback( name ) bool name( uc_engine *, memory::CMemory * )
 callback( keymgr_dwarf2_register_sections );
 callback( cthread_init_routine );
 callback( dyld_make_delayed_module_initializer_calls );
@@ -111,7 +110,6 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
 static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 
 inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Import_Items{ {
-    // crt1.o stub
     { data::Blr_Opcode, callback::keymgr_dwarf2_register_sections }, // ___keymgr_dwarf2_register_sections
     { data::Blr_Opcode, callback::cthread_init_routine },            // __cthread_init_routine
     { data::Blr_Opcode,

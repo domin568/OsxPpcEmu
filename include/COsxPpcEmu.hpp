@@ -37,13 +37,14 @@ class COsxPpcEmu
     bool print_vm_map( std::ostream &os );
     bool run();
 
+    memory::CMemory m_mem;
 #ifndef DEBUG
   private:
 #endif
     loader::CMachoLoader m_loader;
 
   private:
-    COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader );
+    COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader, memory::CMemory mem );
 
     // limits, addresses, sizes
     static constexpr uint64_t Guest_Virtual_Memory_Size{ 0x1'00'00'00'00 }; // 32 bit virtual address space size
@@ -65,18 +66,20 @@ class COsxPpcEmu
     static std::optional<size_t> get_max_import_data_size(
         const std::span<const std::pair<std::string_view, import::Known_Import_Entry>> &knownImports );
     static bool set_stack( uc_engine *uc, const std::span<const std::string> args,
-                           const std::span<const std::string> env );
+                           const std::span<const std::string> env, memory::CMemory &mem );
     static bool set_args_on_stack( uc_engine *uc, const std::span<const std::string> args,
-                                   const std::span<const std::string> env );
+                                   const std::span<const std::string> env, memory::CMemory &mem );
 
-    static bool resolve_imports( uc_engine *uc, loader::CMachoLoader &loader );
+    static bool resolve_imports( uc_engine *uc, loader::CMachoLoader &loader, memory::CMemory &mem );
     static bool redirect_known_imports(
-        uc_engine *uc, loader::CMachoLoader &loader,
-        const std::span<const std::pair<std::string, std::pair<uint32_t, common::ImportType>>> &imports );
-    static bool write_unknown_import_entry( uc_engine *uc );
-    static bool write_dynamic_import_entries( uc_engine *uc );
-    static bool write_import_entry( uc_engine *uc, size_t offset, const import::Runtime_Import_Table_Entry &entry );
-    static bool patch_import_ptr( uc_engine *uc, size_t offset, uint32_t symbolAddress );
+        uc_engine *uc,
+        const std::span<const std::pair<std::string, std::pair<uint32_t, common::ImportType>>> &allImports,
+        memory::CMemory &mem );
+    static bool write_unknown_import_entry( uc_engine *uc, memory::CMemory &mem );
+    static bool write_dynamic_import_entries( uc_engine *uc, memory::CMemory &mem );
+    static bool write_import_entry( uc_engine *uc, size_t offset, const import::Runtime_Import_Table_Entry entry,
+                                    memory::CMemory &mem );
+    static bool patch_import_ptr( uc_engine *uc, size_t offset, uint32_t symbolAddress, memory::CMemory &mem );
 };
 
 // unicorn hooks

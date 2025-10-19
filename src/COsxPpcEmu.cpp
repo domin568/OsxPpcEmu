@@ -16,7 +16,8 @@
 std::atomic<uint32_t> g_lastAddr{ 0 };
 namespace emu
 {
-COsxPpcEmu::COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader ) : m_uc( uc ), m_loader( std::move( loader ) )
+COsxPpcEmu::COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader, memory::CMemory mem )
+    : m_uc( uc ), m_loader( std::move( loader ) ), m_mem( std::move( mem ) )
 {
 }
 
@@ -30,11 +31,10 @@ std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, 
     if (!std::filesystem::exists( emuTarget ))
         return std::unexpected( Error{ Error::Type::FileNotFound, "File not found." } );
 
-    /*
     std::expected<memory::CMemory, memory::Error> memory{ memory::CMemory::init( Guest_Virtual_Memory_Size ) };
     if (!memory)
         return std::unexpected( Error{ Error::Type::MemoryError, std::move( memory.error().message ) } );
-    */
+
     std::expected<loader::CMachoLoader, loader::Error> loader{ loader::CMachoLoader::init( emuTarget ) };
     if (!loader)
         return std::unexpected{ Error{ Error::Type::ImageLoaderError, std::move( loader.error().message ) } };
@@ -46,21 +46,21 @@ std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, 
     if (err != UC_ERR_OK)
         return std::unexpected( Error{ Error::Type::UnicornOpenError, "Could not create ppc32 unicorn emulator." } );
 
-    if (!loader->map_image_memory( uc ))
+    if (!loader->map_image_memory( uc, *memory ))
         return std::unexpected( Error{ Error::Type::ImageLoaderError, "Could not map image memory." } );
 
     if (!loader->set_unix_thread( uc ))
         return std::unexpected{ Error{ Error::Type::ImageLoaderError, "Could not set Unix thread context." } };
 
-    const bool importResolveSuccess{ resolve_imports( uc, *loader ) };
+    const bool importResolveSuccess{ resolve_imports( uc, *loader, *memory ) };
     if (!importResolveSuccess)
         return std::unexpected{ Error{ Error::Type::ImportRedirectionError, "Could not redirect imports." } };
 
-    if (!set_stack( uc, args, env ))
+    if (!set_stack( uc, args, env, *memory ))
         return std::unexpected(
             Error{ Error::Type::StackInitializationError, "Stack initialization error (argc, argv, envp)." } );
 
-    return COsxPpcEmu{ uc, std::move( loader.value() ) };
+    return COsxPpcEmu{ uc, std::move( *loader ), std::move( *memory ) };
 }
 
 bool COsxPpcEmu::print_vm_map( std::ostream &os )
@@ -120,7 +120,7 @@ bool COsxPpcEmu::run()
 }
 
 bool COsxPpcEmu::set_stack( uc_engine *uc, const std::span<const std::string> args,
-                            const std::span<const std::string> env )
+                            const std::span<const std::string> env, memory::CMemory &mem )
 {
     uc_err err{ uc_reg_write( uc, UC_PPC_REG_1, &Stack_Dyld_Region_Start_Address ) };
     if (err != UC_ERR_OK)
@@ -129,14 +129,13 @@ bool COsxPpcEmu::set_stack( uc_engine *uc, const std::span<const std::string> ar
         return false;
     }
 
-    err = uc_mem_map( uc, Stack_Region_Start_Address, Stack_Size, UC_PROT_ALL );
-    if (err != UC_ERR_OK)
+    if (!mem.commit( uc, Stack_Region_Start_Address, Stack_Size, UC_PROT_ALL ))
     {
         std::cerr << "Could not map stack region." << std::endl;
         return false;
     }
 
-    if (!set_args_on_stack( uc, args, env ))
+    if (!set_args_on_stack( uc, args, env, mem ))
         return false;
 
     return true;
@@ -173,7 +172,7 @@ bool COsxPpcEmu::set_stack( uc_engine *uc, const std::span<const std::string> ar
  *	+-------------+
  */
 bool COsxPpcEmu::set_args_on_stack( uc_engine *uc, const std::span<const std::string> args,
-                                    const std::span<const std::string> env )
+                                    const std::span<const std::string> env, memory::CMemory &mem )
 {
     // calculate offsets
     const auto targetArgs{ args | std::views::drop( 1 ) };
@@ -257,17 +256,12 @@ bool COsxPpcEmu::set_args_on_stack( uc_engine *uc, const std::span<const std::st
         std::cerr << "Dyld stack is too small, size: " << std::hex << stackData.size() << std::endl;
         return false;
     }
-    uc_err err{ uc_mem_write( uc, Stack_Dyld_Region_Start_Address, stackData.data(), stackData.size() ) };
-    if (err != UC_ERR_OK)
-    {
-        std::cerr << "Could not write commandline arguments onto stack, size: " << std::hex << stackData.size()
-                  << std::endl;
-        return false;
-    }
+
+    mem.write( Stack_Dyld_Region_Start_Address, stackData.data(), stackData.size() );
     return true;
 }
 
-bool COsxPpcEmu::resolve_imports( uc_engine *uc, loader::CMachoLoader &loader )
+bool COsxPpcEmu::resolve_imports( uc_engine *uc, loader::CMachoLoader &loader, memory::CMemory &mem )
 {
     const std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, loader::Error>
         staticImports{ loader.get_imports() }; // imports from parsed MachO file
@@ -277,30 +271,29 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, loader::CMachoLoader &loader )
         return false;
     }
 
-    uc_err err{ uc_mem_map( uc, common::Import_Dispatch_Table_Address,
-                            common::page_align_up( import::Import_Table_Size ), UC_PROT_ALL ) };
-    if (err != UC_ERR_OK)
+    if (!mem.commit( uc, common::Import_Dispatch_Table_Address, common::page_align_up( import::Import_Table_Size ),
+                     UC_PROT_ALL ))
     {
         std::cerr << "Could not map import entries memory." << std::endl;
         return false;
     }
     // first import is always "unknown API" entry at 0xF0000000
-    if (!write_unknown_import_entry( uc ))
+    if (!write_unknown_import_entry( uc, mem ))
         return false;
     // then known static imports (got by parsing MachO) are resolved and import entries table filled
-    if (!redirect_known_imports( uc, loader, *staticImports ))
+    if (!redirect_known_imports( uc, *staticImports, mem ))
         return false;
     // then fill entries for dynamic imoprts (e.g. using dyld_lookup_func)
-    if (!write_dynamic_import_entries( uc ))
+    if (!write_dynamic_import_entries( uc, mem ))
         return false;
     return true;
 }
 
 bool COsxPpcEmu::redirect_known_imports(
-    uc_engine *uc, loader::CMachoLoader &loader,
-    const std::span<const std::pair<std::string, std::pair<uint32_t, common::ImportType>>> &imports )
+    uc_engine *uc, const std::span<const std::pair<std::string, std::pair<uint32_t, common::ImportType>>> &allImports,
+    memory::CMemory &mem )
 {
-    for (const auto &[name, addressAndType] : imports)
+    for (const auto &[name, addressAndType] : allImports)
     {
         const auto [address, type] = addressAndType;
 
@@ -328,7 +321,7 @@ bool COsxPpcEmu::redirect_known_imports(
                 : currentImportEntryOffset +
                       static_cast<uint32_t>(
                           sizeof( import::Runtime_Import_Table_Entry::ptrToData ) ) }; // point to ptr or data directly?
-        if (!patch_import_ptr( uc, offset, address ))
+        if (!patch_import_ptr( uc, offset, address, mem ))
         {
             std::cerr << "Could not update pointer to API dispatch entry for " << name << " at " << std::hex
                       << currentImportEntryOffset << std::endl;
@@ -343,7 +336,7 @@ bool COsxPpcEmu::redirect_known_imports(
                 // points in memory, e.g. 0xF0000004
                 .data{ importIt->second.data }, // <- here
             };
-            if (!write_import_entry( uc, currentImportEntryOffset, knownImportEntry ))
+            if (!write_import_entry( uc, currentImportEntryOffset, knownImportEntry, mem ))
             {
                 std::cerr << "Could not write API dispatch entry for " << name << " at " << std::hex
                           << currentImportEntryOffset << std::endl;
@@ -354,14 +347,14 @@ bool COsxPpcEmu::redirect_known_imports(
     return true;
 }
 
-bool COsxPpcEmu::write_unknown_import_entry( uc_engine *uc )
+bool COsxPpcEmu::write_unknown_import_entry( uc_engine *uc, memory::CMemory &mem )
 {
     import::Runtime_Import_Table_Entry unknownImportEntry{
         .ptrToData = common::Import_Dispatch_Table_Address +
                      sizeof( import::Runtime_Import_Table_Entry::ptrToData ), // points in memory
         .data{ import::data::Blr_Opcode },                                    // <- here
     };
-    if (!write_import_entry( uc, common::Import_Dispatch_Table_Address, unknownImportEntry ))
+    if (!write_import_entry( uc, common::Import_Dispatch_Table_Address, unknownImportEntry, mem ))
     {
         std::cerr << "Could not write first API dispatch entry (unknown API) at " << std::hex
                   << common::Import_Dispatch_Table_Address << std::endl;
@@ -370,7 +363,8 @@ bool COsxPpcEmu::write_unknown_import_entry( uc_engine *uc )
     return true;
 }
 
-bool COsxPpcEmu::write_dynamic_import_entries( uc_engine *uc ) // TODO refactor to not duplicate code
+bool COsxPpcEmu::write_dynamic_import_entries( uc_engine *uc,
+                                               memory::CMemory &mem ) // TODO refactor to not duplicate code
 {
     for (const std::string_view s : import::Dynamic_Imports_Names)
     {
@@ -394,7 +388,7 @@ bool COsxPpcEmu::write_dynamic_import_entries( uc_engine *uc ) // TODO refactor 
             // points in memory, e.g. 0xF0000004
             .data{ importIt->second.data }, // <- here
         };
-        if (!write_import_entry( uc, currentImportEntryOffset, knownImportEntry ))
+        if (!write_import_entry( uc, currentImportEntryOffset, knownImportEntry, mem ))
         {
             std::cerr << "Could not write API dispatch entry for " << s << " at " << std::hex
                       << currentImportEntryOffset << std::endl;
@@ -404,28 +398,27 @@ bool COsxPpcEmu::write_dynamic_import_entries( uc_engine *uc ) // TODO refactor 
     return true;
 }
 
-bool COsxPpcEmu::write_import_entry( uc_engine *uc, size_t offset, const import::Runtime_Import_Table_Entry &entry )
+bool COsxPpcEmu::write_import_entry( uc_engine *uc, size_t offset, const import::Runtime_Import_Table_Entry entry,
+                                     memory::CMemory &mem )
 {
     if (entry.ptrToData != 0)
     {
         const uint32_t ptrToDataBe{
             common::ensure_endianness( static_cast<uint32_t>( entry.ptrToData ), std::endian::big ) };
-        uc_err err{ uc_mem_write( uc, offset, &ptrToDataBe, sizeof( ptrToDataBe ) ) };
-        if (err != UC_ERR_OK)
-            return false;
+        mem.write( offset, &ptrToDataBe, sizeof( ptrToDataBe ) );
     }
-
-    uc_err err{ uc_mem_write( uc, offset + sizeof( entry.ptrToData ), entry.data.data(), entry.data.size() ) };
-    return err == UC_ERR_OK;
+    mem.write( offset + sizeof( entry.ptrToData ), entry.data.data(), entry.data.size() );
+    return true;
 }
 
-bool COsxPpcEmu::patch_import_ptr( uc_engine *uc, size_t importEntryOffset, uint32_t symbolAddress )
+bool COsxPpcEmu::patch_import_ptr( uc_engine *uc, size_t importEntryOffset, uint32_t symbolAddress,
+                                   memory::CMemory &mem )
 {
     // e.g. 0xF0000000
     uint32_t ptrToImportData{
         common::ensure_endianness( static_cast<uint32_t>( importEntryOffset ), std::endian::big ) };
-    uc_err err{ uc_mem_write( uc, symbolAddress, &ptrToImportData, sizeof( ptrToImportData ) ) };
-    return err == UC_ERR_OK;
+    mem.write( symbolAddress, &ptrToImportData, sizeof( ptrToImportData ) );
+    return true;
 }
 
 void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
@@ -436,7 +429,9 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
     print_api_call_source( uc, address, idx, emu );
     // print_context( uc );
 #endif
-    import::Import_Items[idx - import::Unknown_Import_Shift].hook( uc, &emu->m_loader ); // call API dispatch function
+    if (idx > 0)
+        import::Import_Items[idx - import::Unknown_Import_Shift].hook( uc,
+                                                                       &emu->m_mem ); // call API dispatch function
 }
 
 void hook_trace( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )

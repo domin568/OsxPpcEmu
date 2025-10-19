@@ -5,9 +5,8 @@
  **/
 
 #include "../include/CMachoLoader.hpp"
+#include "../include/CMemory.hpp"
 #include "../include/Common.hpp"
-#include "../include/ImportDispatch.hpp"
-
 #include <LIEF/MachO.hpp>
 #include <bit>
 #include <filesystem>
@@ -55,7 +54,7 @@ std::expected<CMachoLoader, Error> CMachoLoader::init( const std::string &path )
     return loader;
 }
 
-bool CMachoLoader::map_image_memory( uc_engine *uc )
+bool CMachoLoader::map_image_memory( uc_engine *uc, memory::CMemory &mem )
 {
     for (const auto &seg : m_executable->segments())
     {
@@ -64,11 +63,9 @@ bool CMachoLoader::map_image_memory( uc_engine *uc )
         uint64_t map_size = map_end - map_start;
         int perms = translate_prot( seg.max_protection() );
 
-        uc_err err{ uc_mem_map( uc, map_start, map_size, perms ) };
-        if (err != UC_ERR_OK)
+        if (!mem.commit( uc, map_start, map_size, perms ))
         {
-            std::cerr << "Error mapping memory from MachO file\n uc error:" << std::hex << "0x" << err << "\n -> "
-                      << uc_strerror( err ) << "\n SEGMENT: " << seg.name() << std::endl;
+            std::cerr << "Error mapping memory from MachO file" << "\n SEGMENT: " << seg.name() << std::endl;
             return false;
         }
 
@@ -81,12 +78,7 @@ bool CMachoLoader::map_image_memory( uc_engine *uc )
 
         if (seg.file_size() > 0)
         {
-            err = uc_mem_write( uc, map_start, seg.content().data(), seg.content().size() );
-            if (err != UC_ERR_OK)
-            {
-                std::cerr << "SEGMENT: " << seg.name() << " could not be written to unicorn" << std::endl;
-                return false;
-            }
+            mem.write( map_start, seg.content().data(), seg.content().size() );
         }
     }
     return true;

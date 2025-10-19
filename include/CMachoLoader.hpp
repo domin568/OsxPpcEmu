@@ -5,6 +5,7 @@
  **/
 #pragma once
 #include "../include/Common.hpp"
+#include "CMemory.hpp"
 #include <LIEF/MachO.hpp>
 #include <expected>
 #include <flat_map>
@@ -38,7 +39,7 @@ class CMachoLoader
     };
 
     static std::expected<CMachoLoader, Error> init( const std::string &path );
-    bool map_image_memory( uc_engine *uc );
+    bool map_image_memory( uc_engine *uc, memory::CMemory &mem );
     bool set_unix_thread( uc_engine *uc );
     std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, Error> get_imports();
     uint32_t get_ep();
