@@ -279,4 +279,40 @@ bool dyld_stub_binding_helper( uc_engine *uc, memory::CMemory *mem )
 {
     return true;
 }
+/*
+bool vsnprintf( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<4>( uc ) };
+    if (!args.has_value())
+        return false;
+    const auto &[sOrg, n, formatOrg, apOrg] = *args;
+
+    char *s{ reinterpret_cast<char *>( mem->get( sOrg ) ) };
+    const char *format{ reinterpret_cast<const char *>( mem->get( formatOrg ) ) };
+
+    int ret{ ::vsnprintf( s, n, format, ap ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write vsnprintf return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+*/
+
+bool vsnprintf( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments_var<char *, size_t, const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto &[s, n, format] = *args;
+
+    int ret{ ::vsnprintf( s, n, format, nullptr ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write vsnprintf return value" << std::endl;
+        return false;
+    }
+    return true;
+}
 } // namespace import::callback

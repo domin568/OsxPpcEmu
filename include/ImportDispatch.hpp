@@ -36,6 +36,7 @@ callback( strlen );
 callback( strrchr );
 callback( strncpy );
 callback( dyld_stub_binding_helper );
+callback( vsnprintf );
 
 template <std::size_t U> std::optional<std::array<uint32_t, U>> get_arguments( uc_engine *uc )
 {
@@ -52,6 +53,78 @@ template <std::size_t U> std::optional<std::array<uint32_t, U>> get_arguments( u
         regId++;
     }
     return args;
+}
+
+template <std::size_t I, template <typename> class Pred, typename... Ts> struct count_before;
+template <std::size_t I, template <typename> class Pred> struct count_before<I, Pred>
+{
+    static constexpr std::size_t value = 0;
+};
+template <std::size_t I, template <typename> class Pred, typename First, typename... Rest>
+struct count_before<I, Pred, First, Rest...>
+{
+    static constexpr std::size_t value =
+        I == 0 ? 0 : ( ( Pred<First>::value ? 1u : 0u ) + count_before<I - 1, Pred, Rest...>::value );
+};
+
+template <typename T> using IsGprArg = std::bool_constant<std::is_integral_v<T> || std::is_pointer_v<T>>;
+template <typename T> using IsFprArg = std::bool_constant<std::is_floating_point_v<T>>;
+
+template <typename T> std::optional<T> read_argument( uc_engine *uc, memory::CMemory *mem, const uc_ppc_reg regId )
+{
+    uint64_t reg{};
+    if (uc_reg_read( uc, regId, &reg ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not read argument" << std::endl;
+        return {};
+    }
+    if constexpr (std::is_integral_v<T>)
+        return static_cast<T>( reg );
+    else if constexpr (std::is_pointer_v<T>)
+        return reinterpret_cast<T>( mem->get( reg ) );
+    else if constexpr (std::is_same_v<T, double>)
+        return std::bit_cast<double>( reg );
+    else if constexpr (std::is_same_v<T, float>)
+        return std::bit_cast<float>( static_cast<uint32_t>( reg ) );
+    return {};
+}
+
+template <typename... Args, std::size_t... I>
+std::optional<std::tuple<Args...>> read_arguments_idx( uc_engine *uc, memory::CMemory *mem, std::index_sequence<I...> )
+{
+    auto opts {
+        std::make_tuple( ( [uc, mem]<std::size_t idx, typename T>() -> std::optional<T> {
+            if constexpr (IsGprArg<T>::value)
+            {
+                constexpr std::size_t offset{ count_before<idx, IsGprArg, Args...>::value };
+                constexpr uc_ppc_reg base{ UC_PPC_REG_3 };
+                return read_argument<T>( uc, mem, static_cast<uc_ppc_reg>( base + offset ) );
+            }
+            else if constexpr (IsFprArg<T>::value)
+            {
+                constexpr std::size_t offset{ count_before<idx, IsFprArg, Args...>::value };
+                constexpr uc_ppc_reg base{ UC_PPC_REG_FPR1 };
+                return read_argument<T>( uc, mem, static_cast<uc_ppc_reg>( base + offset ) );
+            }
+            return std::optional<T>{};
+        }.template operator()<I, std::tuple_element_t<I, std::tuple<Args...>>>() )... )
+    };
+
+    const bool ok{ ( ... && static_cast<bool>( std::get<I>( opts ) ) ) };
+    if (!ok)
+        return {};
+    return std::make_optional( std::make_tuple( ( *std::get<I>( opts ) )... ) );
+}
+
+template <typename... Args> std::optional<std::tuple<Args...>> get_arguments_var( uc_engine *uc, memory::CMemory *mem )
+{
+    return read_arguments_idx<Args...>( uc, mem, std::index_sequence_for<Args...>{} );
+}
+
+inline va_list read_va_list( void *ptr )
+{
+    va_list ap{};
+    return ap;
 }
 
 } // namespace callback
@@ -106,6 +179,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_strncpy",
     "_strrchr",
     "_stub_binding_helper_ptr_in_dyld",
+    "_vsnprintf",
 } ) };
 static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 
@@ -130,6 +204,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::strncpy },                  // _strncpy
     { data::Blr_Opcode, callback::strrchr },                  // _strrchr
     { data::Blr_Opcode, callback::dyld_stub_binding_helper }, // _stub_binding_helper_ptr_in_dyld
+    { data::Blr_Opcode, callback::vsnprintf },                // _vsnprintf
 } };
 
 inline constexpr std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Import_Names.size()>
