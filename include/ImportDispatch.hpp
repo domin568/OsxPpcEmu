@@ -38,23 +38,6 @@ callback( strncpy );
 callback( dyld_stub_binding_helper );
 callback( vsnprintf );
 
-template <std::size_t U> std::optional<std::array<uint32_t, U>> get_arguments( uc_engine *uc )
-{
-    static_assert( U <= 8, "stack arguments not implemented yet" );
-    std::array<uint32_t, U> args{};
-    int regId{ UC_PPC_REG_3 };
-    for (size_t i{ 0 }; i < U; i++)
-    {
-        if (uc_reg_read( uc, regId, &args[i] ) != UC_ERR_OK)
-        {
-            std::cerr << "Could not read argument" << std::endl;
-            return {};
-        }
-        regId++;
-    }
-    return args;
-}
-
 template <std::size_t I, template <typename> class Pred, typename... Ts> struct count_before;
 template <std::size_t I, template <typename> class Pred> struct count_before<I, Pred>
 {
@@ -116,15 +99,9 @@ std::optional<std::tuple<Args...>> read_arguments_idx( uc_engine *uc, memory::CM
     return std::make_optional( std::make_tuple( ( *std::get<I>( opts ) )... ) );
 }
 
-template <typename... Args> std::optional<std::tuple<Args...>> get_arguments_var( uc_engine *uc, memory::CMemory *mem )
+template <typename... Args> std::optional<std::tuple<Args...>> get_arguments( uc_engine *uc, memory::CMemory *mem )
 {
     return read_arguments_idx<Args...>( uc, mem, std::index_sequence_for<Args...>{} );
-}
-
-inline va_list read_va_list( void *ptr )
-{
-    va_list ap{};
-    return ap;
 }
 
 } // namespace callback

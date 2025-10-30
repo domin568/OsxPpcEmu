@@ -29,19 +29,13 @@ bool dyld_make_delayed_module_initializer_calls( uc_engine *uc, memory::CMemory 
 // int _dyld_func_lookup(const char *dyld_func_name, void **address);
 bool dyld_func_lookup( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments<2>( uc ) };
+    const auto args{ get_arguments<const char *, uint64_t>( uc, mem ) };
     if (!args.has_value())
         return false;
-    const auto [nameVa, callbackAddressPtr] = *args;
+    const auto [namePtr, callbackAddress] = *args;
+    std::string name( namePtr );
 
-    const std::optional<std::string> name{ common::read_string_at_va( uc, nameVa ) };
-    if (!name.has_value())
-    {
-        std::cerr << "Could not read string at VA: 0x" << std::hex << nameVa << std::endl;
-        return false;
-    }
-
-    std::optional<uint32_t> importEntryVa{ common::get_import_entry_va_by_name( *name ) };
+    std::optional<uint32_t> importEntryVa{ common::get_import_entry_va_by_name( name ) };
     if (!importEntryVa.has_value())
         // TODO fix? crt1 code check for null every function except __dyld_make_delayed_module_initializer_calls
         *importEntryVa = 0;
@@ -49,7 +43,7 @@ bool dyld_func_lookup( uc_engine *uc, memory::CMemory *mem )
         *importEntryVa += sizeof( uint32_t ); // + sizeof(uint32_t) as it is direct import
 
     uint32_t callbackAddressBe{ common::ensure_endianness( *importEntryVa, std::endian::big ) };
-    if (uc_mem_write( uc, callbackAddressPtr, &callbackAddressBe, sizeof( callbackAddressBe ) ) != UC_ERR_OK)
+    if (uc_mem_write( uc, callbackAddress, &callbackAddressBe, sizeof( callbackAddressBe ) ) != UC_ERR_OK)
     {
         std::cerr << "Could not write dyld_func_lookup resolved address to memory" << std::endl;
         return false;
@@ -76,37 +70,23 @@ bool mach_init_routine( uc_engine *uc, memory::CMemory *mem )
 // void* memmove( void* dest, const void* src, std::size_t count );
 bool memmove( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments<3>( uc ) };
+    const auto args{ get_arguments<void *, const void *, std::size_t>( uc, mem ) };
     if (!args.has_value())
         return false;
-    const auto [destVa, sourceVa, count] = *args;
-
-#ifdef DEBUG
-    std::vector<uint8_t> buffer( count );
-    if (uc_mem_read( uc, sourceVa, buffer.data(), count ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not read source data" << std::endl;
-        return false;
-    }
-    for (const auto &b : buffer)
-    {
-        std::cout << std::hex << b << "";
-    }
-    std::cout << std::endl;
-#endif
-    ::memmove( mem->get( destVa ), mem->get( sourceVa ), count );
+    const auto [dest, source, count] = *args;
+    ::memmove( dest, source, count );
     return true;
 }
 
 // void *memset(void *str, int c, size_t n)
 bool memset( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments<3>( uc ) };
+    const auto args{ get_arguments<void *, int, std::size_t>( uc, mem ) };
     if (!args.has_value())
         return false;
-    const auto [strVa, c, n] = *args;
-    ::memset( mem->get( strVa ), c, n * sizeof( char ) );
-    if (uc_reg_write( uc, UC_PPC_REG_3, &strVa ) != UC_ERR_OK)
+    const auto [str, c, n] = *args;
+    ::memset( str, c, n * sizeof( char ) );
+    if (uc_reg_write( uc, UC_PPC_REG_3, &str ) != UC_ERR_OK)
     {
         std::cerr << "Could not write memset return" << std::endl;
         return true;
@@ -117,11 +97,11 @@ bool memset( uc_engine *uc, memory::CMemory *mem )
 // int puts(const char *str);
 bool puts( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments<1>( uc ) };
+    const auto args{ get_arguments<const char *>( uc, mem ) };
     if (!args.has_value())
         return false;
-    const auto [nameVa] = *args;
-    ::puts( reinterpret_cast<const char *>( mem->get( nameVa ) ) );
+    const auto [str] = *args;
+    ::puts( str );
     return true;
 }
 
@@ -140,14 +120,16 @@ bool setvbuf( uc_engine *uc, memory::CMemory *mem )
 // char * strcat( char * destination, const char * source );
 bool strcat( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments<2>( uc ) };
+    const auto args{ get_arguments<char *, const char *>( uc, mem ) };
     if (!args.has_value())
         return false;
     const auto [dest, src] = *args;
-    char *ret{
-        ::strcat( reinterpret_cast<char *>( mem->get( dest ) ), reinterpret_cast<const char *>( mem->get( src ) ) ) };
-
+    char *ret{ ::strcat( dest, src ) };
     uint32_t retGuest{ mem->to_guest( ret ) };
+#ifdef DEBUG
+    std::cout << "strcat src " << src << std::endl;
+    std::cout << "strcat return " << ret << std::endl;
+#endif
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strcat return value" << std::endl;
@@ -159,12 +141,16 @@ bool strcat( uc_engine *uc, memory::CMemory *mem )
 // char * strchr( const char * str, int ch );
 bool strchr( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments<2>( uc ) };
+    const auto args{ get_arguments<char *, int>( uc, mem ) };
     if (!args.has_value())
         return false;
-    const auto [strVa, ch] = *args;
-    char *ret{ ::strchr( reinterpret_cast<char *>( mem->get( strVa ) ), ch ) };
+    const auto [str, ch] = *args;
+    char *ret{ ::strchr( str, ch ) };
     uint32_t retGuest{ mem->to_guest( ret ) };
+#ifdef DEBUG
+    std::cout << "strchr str " << str << std::endl;
+    std::cout << "strchr return " << ret << std::endl;
+#endif
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strchr return value" << std::endl;
@@ -176,21 +162,14 @@ bool strchr( uc_engine *uc, memory::CMemory *mem )
 // size_t strlen( const char * str );
 bool strlen( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments<1>( uc ) };
+    const auto args{ get_arguments<const char *>( uc, mem ) };
     if (!args.has_value())
         return false;
-    const auto [strVa] = *args;
-    size_t ret{ ::strlen( reinterpret_cast<const char *>( mem->get( strVa ) ) ) };
+    const auto [str] = *args;
+    std::size_t ret{ ::strlen( str ) };
 #ifdef DEBUG
-    std::optional<std::string> str{ common::read_string_at_va( uc, strVa ) };
-    if (!str.has_value())
-    {
-        std::cerr << "Could not read string at VA: 0x" << std::hex << strVa << std::endl;
-        return false;
-    }
-
-    std::cout << "str " << *str << std::endl;
-    std::cout << "return " << ret << std::endl;
+    std::cout << "strlen str " << str << std::endl;
+    std::cout << "strlen return " << ret << std::endl;
 #endif
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
@@ -203,13 +182,17 @@ bool strlen( uc_engine *uc, memory::CMemory *mem )
 // char * strrchr( const char * str, int ch );
 bool strrchr( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments<2>( uc ) };
+    const auto args{ get_arguments<char *, int>( uc, mem ) };
     if (!args.has_value())
         return false;
-    const auto [strVa, ch] = *args;
+    const auto [str, ch] = *args;
 
-    char *ret{ ::strrchr( reinterpret_cast<char *>( mem->get( strVa ) ), ch ) };
+    char *ret{ ::strrchr( str, ch ) };
     uint32_t retGuest{ mem->to_guest( ret ) };
+#ifdef DEBUG
+    std::cout << "strrchr str " << str << std::endl;
+    std::cout << "strrchr return " << ret << std::endl;
+#endif
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strrchr return value" << std::endl;
@@ -221,13 +204,12 @@ bool strrchr( uc_engine *uc, memory::CMemory *mem )
 // char *strcpy( char *dest, const char *src );
 bool strcpy( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments<2>( uc ) };
+    const auto args{ get_arguments<char *, const char *>( uc, mem ) };
     if (!args.has_value())
         return false;
-    const auto [destVa, sourceVa] = *args;
+    const auto [dest, source] = *args;
 
-    char *ret{ ::strcpy( reinterpret_cast<char *>( mem->get( destVa ) ),
-                         reinterpret_cast<const char *>( mem->get( sourceVa ) ) ) };
+    char *ret{ ::strcpy( dest, source ) };
     uint32_t retGuest{ mem->to_guest( ret ) };
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
@@ -235,13 +217,7 @@ bool strcpy( uc_engine *uc, memory::CMemory *mem )
         return false;
     }
 #ifdef DEBUG
-    const std::optional<std::string> source{ common::read_string_at_va( uc, sourceVa ) };
-    if (!source.has_value())
-    {
-        std::cerr << "Could not read string at VA: 0x" << std::hex << sourceVa << std::endl;
-        return false;
-    }
-    std::cout << "source " << *source << std::endl;
+    std::cout << "strcpy source :" << source << std::endl;
 #endif
     return true;
 }
@@ -249,28 +225,21 @@ bool strcpy( uc_engine *uc, memory::CMemory *mem )
 // char * strncpy ( char * destination, const char * source, size_t num );
 bool strncpy( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments<3>( uc ) };
+    const auto args{ get_arguments<char *, const char *, std::size_t>( uc, mem ) };
     if (!args.has_value())
         return false;
-    const auto [destVa, sourceVa, num] = *args;
+    const auto [dest, source, num] = *args;
 
-    char *ret{ ::strncpy( reinterpret_cast<char *>( mem->get( destVa ) ),
-                          reinterpret_cast<const char *>( mem->get( sourceVa ) ), num ) };
+    char *ret{ ::strncpy( dest, source, num ) };
     uint32_t retGuest{ mem->to_guest( ret ) };
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
-        std::cerr << "Could not write strrchr return value" << std::endl;
+        std::cerr << "Could not write strncpy return value" << std::endl;
         return false;
     }
 
 #ifdef DEBUG
-    std::optional<std::string> source{ common::read_string_at_va( uc, sourceVa ) };
-    if (!source.has_value())
-    {
-        std::cerr << "Could not read string at VA: 0x" << std::hex << sourceVa << std::endl;
-        return false;
-    }
-    std::cout << "source " << *source << std::endl;
+    std::cout << "strncpy source : " << source << std::endl;
 #endif
     return true;
 }
@@ -279,35 +248,17 @@ bool dyld_stub_binding_helper( uc_engine *uc, memory::CMemory *mem )
 {
     return true;
 }
-/*
-bool vsnprintf( uc_engine *uc, memory::CMemory *mem )
-{
-    const auto args{ get_arguments<4>( uc ) };
-    if (!args.has_value())
-        return false;
-    const auto &[sOrg, n, formatOrg, apOrg] = *args;
-
-    char *s{ reinterpret_cast<char *>( mem->get( sOrg ) ) };
-    const char *format{ reinterpret_cast<const char *>( mem->get( formatOrg ) ) };
-
-    int ret{ ::vsnprintf( s, n, format, ap ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write vsnprintf return value" << std::endl;
-        return false;
-    }
-    return true;
-}
-*/
 
 bool vsnprintf( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments_var<char *, size_t, const char *>( uc, mem ) };
+    const auto args{ get_arguments<char *, size_t, const char *, void *>( uc, mem ) };
     if (!args.has_value())
         return false;
-    const auto &[s, n, format] = *args;
+    const auto &[s, n, format, apPtr] = *args;
+    std::vector formatArgs{ common::get_format_arguments( mem, apPtr, format ) };
 
-    int ret{ ::vsnprintf( s, n, format, nullptr ) };
+    // TODO this is probably really fragile code
+    int ret{ ::vsnprintf( s, n, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write vsnprintf return value" << std::endl;

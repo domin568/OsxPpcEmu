@@ -4,11 +4,9 @@
  * Brief:     main source file
  **/
 
-#include "../include/CMachoLoader.hpp"
 #include "../include/COsxPpcEmu.hpp"
 #include <array>
 #include <iostream>
-#include <unicorn/unicorn.h>
 
 int main( int argc, const char *argv[] )
 {

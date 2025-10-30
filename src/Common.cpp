@@ -7,6 +7,7 @@
 #include "../include/Common.hpp"
 #include "../include/CMachoLoader.hpp"
 #include "../include/ImportDispatch.hpp"
+#include <numeric>
 
 namespace common
 {
@@ -64,6 +65,37 @@ std::optional<uint32_t> get_import_entry_va_by_name( const std::string &name )
     const ptrdiff_t idx{ std::distance( import::Name_To_Import_Item_Flat.begin(), importIt ) };
     return static_cast<uint32_t>( common::Import_Dispatch_Table_Address +
                                   ( idx + import::Unknown_Import_Shift ) * import::Import_Entry_Size );
+}
+
+std::size_t count_format_specifiers( std::string_view format )
+{
+    std::size_t count{ 0 };
+    for (std::size_t p{ format.find( '%' ) }; p != std::string_view::npos; p = format.find( '%', p + 1 ))
+    {
+        if (p + 1 < format.size())
+        {
+            if (format[p + 1] == '%')
+            {
+                ++p;
+                continue;
+            }
+            count++;
+        }
+    }
+    return count;
+};
+
+std::vector<void *> get_format_arguments( memory::CMemory *mem, void *argsPtr, std::string_view format )
+{
+    std::vector<void *> args{};
+    const std::size_t formatSpecifiersCount{ count_format_specifiers( format ) };
+    const std::span<const uint32_t> argsGuest{ reinterpret_cast<uint32_t *>( argsPtr ), formatSpecifiersCount };
+    for (const auto guestVaBe : argsGuest)
+    {
+        const uint32_t guestVa{ ensure_endianness( guestVaBe, std::endian::big ) };
+        args.push_back( mem->get( guestVa ) );
+    };
+    return args;
 }
 
 } // namespace common

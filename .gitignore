@@ -1,8 +1,7 @@
-/test
+/samples
 .DS_Store
 /build
 /cmake-build-debug
-/test
 /thirdparty
 /.idea
 /resources
