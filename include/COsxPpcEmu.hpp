@@ -8,7 +8,6 @@
 #include "../include/Common.hpp"
 #include "../include/ImportDispatch.hpp"
 #include <expected>
-#include <flat_map>
 #include <unicorn/unicorn.h>
 
 namespace emu

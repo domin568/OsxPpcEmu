@@ -6,8 +6,7 @@
 
 #include "../include/ImportDispatch.hpp"
 #include "../include/COsxPpcEmu.hpp"
-#include <algorithm>
-#include <iostream>
+#include <sys/stat.h>
 
 namespace import::callback
 {
@@ -62,8 +61,69 @@ bool exit( uc_engine *uc, memory::CMemory *mem )
     return true;
 }
 
+// size_t fwrite( const void * buffer, size_t size, size_t count, FILE * stream );
+bool fwrite( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<const void *, std::size_t, std::size_t, uint64_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [buffer, size, count, stream] = *args;
+
+#ifdef DEBUG
+    std::cout << "fwrite buffer " << buffer << std::endl;
+    std::cout << "fwrite stream " << stream << std::endl;
+#endif
+
+    FILE *f{};
+    if (stream == 0)
+        f = stdin;
+    if (stream == 0)
+        f = stdout;
+    if (stream == 0)
+        f = stderr;
+    std::size_t ret{ fwrite( buffer, size, count, f ) };
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write fwrite return" << std::endl;
+        return true;
+    }
+    return true;
+}
+
+// int fstat(int fd, struct stat *buf);
+bool fstat( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<int, void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    // TODO
+    return true;
+}
+
+// int ioctl(int fd, unsigned long op, ...);
+bool ioctl( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<int, uint32_t, void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    // TODO
+    return true;
+}
+
 bool mach_init_routine( uc_engine *uc, memory::CMemory *mem )
 {
+    return true;
+}
+
+// void* memcpy(void * destination, const void * source, size_t num);
+bool memcpy( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<void *, const void *, std::size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [dest, source, count] = *args;
+    ::memcpy( dest, source, count );
     return true;
 }
 
@@ -108,12 +168,40 @@ bool puts( uc_engine *uc, memory::CMemory *mem )
 // int setvbuf( FILE * stream, char * buffer, int mode, size_t size );
 bool setvbuf( uc_engine *uc, memory::CMemory *mem )
 {
+    const auto args{ get_arguments<void *, char *, int, size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    // TODO
     uint32_t success{ 0 };
     if (uc_reg_write( uc, UC_PPC_REG_3, &success ) != UC_ERR_OK)
     {
         std::cerr << "Could not write return value of setvbuf" << std::endl;
         return true;
     }
+    return true;
+}
+
+// sighandler_t signal(int signum, sighandler_t handler);
+bool signal( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<int, void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    // TODO
+    return true;
+}
+
+// int stat(const char * restrict path,	struct stat * restrict sb);
+bool stat( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<const char *, void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [path, sb] = *args;
+
+#ifdef DEBUG
+    std::cout << "stat path: " << path << std::endl;
+#endif
     return true;
 }
 
@@ -257,13 +345,18 @@ bool vsnprintf( uc_engine *uc, memory::CMemory *mem )
     const auto &[s, n, format, apPtr] = *args;
     std::vector formatArgs{ common::get_format_arguments( mem, apPtr, format ) };
 
-    // TODO this is probably really fragile code
+    // UB but for now works for arm64 mac os
     int ret{ ::vsnprintf( s, n, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write vsnprintf return value" << std::endl;
         return false;
     }
+
+#ifdef DEBUG
+    std::cout << "vsnprintf format :" << format << std::endl;
+    std::cout << "vsnprintf s :" << s << std::endl;
+#endif
     return true;
 }
 } // namespace import::callback

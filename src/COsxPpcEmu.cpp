@@ -9,6 +9,7 @@
 #include "../include/CMemory.hpp"
 #include "../include/Common.hpp"
 #include "../include/ImportDispatch.hpp"
+#include <atomic>
 #include <filesystem>
 #include <iostream>
 #include <ranges>

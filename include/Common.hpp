@@ -3,6 +3,7 @@
  * Created:   08.09.2025
  * Brief:     Common types
  **/
+#include <exception> // LIEF fix
 #pragma once
 #include "CMemory.hpp"
 #include <LIEF/MachO.hpp>

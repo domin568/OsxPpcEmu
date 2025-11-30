@@ -24,11 +24,17 @@ callback( dyld_make_delayed_module_initializer_calls );
 callback( dyld_func_lookup );
 callback( atexit );
 callback( exit );
+callback( fwrite );
+callback( fstat );
+callback( ioctl );
 callback( mach_init_routine );
+callback( memcpy );
 callback( memmove );
 callback( memset );
 callback( puts );
 callback( setvbuf );
+callback( signal );
+callback( stat );
 callback( strcat );
 callback( strchr );
 callback( strcpy );
@@ -111,6 +117,7 @@ namespace data
 inline constexpr std::array<uint8_t, 4> Blr_Opcode{ 0x4E, 0x80, 0x00, 0x20 };
 inline constexpr std::array<uint8_t, 4> Dword_Mem{ 0x00, 0x00, 0x00, 0x00 };
 inline constexpr std::array<uint8_t, 4> Trap_Opcode{ 0x7F, 0xE0, 0x00, 0x08 };
+// inline constexpr std::array<uint8_t, 3 * sizeof( FILE )> Stdio_File_Std_Descriptors{};
 } // namespace data
 
 struct Known_Import_Entry
@@ -138,17 +145,24 @@ inline constexpr size_t Unknown_Import_Index{ 0 };
 inline constexpr size_t Unknown_Import_Shift{ 1 };
 inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "___keymgr_dwarf2_register_sections",
+    "___sF",
     "__cthread_init_routine",
     "__dyld_make_delayed_module_initializer_calls",
     "_atexit",
     "_dyld_func_lookup_ptr_in_dyld",
     "_errno",
     "_exit",
+    "_fstat",
+    "_fwrite",
+    "_ioctl",
     "_mach_init_routine",
+    "_memcpy",
     "_memmove",
     "_memset",
     "_puts",
     "_setvbuf",
+    "_signal",
+    "_stat",
     "_strcat",
     "_strchr",
     "_strcpy",
@@ -162,6 +176,7 @@ static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 
 inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Import_Items{ {
     { data::Blr_Opcode, callback::keymgr_dwarf2_register_sections }, // ___keymgr_dwarf2_register_sections
+    { data::Dword_Mem, nullptr },                                    // ___sF
     { data::Blr_Opcode, callback::cthread_init_routine },            // __cthread_init_routine
     { data::Blr_Opcode,
       callback::dyld_make_delayed_module_initializer_calls }, // __dyld_make_delayed_module_initializer_calls
@@ -169,11 +184,17 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::dyld_func_lookup },         // _dyld_func_lookup_ptr_in_dyld
     { data::Dword_Mem, nullptr },                             // _errno
     { data::Trap_Opcode, callback::exit },                    // _exit
+    { data::Blr_Opcode, callback::fstat },                    // _fstat
+    { data::Blr_Opcode, callback::fwrite },                   // _fwrite
+    { data::Blr_Opcode, callback::ioctl },                    // _ioctl
     { data::Blr_Opcode, callback::mach_init_routine },        // _mach_init_routine
+    { data::Blr_Opcode, callback::memcpy },                   // _memcpy
     { data::Blr_Opcode, callback::memmove },                  // _memmove
     { data::Blr_Opcode, callback::memset },                   // _memset
     { data::Blr_Opcode, callback::puts },                     // _puts
     { data::Blr_Opcode, callback::setvbuf },                  // _setvbuf
+    { data::Blr_Opcode, callback::signal },                   // _signal
+    { data::Blr_Opcode, callback::stat },                     // _stat
     { data::Blr_Opcode, callback::strcat },                   // _strcat
     { data::Blr_Opcode, callback::strchr },                   // _strchr
     { data::Blr_Opcode, callback::strcpy },                   // _strcpy

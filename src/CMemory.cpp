@@ -5,8 +5,10 @@
  **/
 #include "../include/CMemory.hpp"
 #include <cstddef>
+#include <cstring>
 #include <expected>
 #include <iostream>
+#include <mutex>
 #include <ostream>
 #include <unicorn/unicorn.h>
 #ifdef _WIN32

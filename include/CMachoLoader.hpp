@@ -8,7 +8,6 @@
 #include "CMemory.hpp"
 #include <LIEF/MachO.hpp>
 #include <expected>
-#include <flat_map>
 #include <optional>
 #include <unicorn/unicorn.h>
 
@@ -54,10 +53,10 @@ class CMachoLoader
     static constexpr size_t Max_Segment_File_Size{ 32u * 1024 * 1024 };
     static constexpr size_t Ppc_Thread_State{ 1 };
     static constexpr size_t Dyld_Section_Symbol_Count{ 2 };
-    static constexpr std::string Non_Lazy_Symbols_Ptr_Section_Name{ "__nl_symbol_ptr" };
-    static constexpr std::string Lazy_Symbols_Ptr_Section_Name{ "__la_symbol_ptr" };
-    static constexpr std::string Dyld_Symbol_Ptr_Section_Name{ "__dyld" };
-    static constexpr std::string Text_Segment_Name{ "__TEXT" };
+    static constexpr std::string_view Non_Lazy_Symbols_Ptr_Section_Name{ "__nl_symbol_ptr" };
+    static constexpr std::string_view Lazy_Symbols_Ptr_Section_Name{ "__la_symbol_ptr" };
+    static constexpr std::string_view Dyld_Symbol_Ptr_Section_Name{ "__dyld" };
+    static constexpr std::string_view Text_Segment_Name{ "__TEXT" };
 
     static inline const std::unordered_map<SymbolSection, std::string> Symbol_Section_Name{ {
         { SymbolSection::TEXT, "__text" },
