@@ -37,7 +37,7 @@ bool dyld_func_lookup( uc_engine *uc, memory::CMemory *mem )
     std::optional<uint32_t> importEntryVa{ common::get_import_entry_va_by_name( name ) };
     if (!importEntryVa.has_value())
         // TODO fix? crt1 code check for null every function except __dyld_make_delayed_module_initializer_calls
-        *importEntryVa = 0;
+        importEntryVa.emplace(0);
     else
         *importEntryVa += sizeof( uint32_t ); // + sizeof(uint32_t) as it is direct import
 

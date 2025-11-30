@@ -111,33 +111,33 @@ bool CMemory::commit( uc_engine *uc, uintptr_t guestAddress, size_t size, int pr
     if (( guestAddress & 0xfff ) != 0 || ( size & 0xfff ) != 0) // check for unicorn memory manager
         return false;
 
-#ifdef _WIN32
-    // TODO
-    auto base = reinterpret_cast<unsigned char *>( m_memPtr ) + static_cast<size_t>( guestAddress );
-    void *res = VirtualAlloc( base, size, MEM_COMMIT, PAGE_READWRITE );
-    return res != nullptr;
-#else
-    size_t pageSize = sysconf( _SC_PAGE_SIZE );
-    if (pageSize == -1)
+    std::size_t pageSize{ get_system_page_size() };
+    if (pageSize == 0)
         return false;
 
     uintptr_t hostPtrVal{ m_address + guestAddress };
     uintptr_t hostPtrValAlignedDown{ hostPtrVal & ~( pageSize - 1 ) };
     uintptr_t hostPtrDiff{ hostPtrVal - hostPtrValAlignedDown };
     size_t alignedUpSize{ ( size + hostPtrDiff + pageSize - 1 ) & ~( pageSize - 1 ) };
+
+#ifdef _WIN32
+    auto base{ reinterpret_cast<unsigned char *>( m_memPtr ) + static_cast<size_t>( guestAddress ) };
+    void *res{ VirtualAlloc( reinterpret_cast<void*>(hostPtrValAlignedDown), alignedUpSize, MEM_COMMIT, PAGE_READWRITE ) }; // TODO prot
+    if (res == nullptr)
+        return false;
+#else // UNIX 
     if (mprotect( reinterpret_cast<void *>( hostPtrValAlignedDown ), alignedUpSize, PROT_READ | PROT_WRITE ) != 0)
     {
         std::cout << errno << std::endl;
         return false;
     }
-
+ #endif
     if (!check( guestAddress, size ))
         return false;
 
     if (uc_mem_map_ptr( uc, guestAddress, size, prot, reinterpret_cast<void *>( hostPtrVal ) ) != UC_ERR_OK)
         return false;
-#endif
-    // TODO add memory range
+
     return true;
 }
 
