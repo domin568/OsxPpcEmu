@@ -37,7 +37,7 @@ bool dyld_func_lookup( uc_engine *uc, memory::CMemory *mem )
     std::optional<uint32_t> importEntryVa{ common::get_import_entry_va_by_name( name ) };
     if (!importEntryVa.has_value())
         // TODO fix? crt1 code check for null every function except __dyld_make_delayed_module_initializer_calls
-        importEntryVa.emplace(0);
+        importEntryVa.emplace( 0 );
     else
         *importEntryVa += sizeof( uint32_t ); // + sizeof(uint32_t) as it is direct import
 
@@ -64,23 +64,39 @@ bool exit( uc_engine *uc, memory::CMemory *mem )
 // size_t fwrite( const void * buffer, size_t size, size_t count, FILE * stream );
 bool fwrite( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments<const void *, std::size_t, std::size_t, uint64_t>( uc, mem ) };
+    const auto args{ get_arguments<const void *, std::size_t, std::size_t, std::ptrdiff_t>( uc, mem ) };
     if (!args.has_value())
         return false;
     const auto [buffer, size, count, stream] = *args;
 
+    // TODO change
+    const auto it{ std::find( import::Known_Import_Names.begin(), import::Known_Import_Names.end(), "___sF" ) };
+    if (it == import::Known_Import_Names.end())
+        return false;
+    const std::ptrdiff_t sfIdx{ std::distance( import::Known_Import_Names.begin(), it ) };
+    const std::ptrdiff_t sfAddr{ sfIdx * Import_Entry_Size +
+                                 static_cast<std::ptrdiff_t>( Unknown_Import_Shift * Import_Entry_Size ) };
+
+    const std::ptrdiff_t inSfOffset{ stream - static_cast<std::ptrdiff_t>( common::Import_Dispatch_Table_Address ) -
+                                     sfAddr };
+
+    static const std::ptrdiff_t fileObjSize{ 0x58 };
+
 #ifdef DEBUG
     std::cout << "fwrite buffer " << buffer << std::endl;
     std::cout << "fwrite stream " << stream << std::endl;
+    std::cout << "fwrite size " << size << std::endl;
+    std::cout << "fwrite count " << count << std::endl;
 #endif
 
     FILE *f{};
-    if (stream == 0)
+    if (inSfOffset == 0)
         f = stdin;
-    if (stream == 0)
+    else if (inSfOffset == fileObjSize)
         f = stdout;
-    if (stream == 0)
+    else if (inSfOffset == fileObjSize * 2)
         f = stderr;
+
     std::size_t ret{ fwrite( buffer, size, count, f ) };
 
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
@@ -345,7 +361,7 @@ bool vsnprintf( uc_engine *uc, memory::CMemory *mem )
     const auto &[s, n, format, apPtr] = *args;
     std::vector formatArgs{ common::get_format_arguments( mem, apPtr, format ) };
 
-    // UB but for now works for arm64 mac os
+    // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vsnprintf( s, n, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
