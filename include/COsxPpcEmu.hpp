@@ -91,4 +91,5 @@ static void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address,
 
 static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu );
 static void print_context( uc_engine *uc );
+static void print_api_return( uc_engine *uc, size_t idx );
 } // namespace emu

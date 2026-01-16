@@ -98,4 +98,49 @@ std::vector<void *> get_format_arguments( memory::CMemory *mem, void *argsPtr, s
     return args;
 }
 
+std::vector<uint64_t> get_sprintf_arguments( uc_engine *uc, memory::CMemory *mem, const char *format )
+{
+    std::vector<uint64_t> formatArgs;
+    std::size_t argIdx = 0;
+
+    for (std::size_t i = 0; i < ::strlen( format ); i++)
+    {
+        if (format[i] == '%')
+        {
+            if (i + 1 < ::strlen( format ) && format[i + 1] == '%')
+            {
+                i++; // Skip %%
+                continue;
+            }
+
+            // Find the conversion specifier
+            i++;
+            while (i < ::strlen( format ) && ::strchr( "-+ #0123456789.*hlLjzt", format[i] ))
+                i++;
+
+            if (i >= ::strlen( format ))
+                break;
+
+            char spec = format[i];
+            uint32_t guestArg;
+            uc_reg_read( uc, UC_PPC_REG_5 + argIdx, &guestArg );
+
+            // Check if this specifier expects a pointer or an integer
+            if (spec == 's' || spec == 'p' || spec == 'n')
+            {
+                // Pointer type - convert guest address to host pointer
+                formatArgs.push_back( reinterpret_cast<uint64_t>( mem->get( guestArg ) ) );
+            }
+            else
+            {
+                // Integer/character type (d, i, u, o, x, X, c, etc.) - use value directly
+                formatArgs.push_back( static_cast<uint64_t>( guestArg ) );
+            }
+            argIdx++;
+        }
+    }
+
+    return formatArgs;
+}
+
 } // namespace common
