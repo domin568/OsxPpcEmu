@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <iostream>
 #include <ranges>
+#include <sstream>
 
 std::atomic<uint32_t> g_lastAddr{ 0 };
 namespace emu
@@ -32,20 +33,22 @@ std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, 
     if (!std::filesystem::exists( emuTarget ))
         return std::unexpected( Error{ Error::Type::FileNotFound, "File not found." } );
 
-    std::expected<memory::CMemory, memory::Error> memory{ memory::CMemory::init( Guest_Virtual_Memory_Size ) };
-    if (!memory)
-        return std::unexpected( Error{ Error::Type::MemoryError, std::move( memory.error().message ) } );
-
-    std::expected<loader::CMachoLoader, loader::Error> loader{ loader::CMachoLoader::init( emuTarget ) };
-    if (!loader)
-        return std::unexpected{ Error{ Error::Type::ImageLoaderError, std::move( loader.error().message ) } };
-
     uc_err err;
     uc_engine *uc;
     uc_mode ppcMode{ static_cast<uc_mode>( UC_MODE_PPC32 | UC_MODE_BIG_ENDIAN ) };
     err = uc_open( UC_ARCH_PPC, ppcMode, &uc );
     if (err != UC_ERR_OK)
         return std::unexpected( Error{ Error::Type::UnicornOpenError, "Could not create ppc32 unicorn emulator." } );
+
+    std::expected<loader::CMachoLoader, loader::Error> loader{ loader::CMachoLoader::init( emuTarget ) };
+    if (!loader)
+        return std::unexpected{ Error{ Error::Type::ImageLoaderError, std::move( loader.error().message ) } };
+
+    std::expected<memory::CMemory, memory::Error> memory{ memory::CMemory::init( uc, Guest_Virtual_Memory_Size ) };
+    if (!memory)
+        return std::unexpected( Error{ Error::Type::MemoryError, std::move( memory.error().message ) } );
+
+    memory->initialize_heap();
 
     if (!loader->map_image_memory( uc, *memory ))
         return std::unexpected( Error{ Error::Type::ImageLoaderError, "Could not map image memory." } );
@@ -130,7 +133,7 @@ bool COsxPpcEmu::set_stack( uc_engine *uc, const std::span<const std::string> ar
         return false;
     }
 
-    if (!mem.commit( uc, Stack_Region_Start_Address, Stack_Size, UC_PROT_ALL ))
+    if (!mem.commit( Stack_Region_Start_Address, Stack_Size, UC_PROT_ALL ))
     {
         std::cerr << "Could not map stack region." << std::endl;
         return false;
@@ -272,7 +275,7 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, loader::CMachoLoader &loader, m
         return false;
     }
 
-    if (!mem.commit( uc, common::Import_Dispatch_Table_Address, common::page_align_up( import::Import_Table_Size ),
+    if (!mem.commit( common::Import_Dispatch_Table_Address, common::page_align_up( import::Import_Table_Size ),
                      UC_PROT_ALL ))
     {
         std::cerr << "Could not map import entries memory." << std::endl;
@@ -428,11 +431,14 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 #ifdef DEBUG
     g_lastAddr.store( address, std::memory_order_relaxed );
     print_api_call_source( uc, address, idx, emu );
-    // print_context( uc );
+    //  print_context( uc );
 #endif
     if (idx > 0)
         import::Import_Items[idx - import::Unknown_Import_Shift].hook( uc,
                                                                        &emu->m_mem ); // call API dispatch function
+#ifdef DEBUG
+    print_api_return( uc, idx );
+#endif
 }
 
 void hook_trace( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
@@ -481,6 +487,44 @@ void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int si
               << std::dec << "\n";
 }
 
+static std::string format_arg_value( uc_engine *uc, uint32_t argValue )
+{
+    std::ostringstream oss;
+    oss << "0x" << std::hex << argValue;
+
+    // Try to read as string if it looks like a pointer
+    if (argValue >= 0x1000 && argValue < 0xF0000000)
+    {
+        constexpr size_t maxCheck = 32;
+        char buffer[maxCheck + 1];
+        uc_err err = uc_mem_read( uc, argValue, buffer, maxCheck );
+        if (err == UC_ERR_OK)
+        {
+            buffer[maxCheck] = '\0';
+            bool isAscii = true;
+            size_t len = 0;
+            for (len = 0; len < maxCheck && buffer[len] != '\0'; len++)
+            {
+                char c = buffer[len];
+                if (c < 0x20 || c > 0x7E)
+                {
+                    isAscii = false;
+                    break;
+                }
+            }
+            if (isAscii && len > 0 && len < maxCheck)
+            {
+                oss << " (\"";
+                oss.write( buffer, std::min( len, size_t( 24 ) ) );
+                if (len > 24)
+                    oss << "...";
+                oss << "\")";
+            }
+        }
+    }
+    return oss.str();
+}
+
 static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu )
 {
     uint32_t callerVa{};
@@ -491,24 +535,59 @@ static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, 
         return;
     }
 
-    std::cout << callerVa;
-    const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
-        callerVa, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
-    if (funcName.has_value())
-        std::cout << " (" << *funcName << ")";
-    std::cout << " -> 0x" << std::hex << address;
-
     if (idx == import::Unknown_Import_Index)
     {
-        std::cout << " (unknown)" << std::endl;
+        std::cout << "┌─ 0x" << std::hex << address << " (unknown) (called from 0x" << callerVa;
+        const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
+            callerVa, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
+        if (funcName.has_value())
+            std::cout << " " << *funcName;
+        std::cout << ")" << std::dec << std::endl;
         return;
     }
     if (idx - import::Unknown_Import_Shift >= import::Known_Import_Names.size())
     {
-        std::cerr << std::endl << "Could not read API name." << std::endl;
+        std::cerr << "Could not read API name." << std::endl;
         return;
     }
-    std::cout << " (" << import::Known_Import_Names[idx - import::Unknown_Import_Shift] << ")" << std::endl;
+
+    const size_t apiIdx = idx - import::Unknown_Import_Shift;
+
+    // Print header
+    std::cout << "┌─ " << import::Known_Import_Names[apiIdx] << " (called from 0x" << std::hex << callerVa;
+    const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
+        callerVa, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
+    if (funcName.has_value())
+        std::cout << " " << *funcName;
+    std::cout << ")" << std::dec << std::endl;
+
+    // Print arguments
+    const int argCount = import::Import_Arg_Counts[apiIdx];
+    const int regsToRead = ( argCount == -1 ) ? 8 : argCount;
+
+    for (int i = 0; i < regsToRead; i++)
+    {
+        uint32_t argValue;
+        if (uc_reg_read( uc, UC_PPC_REG_3 + i, &argValue ) == UC_ERR_OK)
+        {
+            std::cout << "│  arg" << i << ": " << format_arg_value( uc, argValue ) << std::endl;
+        }
+    }
+}
+
+static void print_api_return( uc_engine *uc, size_t idx )
+{
+    if (idx == import::Unknown_Import_Index ||
+        idx - import::Unknown_Import_Shift >= import::Known_Import_Names.size())
+    {
+        return;
+    }
+
+    uint32_t retValue;
+    if (uc_reg_read( uc, UC_PPC_REG_3, &retValue ) == UC_ERR_OK)
+    {
+        std::cout << "└─ return: " << format_arg_value( uc, retValue ) << std::endl;
+    }
 }
 
 static void print_context( uc_engine *uc )

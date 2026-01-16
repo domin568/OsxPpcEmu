@@ -62,7 +62,7 @@ bool CMachoLoader::map_image_memory( uc_engine *uc, memory::CMemory &mem )
         uint64_t map_size = map_end - map_start;
         int perms = translate_prot( seg.max_protection() );
 
-        if (!mem.commit( uc, map_start, map_size, perms ))
+        if (!mem.commit( map_start, map_size, perms ))
         {
             std::cerr << "Error mapping memory from MachO file" << "\n SEGMENT: " << seg.name() << std::endl;
             return false;

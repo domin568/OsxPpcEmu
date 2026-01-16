@@ -82,13 +82,6 @@ bool fwrite( uc_engine *uc, memory::CMemory *mem )
 
     static const std::ptrdiff_t fileObjSize{ 0x58 };
 
-#ifdef DEBUG
-    std::cout << "fwrite buffer " << buffer << std::endl;
-    std::cout << "fwrite stream " << stream << std::endl;
-    std::cout << "fwrite size " << size << std::endl;
-    std::cout << "fwrite count " << count << std::endl;
-#endif
-
     FILE *f{};
     if (inSfOffset == 0)
         f = stdin;
@@ -129,6 +122,45 @@ bool ioctl( uc_engine *uc, memory::CMemory *mem )
 
 bool mach_init_routine( uc_engine *uc, memory::CMemory *mem )
 {
+    return true;
+}
+
+// void* malloc(std::size_t size);
+bool malloc( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<std::size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [size]{ *args };
+
+    uint32_t ret{ mem->heap_alloc( size ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write malloc return" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// void* calloc(std::size_t num, std::size_t size);
+bool calloc( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<std::size_t, std::size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [num, size]{ *args };
+
+    uint32_t ret{ mem->heap_alloc( num * size ) };
+    // calloc zeros the memory
+    void *ptr{ mem->get( ret ) };
+    if (ptr)
+        ::memset( ptr, 0, num * size );
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write calloc return" << std::endl;
+        return false;
+    }
     return true;
 }
 
@@ -207,6 +239,27 @@ bool signal( uc_engine *uc, memory::CMemory *mem )
     return true;
 }
 
+// int sprintf(char * buffer, const char * format, ...);
+bool sprintf( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<char *, const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+
+    auto [buffer, format]{ *args };
+
+    std::vector<uint64_t> formatArgs{ common::get_sprintf_arguments( uc, mem, format ) };
+
+    // UB but for now works for arm64 mac os / x86_64 windows
+    int ret{ ::vsprintf( buffer, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write sprintf return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // int stat(const char * restrict path,	struct stat * restrict sb);
 bool stat( uc_engine *uc, memory::CMemory *mem )
 {
@@ -214,10 +267,6 @@ bool stat( uc_engine *uc, memory::CMemory *mem )
     if (!args.has_value())
         return false;
     const auto [path, sb] = *args;
-
-#ifdef DEBUG
-    std::cout << "stat path: " << path << std::endl;
-#endif
     return true;
 }
 
@@ -230,10 +279,6 @@ bool strcat( uc_engine *uc, memory::CMemory *mem )
     const auto [dest, src] = *args;
     char *ret{ ::strcat( dest, src ) };
     uint32_t retGuest{ mem->to_guest( ret ) };
-#ifdef DEBUG
-    std::cout << "strcat src " << src << std::endl;
-    std::cout << "strcat return " << ret << std::endl;
-#endif
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strcat return value" << std::endl;
@@ -251,10 +296,6 @@ bool strchr( uc_engine *uc, memory::CMemory *mem )
     const auto [str, ch] = *args;
     char *ret{ ::strchr( str, ch ) };
     uint32_t retGuest{ mem->to_guest( ret ) };
-#ifdef DEBUG
-    std::cout << "strchr str " << str << std::endl;
-    std::cout << "strchr return " << ret << std::endl;
-#endif
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strchr return value" << std::endl;
@@ -271,10 +312,6 @@ bool strlen( uc_engine *uc, memory::CMemory *mem )
         return false;
     const auto [str] = *args;
     std::size_t ret{ ::strlen( str ) };
-#ifdef DEBUG
-    std::cout << "strlen str " << str << std::endl;
-    std::cout << "strlen return " << ret << std::endl;
-#endif
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strlen return value" << std::endl;
@@ -293,10 +330,6 @@ bool strrchr( uc_engine *uc, memory::CMemory *mem )
 
     char *ret{ ::strrchr( str, ch ) };
     uint32_t retGuest{ mem->to_guest( ret ) };
-#ifdef DEBUG
-    std::cout << "strrchr str " << str << std::endl;
-    std::cout << "strrchr return " << ret << std::endl;
-#endif
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strrchr return value" << std::endl;
@@ -320,9 +353,6 @@ bool strcpy( uc_engine *uc, memory::CMemory *mem )
         std::cerr << "Could not write strcpy return value" << std::endl;
         return false;
     }
-#ifdef DEBUG
-    std::cout << "strcpy source :" << source << std::endl;
-#endif
     return true;
 }
 
@@ -341,10 +371,6 @@ bool strncpy( uc_engine *uc, memory::CMemory *mem )
         std::cerr << "Could not write strncpy return value" << std::endl;
         return false;
     }
-
-#ifdef DEBUG
-    std::cout << "strncpy source : " << source << std::endl;
-#endif
     return true;
 }
 
@@ -368,11 +394,6 @@ bool vsnprintf( uc_engine *uc, memory::CMemory *mem )
         std::cerr << "Could not write vsnprintf return value" << std::endl;
         return false;
     }
-
-#ifdef DEBUG
-    std::cout << "vsnprintf format :" << format << std::endl;
-    std::cout << "vsnprintf s :" << s << std::endl;
-#endif
     return true;
 }
 } // namespace import::callback

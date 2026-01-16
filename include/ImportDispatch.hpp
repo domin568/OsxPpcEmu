@@ -28,12 +28,15 @@ callback( fwrite );
 callback( fstat );
 callback( ioctl );
 callback( mach_init_routine );
+callback( malloc );
+callback( calloc );
 callback( memcpy );
 callback( memmove );
 callback( memset );
 callback( puts );
 callback( setvbuf );
 callback( signal );
+callback( sprintf );
 callback( stat );
 callback( strcat );
 callback( strchr );
@@ -149,6 +152,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "__cthread_init_routine",
     "__dyld_make_delayed_module_initializer_calls",
     "_atexit",
+    "_calloc",
     "_dyld_func_lookup_ptr_in_dyld",
     "_errno",
     "_exit",
@@ -156,12 +160,14 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_fwrite",
     "_ioctl",
     "_mach_init_routine",
+    "_malloc",
     "_memcpy",
     "_memmove",
     "_memset",
     "_puts",
     "_setvbuf",
     "_signal",
+    "_sprintf",
     "_stat",
     "_strcat",
     "_strchr",
@@ -181,6 +187,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode,
       callback::dyld_make_delayed_module_initializer_calls }, // __dyld_make_delayed_module_initializer_calls
     { data::Blr_Opcode, callback::atexit },                   // _atexit
+    { data::Blr_Opcode, callback::calloc },                   // _calloc
     { data::Blr_Opcode, callback::dyld_func_lookup },         // _dyld_func_lookup_ptr_in_dyld
     { data::Dword_Mem, nullptr },                             // _errno
     { data::Trap_Opcode, callback::exit },                    // _exit
@@ -188,12 +195,14 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::fwrite },                   // _fwrite
     { data::Blr_Opcode, callback::ioctl },                    // _ioctl
     { data::Blr_Opcode, callback::mach_init_routine },        // _mach_init_routine
+    { data::Blr_Opcode, callback::malloc },                   // _malloc
     { data::Blr_Opcode, callback::memcpy },                   // _memcpy
     { data::Blr_Opcode, callback::memmove },                  // _memmove
     { data::Blr_Opcode, callback::memset },                   // _memset
     { data::Blr_Opcode, callback::puts },                     // _puts
     { data::Blr_Opcode, callback::setvbuf },                  // _setvbuf
     { data::Blr_Opcode, callback::signal },                   // _signal
+    { data::Blr_Opcode, callback::sprintf },                  // _sprintf
     { data::Blr_Opcode, callback::stat },                     // _stat
     { data::Blr_Opcode, callback::strcat },                   // _strcat
     { data::Blr_Opcode, callback::strchr },                   // _strchr
@@ -203,6 +212,40 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::strrchr },                  // _strrchr
     { data::Blr_Opcode, callback::dyld_stub_binding_helper }, // _stub_binding_helper_ptr_in_dyld
     { data::Blr_Opcode, callback::vsnprintf },                // _vsnprintf
+} };
+
+// Argument counts for each API (-1 for variadic functions)
+inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
+    0,  // ___keymgr_dwarf2_register_sections
+    0,  // ___sF
+    0,  // __cthread_init_routine
+    0,  // __dyld_make_delayed_module_initializer_calls
+    1,  // _atexit
+    2,  // _calloc
+    2,  // _dyld_func_lookup_ptr_in_dyld
+    0,  // _errno
+    1,  // _exit
+    2,  // _fstat
+    4,  // _fwrite
+    -1, // _ioctl (variadic)
+    0,  // _mach_init_routine
+    1,  // _malloc
+    3,  // _memcpy
+    3,  // _memmove
+    3,  // _memset
+    1,  // _puts
+    4,  // _setvbuf
+    2,  // _signal
+    -1, // _sprintf (variadic)
+    2,  // _stat
+    2,  // _strcat
+    2,  // _strchr
+    2,  // _strcpy
+    1,  // _strlen
+    3,  // _strncpy
+    2,  // _strrchr
+    0,  // _stub_binding_helper_ptr_in_dyld
+    4,  // _vsnprintf
 } };
 
 inline constexpr std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Import_Names.size()>

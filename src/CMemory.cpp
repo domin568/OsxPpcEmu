@@ -21,7 +21,7 @@
 
 namespace memory
 {
-std::expected<CMemory, Error> CMemory::init( size_t size )
+std::expected<CMemory, Error> CMemory::init( uc_engine *uc, size_t size )
 {
 #ifdef _WIN32
     void *ptr = VirtualAlloc( nullptr, size, MEM_RESERVE, PAGE_NOACCESS );
@@ -35,11 +35,11 @@ std::expected<CMemory, Error> CMemory::init( size_t size )
             Error{ Error::Type::Map_Error, "Could not reserve virtual memory for 32 bit guest process (POSIX)" } };
 #endif
     std::size_t pageSize{ get_system_page_size() };
-    return { std::move( CMemory{ ptr, size, pageSize } ) };
+    return { std::move( CMemory{ uc, ptr, size, pageSize } ) };
 }
 
-CMemory::CMemory( void *memPtr, size_t size, std::size_t pageSize )
-    : m_memPtr{ memPtr }, m_memSize{ size }, m_pageSize{ pageSize }
+CMemory::CMemory( uc_engine *uc, void *memPtr, size_t size, std::size_t pageSize )
+    : m_uc{ uc }, m_memPtr{ memPtr }, m_memSize{ size }, m_pageSize{ pageSize }
 {
 }
 
@@ -79,10 +79,11 @@ CMemory::~CMemory()
 #endif
 }
 
-CMemory::CMemory( CMemory &&o ) noexcept : m_memPtr( o.m_memPtr ), m_memSize( o.m_memSize )
+CMemory::CMemory( CMemory &&o ) noexcept : m_uc{ o.m_uc }, m_memPtr( o.m_memPtr ), m_memSize( o.m_memSize )
 {
     o.m_memPtr = nullptr;
     o.m_memSize = 0;
+    o.m_uc = nullptr;
 }
 
 CMemory &CMemory::operator=( CMemory &&o ) noexcept
@@ -100,13 +101,15 @@ CMemory &CMemory::operator=( CMemory &&o ) noexcept
         }
         m_memPtr = o.m_memPtr;
         m_memSize = o.m_memSize;
+        m_uc = o.m_uc;
         o.m_memPtr = nullptr;
         o.m_memSize = 0;
+        o.m_uc = nullptr;
     }
     return *this;
 }
 
-bool CMemory::commit( uc_engine *uc, uintptr_t guestAddress, size_t size, int prot )
+bool CMemory::commit( uintptr_t guestAddress, size_t size, int prot )
 {
     if (( guestAddress & 0xfff ) != 0 || ( size & 0xfff ) != 0) // check for unicorn memory manager
         return false;
@@ -122,20 +125,21 @@ bool CMemory::commit( uc_engine *uc, uintptr_t guestAddress, size_t size, int pr
 
 #ifdef _WIN32
     auto base{ reinterpret_cast<unsigned char *>( m_memPtr ) + static_cast<size_t>( guestAddress ) };
-    void *res{ VirtualAlloc( reinterpret_cast<void*>(hostPtrValAlignedDown), alignedUpSize, MEM_COMMIT, PAGE_READWRITE ) }; // TODO prot
+    void *res{ VirtualAlloc( reinterpret_cast<void *>( hostPtrValAlignedDown ), alignedUpSize, MEM_COMMIT,
+                             PAGE_READWRITE ) }; // TODO prot
     if (res == nullptr)
         return false;
-#else // UNIX 
+#else // UNIX
     if (mprotect( reinterpret_cast<void *>( hostPtrValAlignedDown ), alignedUpSize, PROT_READ | PROT_WRITE ) != 0)
     {
         std::cout << errno << std::endl;
         return false;
     }
- #endif
+#endif
     if (!check( guestAddress, size ))
         return false;
 
-    if (uc_mem_map_ptr( uc, guestAddress, size, prot, reinterpret_cast<void *>( hostPtrVal ) ) != UC_ERR_OK)
+    if (uc_mem_map_ptr( m_uc, guestAddress, size, prot, reinterpret_cast<void *>( hostPtrVal ) ) != UC_ERR_OK)
         return false;
 
     return true;
@@ -160,6 +164,24 @@ void *CMemory::get( size_t offset )
 uint32_t CMemory::to_guest( void *ptr )
 {
     return reinterpret_cast<size_t>( ptr ) - m_address;
+}
+
+uint64_t CMemory::to_host( uint32_t ptr )
+{
+    return ptr + m_address;
+}
+// ultra simple, just to move emulation further
+void CMemory::initialize_heap()
+{
+    commit( Heap_Start, Heap_Size, 3 );
+}
+
+uint32_t CMemory::heap_alloc( std::size_t size )
+{
+    static std::size_t ptr{ Heap_Start };
+    const uint32_t tmp{ static_cast<uint32_t>( ptr ) };
+    ptr += size;
+    return tmp;
 }
 
 } // namespace memory
