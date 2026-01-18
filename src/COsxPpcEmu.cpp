@@ -10,6 +10,7 @@
 #include "../include/Common.hpp"
 #include "../include/ImportDispatch.hpp"
 #include <atomic>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <ranges>
@@ -27,6 +28,31 @@ COsxPpcEmu::COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader, memory::CM
 void COsxPpcEmu::init_debugger()
 {
     m_debugger = std::make_unique<debug::CDebugger>( m_uc, &m_mem, &m_loader );
+
+    // Check if GDB server mode is enabled via environment variable
+    const char* gdb_mode = std::getenv("GDB_SERVER");
+    bool enable_gdb = (gdb_mode != nullptr && std::string(gdb_mode) == "1");
+
+    if (enable_gdb)
+    {
+        m_gdb_server = std::make_unique<gdb::CGdbServer>( m_uc, &m_mem, &m_loader, m_debugger.get() );
+
+        // Start GDB server
+        if (m_gdb_server->start())
+        {
+            std::cout << "GDB server started successfully" << std::endl;
+            std::cout << "Connect from IDA Pro: Debugger -> Attach -> Remote GDB debugger -> localhost:23946" << std::endl;
+        }
+        else
+        {
+            std::cerr << "Failed to start GDB server" << std::endl;
+        }
+    }
+    else
+    {
+        std::cout << "GDB server disabled. Using interactive debugger." << std::endl;
+        std::cout << "To enable GDB server: export GDB_SERVER=1" << std::endl;
+    }
 }
 #endif
 
@@ -132,7 +158,7 @@ bool COsxPpcEmu::run()
         return false;
     }
 
-    // Start with interactive debugger prompt
+    // Start with interactive debugger prompt (unless GDB server will handle it)
     std::cout << "\n=== Interactive Debugger ===" << std::endl;
     std::cout << "Set breakpoints before running. Type 'h' for help, 'c' to start execution." << std::endl;
     std::cout << "Entry point: 0x" << std::hex << m_loader.get_ep() << std::dec << std::endl;
@@ -141,8 +167,20 @@ bool COsxPpcEmu::run()
     uint32_t ep = m_loader.get_ep();
     uc_reg_write( m_uc, UC_PPC_REG_PC, &ep );
 
-    // Enter interactive mode to set breakpoints
-    m_debugger->interactive_prompt();
+    // Enter interactive mode to set breakpoints (only if GDB not connected)
+    // If GDB server is running, it will handle the initial stop
+    if (!m_gdb_server || !m_gdb_server->is_running())
+    {
+        m_debugger->interactive_prompt();
+    }
+    else
+    {
+        // GDB server will control execution
+        // Add a temporary breakpoint at entry point so debugger is active
+        // This will cause the emulator to stop immediately when it starts
+        m_debugger->add_breakpoint( ep );
+        std::cout << "Waiting for GDB client commands (will stop at entry point 0x" << std::hex << ep << std::dec << ")..." << std::endl;
+    }
 #endif
 
     // && errTraceHook != UC_ERR_OK
@@ -602,7 +640,7 @@ static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, 
             const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
                 addr, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
             if (funcName.has_value())
-                callstack << *funcName;
+                callstack << *funcName << "[0x" << std::hex << addr << "]";
             else
                 callstack << "0x" << std::hex << addr;
         }
@@ -684,10 +722,43 @@ void hook_debug( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu
     if (!emu || !emu->m_debugger || !emu->m_debugger->is_active())
         return;
 
+    // Check if GDB server is waiting for execution to stop
+    bool gdb_active = emu->m_gdb_server && emu->m_gdb_server->is_running();
+
     if (emu->m_debugger->should_break( static_cast<uint32_t>( address ) ))
     {
-        // Show interactive prompt - emulation will continue after user input
-        emu->m_debugger->interactive_prompt();
+        // Notify GDB server if it's running
+        if (gdb_active)
+        {
+            // Check if it's a step or breakpoint
+            if (emu->m_gdb_server->is_execution_stopped())
+            {
+                // Already stopped, wait for continue command
+                emu->m_gdb_server->wait_for_continue();
+                return;
+            }
+
+            std::cout << "[Debug Hook] Breaking at 0x" << std::hex << address << std::dec << std::endl;
+
+            // Determine if this is a step or breakpoint
+            if (emu->m_debugger->is_breakpoint( static_cast<uint32_t>( address ) ))
+            {
+                emu->m_gdb_server->notify_breakpoint( static_cast<uint32_t>( address ) );
+            }
+            else
+            {
+                // It's a step completion
+                emu->m_gdb_server->notify_step_complete( static_cast<uint32_t>( address ) );
+            }
+
+            // Now wait for continue command from GDB client
+            emu->m_gdb_server->wait_for_continue();
+        }
+        else
+        {
+            // Show interactive prompt - emulation will continue after user input
+            emu->m_debugger->interactive_prompt();
+        }
     }
 }
 #endif

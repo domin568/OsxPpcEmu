@@ -17,6 +17,7 @@ set(SOURCE_FILES
         src/Common.cpp
         src/CMemory.cpp
         src/CDebugger.cpp
+        src/CGdbServer.cpp
 )
 set(HEADER_FILES
         include/CMachoLoader.hpp
@@ -25,6 +26,7 @@ set(HEADER_FILES
         include/ImportDispatch.hpp
         include/CMemory.hpp
         include/CDebugger.hpp
+        include/CGdbServer.hpp
         include/PpcStructures.hpp
 )
 

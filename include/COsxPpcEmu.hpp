@@ -9,6 +9,7 @@
 #include "../include/ImportDispatch.hpp"
 #ifdef DEBUG
 #include "../include/CDebugger.hpp"
+#include "../include/CGdbServer.hpp"
 #endif
 #include <expected>
 #include <unicorn/unicorn.h>
@@ -49,6 +50,7 @@ class COsxPpcEmu
     loader::CMachoLoader m_loader;
 #ifdef DEBUG
     std::unique_ptr<debug::CDebugger> m_debugger;
+    std::unique_ptr<gdb::CGdbServer> m_gdb_server;
 #endif
 
   private:
