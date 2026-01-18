@@ -16,6 +16,7 @@ set(SOURCE_FILES
         src/ImportDispatch.cpp
         src/Common.cpp
         src/CMemory.cpp
+        src/CDebugger.cpp
 )
 set(HEADER_FILES
         include/CMachoLoader.hpp
@@ -23,6 +24,8 @@ set(HEADER_FILES
         include/Common.hpp
         include/ImportDispatch.hpp
         include/CMemory.hpp
+        include/CDebugger.hpp
+        include/PpcStructures.hpp
 )
 
 add_library(OsxPpcEmuLib STATIC ${SOURCE_FILES} ${HEADER_FILES})
@@ -61,5 +64,6 @@ target_link_libraries(OsxPpcEmuLib PUBLIC Threads::Threads LIEF::LIEF)
 
 add_executable(${EXECUTABLE_NAME} src/main.cpp)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE OsxPpcEmuLib)
+target_compile_definitions(${EXECUTABLE_NAME} PRIVATE DEBUG)
 
 add_subdirectory(test)

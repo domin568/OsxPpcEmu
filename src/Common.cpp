@@ -143,4 +143,27 @@ std::vector<uint64_t> get_sprintf_arguments( uc_engine *uc, memory::CMemory *mem
     return formatArgs;
 }
 
+FILE *resolve_file_stream( std::uint32_t guestStream )
+{
+    const auto it{ std::find( import::Known_Import_Names.begin(), import::Known_Import_Names.end(), "___sF" ) };
+    if (it == import::Known_Import_Names.end())
+        return nullptr;
+    const std::ptrdiff_t sfIdx{ std::distance( import::Known_Import_Names.begin(), it ) };
+    const std::ptrdiff_t sfAddr{
+        sfIdx * import::Import_Entry_Size +
+        static_cast<std::ptrdiff_t>( import::Unknown_Import_Shift * import::Import_Entry_Size ) };
+
+    const std::ptrdiff_t inSfOffset{ guestStream - common::Import_Dispatch_Table_Address - sfAddr };
+    static const std::ptrdiff_t fileObjSize{ 0x58 };
+
+    if (inSfOffset == 0)
+        return stdin;
+    else if (inSfOffset == fileObjSize)
+        return stdout;
+    else if (inSfOffset == fileObjSize * 2)
+        return stderr;
+
+    return nullptr;
+}
+
 } // namespace common

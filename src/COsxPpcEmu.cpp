@@ -23,6 +23,13 @@ COsxPpcEmu::COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader, memory::CM
 {
 }
 
+#ifdef DEBUG
+void COsxPpcEmu::init_debugger()
+{
+    m_debugger = std::make_unique<debug::CDebugger>( m_uc, &m_mem, &m_loader );
+}
+#endif
+
 std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, const std::span<const std::string> env )
 {
     if (argc < 2 || argv == nullptr || env.data() == nullptr)
@@ -114,6 +121,30 @@ bool COsxPpcEmu::run()
 
     uc_err errMemInvalidHook{ uc_hook_add( m_uc, &m_memInvalidHook, UC_HOOK_MEM_INVALID,
                                            reinterpret_cast<void *>( hook_mem_invalid ), nullptr, 1, 0 ) };
+
+#ifdef DEBUG
+    // Debug hook is added but will only break at breakpoints or when stepping
+    uc_err errDebugHook{ uc_hook_add( m_uc, &m_debugHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_debug ), this,
+                                      textSegStart, textSegEnd ) };
+    if (errDebugHook != UC_ERR_OK)
+    {
+        std::cerr << "Could not create debug hook." << std::endl;
+        return false;
+    }
+
+    // Start with interactive debugger prompt
+    std::cout << "\n=== Interactive Debugger ===" << std::endl;
+    std::cout << "Set breakpoints before running. Type 'h' for help, 'c' to start execution." << std::endl;
+    std::cout << "Entry point: 0x" << std::hex << m_loader.get_ep() << std::dec << std::endl;
+
+    // Set PC to entry point so debugger shows correct context
+    uint32_t ep = m_loader.get_ep();
+    uc_reg_write( m_uc, UC_PPC_REG_PC, &ep );
+
+    // Enter interactive mode to set breakpoints
+    m_debugger->interactive_prompt();
+#endif
+
     // && errTraceHook != UC_ERR_OK
     if (errApiHook != UC_ERR_OK && errIntHook != UC_ERR_OK && errMemInvalidHook != UC_ERR_OK)
     {
@@ -466,7 +497,23 @@ void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
 {
     uint32_t addr{ g_lastAddr.load() };
     std::cout << ">>> interrupt/exception #" << intno << std::endl;
-    std::cout << "addr = " << std::hex << addr << std::endl;
+    std::cout << "addr = 0x" << std::hex << addr << std::endl;
+
+    // Check if address is in import dispatch table
+    if (addr >= common::Import_Dispatch_Table_Address &&
+        addr < common::Import_Dispatch_Table_Address + import::Import_Table_Size)
+    {
+        const size_t idx{ ( addr - common::Import_Dispatch_Table_Address ) >> import::Import_Entry_Size_Pow2 };
+        if (idx == import::Unknown_Import_Index)
+        {
+            std::cout << "API: (unknown)" << std::endl;
+        }
+        else if (idx - import::Unknown_Import_Shift < import::Known_Import_Names.size())
+        {
+            std::cout << "API: " << import::Known_Import_Names[idx - import::Unknown_Import_Shift] << std::endl;
+        }
+    }
+
     std::vector<uint8_t> buf( 4 );
     if (uc_mem_read( uc, addr, buf.data(), buf.size() ) == UC_ERR_OK)
     {
@@ -495,7 +542,7 @@ static std::string format_arg_value( uc_engine *uc, uint32_t argValue )
     // Try to read as string if it looks like a pointer
     if (argValue >= 0x1000 && argValue < 0xF0000000)
     {
-        constexpr size_t maxCheck = 32;
+        constexpr size_t maxCheck = 64;
         char buffer[maxCheck + 1];
         uc_err err = uc_mem_read( uc, argValue, buffer, maxCheck );
         if (err == UC_ERR_OK)
@@ -512,12 +559,10 @@ static std::string format_arg_value( uc_engine *uc, uint32_t argValue )
                     break;
                 }
             }
-            if (isAscii && len > 0 && len < maxCheck)
+            if (isAscii && len > 0 && len <= maxCheck)
             {
                 oss << " (\"";
-                oss.write( buffer, std::min( len, size_t( 24 ) ) );
-                if (len > 24)
-                    oss << "...";
+                oss.write( buffer, len );
                 oss << "\")";
             }
         }
@@ -527,58 +572,66 @@ static std::string format_arg_value( uc_engine *uc, uint32_t argValue )
 
 static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu )
 {
-    uint32_t callerVa{};
-    uc_err err{ uc_reg_read( uc, UC_PPC_REG_LR, &callerVa ) };
-    if (err != UC_ERR_OK)
-    {
-        std::cerr << "Could not read caller function address." << std::endl;
-        return;
-    }
+    // Build callstack string (API <- caller <- caller's caller <- ...)
+    std::ostringstream callstack;
 
+    // Add API name
     if (idx == import::Unknown_Import_Index)
     {
-        std::cout << "┌─ 0x" << std::hex << address << " (unknown) (called from 0x" << callerVa;
-        const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
-            callerVa, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
-        if (funcName.has_value())
-            std::cout << " " << *funcName;
-        std::cout << ")" << std::dec << std::endl;
-        return;
+        callstack << "0x" << std::hex << address << " (unknown)";
     }
-    if (idx - import::Unknown_Import_Shift >= import::Known_Import_Names.size())
+    else if (idx - import::Unknown_Import_Shift < import::Known_Import_Names.size())
+    {
+        const size_t apiIdx = idx - import::Unknown_Import_Shift;
+        callstack << import::Known_Import_Names[apiIdx];
+    }
+    else
     {
         std::cerr << "Could not read API name." << std::endl;
         return;
     }
 
-    const size_t apiIdx = idx - import::Unknown_Import_Shift;
+    // Get callstack addresses using debugger utility
+    if (emu->m_debugger)
+    {
+        std::vector<uint32_t> addresses = emu->m_debugger->get_callstack_addresses( 10 );
 
-    // Print header
-    std::cout << "┌─ " << import::Known_Import_Names[apiIdx] << " (called from 0x" << std::hex << callerVa;
-    const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
-        callerVa, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
-    if (funcName.has_value())
-        std::cout << " " << *funcName;
-    std::cout << ")" << std::dec << std::endl;
+        for (uint32_t addr : addresses)
+        {
+            callstack << " <- ";
+            const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
+                addr, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
+            if (funcName.has_value())
+                callstack << *funcName;
+            else
+                callstack << "0x" << std::hex << addr;
+        }
+    }
+
+    // Print header with callstack
+    std::cout << "┌─ " << callstack.str() << std::dec << std::endl;
 
     // Print arguments
-    const int argCount = import::Import_Arg_Counts[apiIdx];
-    const int regsToRead = ( argCount == -1 ) ? 8 : argCount;
-
-    for (int i = 0; i < regsToRead; i++)
+    if (idx != import::Unknown_Import_Index && idx - import::Unknown_Import_Shift < import::Known_Import_Names.size())
     {
-        uint32_t argValue;
-        if (uc_reg_read( uc, UC_PPC_REG_3 + i, &argValue ) == UC_ERR_OK)
+        const size_t apiIdx = idx - import::Unknown_Import_Shift;
+        const int argCount = import::Import_Arg_Counts[apiIdx];
+        const int regsToRead = ( argCount == -1 ) ? 8 : argCount;
+
+        for (int i = 0; i < regsToRead; i++)
         {
-            std::cout << "│  arg" << i << ": " << format_arg_value( uc, argValue ) << std::endl;
+            uint32_t argValue;
+            if (uc_reg_read( uc, UC_PPC_REG_3 + i, &argValue ) == UC_ERR_OK)
+            {
+                std::cout << "│  arg" << i << ": " << format_arg_value( uc, argValue ) << std::endl;
+            }
         }
     }
 }
 
 static void print_api_return( uc_engine *uc, size_t idx )
 {
-    if (idx == import::Unknown_Import_Index ||
-        idx - import::Unknown_Import_Shift >= import::Known_Import_Names.size())
+    if (idx == import::Unknown_Import_Index || idx - import::Unknown_Import_Shift >= import::Known_Import_Names.size())
     {
         return;
     }
@@ -622,5 +675,21 @@ static void print_context( uc_engine *uc )
     uc_reg_read( uc, UC_PPC_REG_CR, &reg );
     std::cout << "CR=0x" << std::hex << reg << std::endl;
 }
+
+#ifdef DEBUG
+void hook_debug( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
+{
+    // Early exit if debugger is not active (no breakpoints or stepping)
+    // This keeps overhead minimal when debugger is not in use
+    if (!emu || !emu->m_debugger || !emu->m_debugger->is_active())
+        return;
+
+    if (emu->m_debugger->should_break( static_cast<uint32_t>( address ) ))
+    {
+        // Show interactive prompt - emulation will continue after user input
+        emu->m_debugger->interactive_prompt();
+    }
+}
+#endif
 
 } // namespace emu

@@ -7,13 +7,13 @@
 #include "../include/CMachoLoader.hpp"
 #include "../include/CMemory.hpp"
 #include "../include/Common.hpp"
+#include "../include/PpcStructures.hpp"
 #include <LIEF/MachO.hpp>
 #include <bit>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <ranges>
-#include <span>
 
 namespace loader
 {
@@ -91,8 +91,8 @@ bool CMachoLoader::set_unix_thread( uc_engine *uc )
     if (m_executable->thread_command()->flavor() != Ppc_Thread_State)
         return false;
 
-    common::ppc_thread_state32_t st{
-        common::ppc_thread_state32_t::from_bytes( m_executable->thread_command()->state(), std::endian::big ) };
+    guest::ppc_thread_state32_t st{
+        guest::ppc_thread_state32_t::from_bytes( m_executable->thread_command()->state(), std::endian::big ) };
 
     uc_err err{};
     // entrypoint

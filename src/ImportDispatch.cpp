@@ -6,6 +6,7 @@
 
 #include "../include/ImportDispatch.hpp"
 #include "../include/COsxPpcEmu.hpp"
+#include "../include/PpcStructures.hpp"
 #include <sys/stat.h>
 
 namespace import::callback
@@ -64,38 +65,21 @@ bool exit( uc_engine *uc, memory::CMemory *mem )
 // size_t fwrite( const void * buffer, size_t size, size_t count, FILE * stream );
 bool fwrite( uc_engine *uc, memory::CMemory *mem )
 {
-    const auto args{ get_arguments<const void *, std::size_t, std::size_t, std::ptrdiff_t>( uc, mem ) };
+    const auto args{ get_arguments<const void *, std::size_t, std::size_t, void *>( uc, mem ) };
     if (!args.has_value())
         return false;
     const auto [buffer, size, count, stream] = *args;
 
-    // TODO change
-    const auto it{ std::find( import::Known_Import_Names.begin(), import::Known_Import_Names.end(), "___sF" ) };
-    if (it == import::Known_Import_Names.end())
+    FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
+    if (!f)
         return false;
-    const std::ptrdiff_t sfIdx{ std::distance( import::Known_Import_Names.begin(), it ) };
-    const std::ptrdiff_t sfAddr{ sfIdx * Import_Entry_Size +
-                                 static_cast<std::ptrdiff_t>( Unknown_Import_Shift * Import_Entry_Size ) };
 
-    const std::ptrdiff_t inSfOffset{ stream - static_cast<std::ptrdiff_t>( common::Import_Dispatch_Table_Address ) -
-                                     sfAddr };
-
-    static const std::ptrdiff_t fileObjSize{ 0x58 };
-
-    FILE *f{};
-    if (inSfOffset == 0)
-        f = stdin;
-    else if (inSfOffset == fileObjSize)
-        f = stdout;
-    else if (inSfOffset == fileObjSize * 2)
-        f = stderr;
-
-    std::size_t ret{ fwrite( buffer, size, count, f ) };
+    std::size_t ret{ ::fwrite( buffer, size, count, f ) };
 
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
-        std::cerr << "Could not write fwrite return" << std::endl;
-        return true;
+        std::cerr << "Could not write fwrite return value" << std::endl;
+        return false;
     }
     return true;
 }
@@ -106,7 +90,31 @@ bool fstat( uc_engine *uc, memory::CMemory *mem )
     const auto args{ get_arguments<int, void *>( uc, mem ) };
     if (!args.has_value())
         return false;
-    // TODO
+    const auto [fd, buf] = *args;
+
+    struct stat hostStat;
+    int ret{ ::fstat( fd, &hostStat ) };
+
+    if (ret == 0 && buf != nullptr)
+    {
+        auto *guestStat{ static_cast<guest::stat *>( buf ) };
+        guestStat->st_dev = common::ensure_endianness( hostStat.st_dev, std::endian::big );
+        guestStat->st_ino = common::ensure_endianness( hostStat.st_ino, std::endian::big );
+        guestStat->st_mode = common::ensure_endianness( hostStat.st_mode, std::endian::big );
+        guestStat->st_nlink = common::ensure_endianness( hostStat.st_nlink, std::endian::big );
+        guestStat->st_uid = common::ensure_endianness( hostStat.st_uid, std::endian::big );
+        guestStat->st_gid = common::ensure_endianness( hostStat.st_gid, std::endian::big );
+        guestStat->st_rdev = common::ensure_endianness( hostStat.st_rdev, std::endian::big );
+        guestStat->st_size = common::ensure_endianness( hostStat.st_size, std::endian::big );
+        guestStat->st_blksize = common::ensure_endianness( hostStat.st_blksize, std::endian::big );
+        guestStat->st_blocks = common::ensure_endianness( hostStat.st_blocks, std::endian::big );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write fstat return value" << std::endl;
+        return false;
+    }
     return true;
 }
 
@@ -267,6 +275,31 @@ bool stat( uc_engine *uc, memory::CMemory *mem )
     if (!args.has_value())
         return false;
     const auto [path, sb] = *args;
+
+    // Call host stat
+    struct stat hostStat;
+    int ret{ ::stat( path, &hostStat ) };
+
+    if (ret == 0 && sb != nullptr)
+    {
+        auto *guestStat{ static_cast<guest::stat *>( sb ) };
+        guestStat->st_dev = common::ensure_endianness( hostStat.st_dev, std::endian::big );
+        guestStat->st_ino = common::ensure_endianness( hostStat.st_ino, std::endian::big );
+        guestStat->st_mode = common::ensure_endianness( hostStat.st_mode, std::endian::big );
+        guestStat->st_nlink = common::ensure_endianness( hostStat.st_nlink, std::endian::big );
+        guestStat->st_uid = common::ensure_endianness( hostStat.st_uid, std::endian::big );
+        guestStat->st_gid = common::ensure_endianness( hostStat.st_gid, std::endian::big );
+        guestStat->st_rdev = common::ensure_endianness( hostStat.st_rdev, std::endian::big );
+        guestStat->st_size = common::ensure_endianness( hostStat.st_size, std::endian::big );
+        guestStat->st_blksize = common::ensure_endianness( hostStat.st_blksize, std::endian::big );
+        guestStat->st_blocks = common::ensure_endianness( hostStat.st_blocks, std::endian::big );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write stat return value" << std::endl;
+        return false;
+    }
     return true;
 }
 
@@ -392,6 +425,74 @@ bool vsnprintf( uc_engine *uc, memory::CMemory *mem )
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write vsnprintf return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// char *getcwd(char *buf, size_t size);
+bool getcwd( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<char *, size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [buf, size] = *args;
+    char *ret{ ::getcwd( buf, size ) };
+    uint32_t retGuest{ mem->to_guest( ret ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write getcwd return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// void free(void *ptr);
+bool free( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    // Do not actually free memory
+    return true;
+}
+
+// int strcmp( const char *lhs, const char *rhs );
+bool strcmp( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [lhs, rhs] = *args;
+    int ret{ ::strcmp( lhs, rhs ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write strcmp return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int fprintf(FILE *stream, const char *format, ...);
+bool fprintf( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<void *, const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+
+    auto [stream, format]{ *args };
+
+    FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
+    if (!f)
+        return false;
+
+    std::vector<uint64_t> formatArgs{ common::get_sprintf_arguments( uc, mem, format ) };
+
+    // UB but for now works for arm64 mac os / x86_64 windows
+    int ret{ ::vfprintf( f, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write fprintf return value" << std::endl;
         return false;
     }
     return true;

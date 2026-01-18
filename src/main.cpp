@@ -24,6 +24,9 @@ int main( int argc, const char *argv[] )
         std::cerr << emu.error().message << std::endl;
         return emu.error().type;
     }
+#ifdef DEBUG
+    emu->init_debugger();
+#endif
     emu->print_vm_map( std::cout );
     emu->run();
 

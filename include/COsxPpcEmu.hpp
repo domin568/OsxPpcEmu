@@ -7,6 +7,9 @@
 #include "../include/CMachoLoader.hpp"
 #include "../include/Common.hpp"
 #include "../include/ImportDispatch.hpp"
+#ifdef DEBUG
+#include "../include/CDebugger.hpp"
+#endif
 #include <expected>
 #include <unicorn/unicorn.h>
 
@@ -35,12 +38,18 @@ class COsxPpcEmu
     static std::expected<COsxPpcEmu, Error> init( int argc, const char **argv, const std::span<const std::string> env );
     bool print_vm_map( std::ostream &os );
     bool run();
+#ifdef DEBUG
+    void init_debugger();
+#endif
 
     memory::CMemory m_mem;
 #ifndef DEBUG
   private:
 #endif
     loader::CMachoLoader m_loader;
+#ifdef DEBUG
+    std::unique_ptr<debug::CDebugger> m_debugger;
+#endif
 
   private:
     COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader, memory::CMemory mem );
@@ -60,6 +69,9 @@ class COsxPpcEmu
     uc_hook m_basicBlockHook{};
     uc_hook m_interruptHook{};
     uc_hook m_memInvalidHook{};
+#ifdef DEBUG
+    uc_hook m_debugHook{};
+#endif
 
     // static initialization functions
     static std::optional<size_t> get_max_import_data_size(
@@ -88,6 +100,9 @@ static void hook_trace( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcE
 static void hook_intr( uc_engine *uc, uint32_t intno, void *user_data );
 static void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value,
                               void *user_data );
+#ifdef DEBUG
+static void hook_debug( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu );
+#endif
 
 static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu );
 static void print_context( uc_engine *uc );

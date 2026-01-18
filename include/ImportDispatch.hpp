@@ -46,6 +46,10 @@ callback( strrchr );
 callback( strncpy );
 callback( dyld_stub_binding_helper );
 callback( vsnprintf );
+callback( getcwd );
+callback( free );
+callback( strcmp );
+callback( fprintf );
 
 template <std::size_t I, template <typename> class Pred, typename... Ts> struct count_before;
 template <std::size_t I, template <typename> class Pred> struct count_before<I, Pred>
@@ -156,8 +160,11 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_dyld_func_lookup_ptr_in_dyld",
     "_errno",
     "_exit",
+    "_fprintf",
+    "_free",
     "_fstat",
     "_fwrite",
+    "_getcwd",
     "_ioctl",
     "_mach_init_routine",
     "_malloc",
@@ -171,6 +178,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_stat",
     "_strcat",
     "_strchr",
+    "_strcmp",
     "_strcpy",
     "_strlen",
     "_strncpy",
@@ -191,8 +199,11 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::dyld_func_lookup },         // _dyld_func_lookup_ptr_in_dyld
     { data::Dword_Mem, nullptr },                             // _errno
     { data::Trap_Opcode, callback::exit },                    // _exit
+    { data::Blr_Opcode, callback::fprintf },                  // _fprintf
+    { data::Blr_Opcode, callback::free },                     // _free
     { data::Blr_Opcode, callback::fstat },                    // _fstat
     { data::Blr_Opcode, callback::fwrite },                   // _fwrite
+    { data::Blr_Opcode, callback::getcwd },                   // _getcwd
     { data::Blr_Opcode, callback::ioctl },                    // _ioctl
     { data::Blr_Opcode, callback::mach_init_routine },        // _mach_init_routine
     { data::Blr_Opcode, callback::malloc },                   // _malloc
@@ -206,6 +217,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::stat },                     // _stat
     { data::Blr_Opcode, callback::strcat },                   // _strcat
     { data::Blr_Opcode, callback::strchr },                   // _strchr
+    { data::Blr_Opcode, callback::strcmp },                   // _strcmp
     { data::Blr_Opcode, callback::strcpy },                   // _strcpy
     { data::Blr_Opcode, callback::strlen },                   // _strlen
     { data::Blr_Opcode, callback::strncpy },                  // _strncpy
@@ -225,8 +237,11 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     2,  // _dyld_func_lookup_ptr_in_dyld
     0,  // _errno
     1,  // _exit
+    -1, // _fprintf (variadic)
+    1,  // _free
     2,  // _fstat
     4,  // _fwrite
+    2,  // _getcwd
     -1, // _ioctl (variadic)
     0,  // _mach_init_routine
     1,  // _malloc
@@ -240,6 +255,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     2,  // _stat
     2,  // _strcat
     2,  // _strchr
+    2,  // _strcmp
     2,  // _strcpy
     1,  // _strlen
     3,  // _strncpy
