@@ -50,6 +50,7 @@ callback( getcwd );
 callback( free );
 callback( strcmp );
 callback( fprintf );
+callback( ___error );
 
 template <std::size_t I, template <typename> class Pred, typename... Ts> struct count_before;
 template <std::size_t I, template <typename> class Pred> struct count_before<I, Pred>
@@ -151,6 +152,7 @@ struct Import_Info
 inline constexpr size_t Unknown_Import_Index{ 0 };
 inline constexpr size_t Unknown_Import_Shift{ 1 };
 inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
+    "___error",
     "___keymgr_dwarf2_register_sections",
     "___sF",
     "__cthread_init_routine",
@@ -189,6 +191,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
 static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 
 inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Import_Items{ {
+    { data::Blr_Opcode, callback::___error },                        // ___error
     { data::Blr_Opcode, callback::keymgr_dwarf2_register_sections }, // ___keymgr_dwarf2_register_sections
     { data::Dword_Mem, nullptr },                                    // ___sF
     { data::Blr_Opcode, callback::cthread_init_routine },            // __cthread_init_routine
@@ -228,6 +231,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
 
 // Argument counts for each API (-1 for variadic functions)
 inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
+    0,  // ___error
     0,  // ___keymgr_dwarf2_register_sections
     0,  // ___sF
     0,  // __cthread_init_routine

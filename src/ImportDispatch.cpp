@@ -11,6 +11,28 @@
 
 namespace import::callback
 {
+// int *___error(void);
+// Returns a pointer to the errno variable
+bool ___error( uc_engine *uc, memory::CMemory *mem )
+{
+    // Get the address of the _errno import entry
+    std::optional<uint32_t> errnoVa{ common::get_import_entry_va_by_name( "_errno" ) };
+    if (!errnoVa.has_value())
+    {
+        std::cerr << "Could not find _errno symbol" << std::endl;
+        return false;
+    }
+
+    // Return pointer to the errno location in r3
+    uint32_t errnoAddr = *errnoVa;
+    if (uc_reg_write( uc, UC_PPC_REG_3, &errnoAddr ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write ___error return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 bool keymgr_dwarf2_register_sections( uc_engine *uc, memory::CMemory *mem )
 {
     return true;
