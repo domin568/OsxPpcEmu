@@ -33,6 +33,46 @@ bool ___error( uc_engine *uc, memory::CMemory *mem )
     return true;
 }
 
+// int ___tolower(int c);
+// Converts uppercase letter to lowercase
+bool ___tolower( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<int>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [c] = *args;
+
+    // Convert to lowercase if uppercase letter
+    uint32_t result = ( c >= 'A' && c <= 'Z' ) ? ( c + 32 ) : c;
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write ___tolower return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int ___toupper(int c);
+// Converts lowercase letter to uppercase
+bool ___toupper( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<int>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [c] = *args;
+
+    // Convert to uppercase if lowercase letter
+    uint32_t result = ( c >= 'a' && c <= 'z' ) ? ( c - 32 ) : c;
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write ___toupper return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // int _setjmp(jmp_buf env);
 // Save calling environment for later use by longjmp
 bool _setjmp( uc_engine *uc, memory::CMemory *mem )
@@ -360,6 +400,60 @@ bool calloc( uc_engine *uc, memory::CMemory *mem )
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write calloc return" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// void* realloc(void* ptr, std::size_t size);
+bool realloc( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<void *, std::size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [ptr, size]{ *args };
+
+    // If ptr is NULL, realloc behaves like malloc
+    if (!ptr)
+    {
+        uint32_t ret{ mem->heap_alloc( size ) };
+        if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+        {
+            std::cerr << "Could not write realloc return" << std::endl;
+            return false;
+        }
+        return true;
+    }
+
+    // If size is 0, realloc behaves like free (but we return NULL since we don't actually free)
+    if (size == 0)
+    {
+        uint32_t ret{ 0 };
+        if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+        {
+            std::cerr << "Could not write realloc return" << std::endl;
+            return false;
+        }
+        return true;
+    }
+
+    // Allocate new memory and copy old data
+    // Note: Our simple allocator doesn't track allocation sizes, so we can't know
+    // how much to copy. We'll just allocate new memory - the caller must handle this.
+    uint32_t newPtr{ mem->heap_alloc( size ) };
+    void *newHostPtr{ mem->get( newPtr ) };
+
+    if (newHostPtr && ptr)
+    {
+        // Copy old data to new location
+        // Since we don't track sizes, we copy up to 'size' bytes
+        // This is a limitation of the simple bump allocator
+        ::memcpy( newHostPtr, ptr, size );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &newPtr ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write realloc return" << std::endl;
         return false;
     }
     return true;

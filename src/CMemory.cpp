@@ -181,7 +181,8 @@ uint32_t CMemory::heap_alloc( std::size_t size )
 {
     static std::size_t ptr{ common::Heap_Start };
     const uint32_t tmp{ static_cast<uint32_t>( ptr ) };
-    ptr += size;
+    // Round up to 16-byte alignment for PowerPC (required for proper alignment of all data types)
+    ptr += ( size + 15 ) & ~15;
     return tmp;
 }
 

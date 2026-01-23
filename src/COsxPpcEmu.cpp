@@ -74,6 +74,16 @@ std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, 
     if (err != UC_ERR_OK)
         return std::unexpected( Error{ Error::Type::UnicornOpenError, "Could not create ppc32 unicorn emulator." } );
 
+    // Enable floating-point operations by setting the FP bit (bit 13) in MSR
+    // MSR bits: FP=0x2000 (bit 13)
+    uint32_t msr = 0x2000;
+    err = uc_reg_write( uc, UC_PPC_REG_MSR, &msr );
+    if (err != UC_ERR_OK)
+    {
+        uc_close( uc );
+        return std::unexpected( Error{ Error::Type::UnicornOpenError, "Could not set MSR register." } );
+    }
+
     std::expected<loader::CMachoLoader, loader::Error> loader{ loader::CMachoLoader::init( emuTarget ) };
     if (!loader)
         return std::unexpected{ Error{ Error::Type::ImageLoaderError, std::move( loader.error().message ) } };
@@ -113,8 +123,8 @@ bool COsxPpcEmu::run()
                                     common::Import_Dispatch_Table_Address,
                                     common::Import_Dispatch_Table_Address + import::Import_Table_Size ) };
 
-    uc_err errIntHook{ uc_hook_add( m_uc, &m_interruptHook, UC_HOOK_INTR, reinterpret_cast<void *>( hook_intr ),
-                                    nullptr, textSegStart, textSegEnd ) }; // delete reinterpret cast
+    uc_err errIntHook{ uc_hook_add( m_uc, &m_interruptHook, UC_HOOK_INTR, reinterpret_cast<void *>( hook_intr ), this,
+                                    textSegStart, textSegEnd ) };
 
     uc_err errMemInvalidHook{ uc_hook_add( m_uc, &m_memInvalidHook, UC_HOOK_MEM_INVALID,
                                            reinterpret_cast<void *>( hook_mem_invalid ), nullptr, 1, 0 ) };
@@ -488,9 +498,20 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 
 void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
 {
+    COsxPpcEmu *emu = static_cast<COsxPpcEmu *>( user_data );
     uint32_t addr{ g_lastAddr.load() };
+    uint32_t lr, pc;
+
     std::cout << ">>> interrupt/exception #" << intno << std::endl;
-    std::cout << "addr = 0x" << std::hex << addr << std::endl;
+#ifdef DEBUG
+    if (emu)
+    {
+        const std::optional<std::string> callerName{ emu->m_loader.get_symbol_name_for_va(
+            lr, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
+        if (callerName.has_value())
+            std::cout << " <" << *callerName << ">";
+    }
+    std::cout << std::endl;
 
     // Check if address is in import dispatch table
     if (addr >= common::Import_Dispatch_Table_Address &&
@@ -507,6 +528,7 @@ void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
         }
     }
 
+    // Show instruction bytes at fault address
     std::vector<uint8_t> buf( 4 );
     if (uc_mem_read( uc, addr, buf.data(), buf.size() ) == UC_ERR_OK)
     {
@@ -519,6 +541,32 @@ void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
     {
         std::cerr << "cannot read bytes at 0x" << std::hex << addr << "\n";
     }
+
+    // Show call stack
+    if (emu && emu->m_debugger)
+    {
+        std::cout << "Call stack:" << std::endl;
+        std::cout << "  #0  0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << pc;
+
+        const std::optional<std::string> pcName{ emu->m_loader.get_symbol_name_for_va(
+            pc, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
+        if (pcName.has_value())
+            std::cout << " <" << *pcName << ">";
+        std::cout << std::endl;
+
+        std::vector<uint32_t> addresses = emu->m_debugger->get_callstack_addresses( 5 );
+        for (size_t i = 0; i < addresses.size(); i++)
+        {
+            std::cout << "  #" << ( i + 1 ) << "  0x" << std::hex << std::setfill( '0' ) << std::setw( 8 )
+                      << addresses[i];
+            const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
+                addresses[i], LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
+            if (funcName.has_value())
+                std::cout << " <" << *funcName << ">";
+            std::cout << std::endl;
+        }
+    }
+#endif
 }
 
 void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data )

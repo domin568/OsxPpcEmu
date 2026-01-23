@@ -51,8 +51,11 @@ callback( free );
 callback( strcmp );
 callback( fprintf );
 callback( ___error );
+callback( ___tolower );
+callback( ___toupper );
 callback( _setjmp );
 callback( _longjmp );
+callback( realloc );
 
 template <std::size_t I, template <typename> class Pred, typename... Ts> struct count_before;
 template <std::size_t I, template <typename> class Pred> struct count_before<I, Pred>
@@ -91,23 +94,21 @@ template <typename T> std::optional<T> read_argument( uc_engine *uc, memory::CMe
 template <typename... Args, std::size_t... I>
 std::optional<std::tuple<Args...>> read_arguments_idx( uc_engine *uc, memory::CMemory *mem, std::index_sequence<I...> )
 {
-    auto opts {
-        std::make_tuple( ( [uc, mem]<std::size_t idx, typename T>() -> std::optional<T> {
-            if constexpr (IsGprArg<T>::value)
-            {
-                constexpr std::size_t offset{ count_before<idx, IsGprArg, Args...>::value };
-                constexpr uc_ppc_reg base{ UC_PPC_REG_3 };
-                return read_argument<T>( uc, mem, static_cast<uc_ppc_reg>( base + offset ) );
-            }
-            else if constexpr (IsFprArg<T>::value)
-            {
-                constexpr std::size_t offset{ count_before<idx, IsFprArg, Args...>::value };
-                constexpr uc_ppc_reg base{ UC_PPC_REG_FPR1 };
-                return read_argument<T>( uc, mem, static_cast<uc_ppc_reg>( base + offset ) );
-            }
-            return std::optional<T>{};
-        }.template operator()<I, std::tuple_element_t<I, std::tuple<Args...>>>() )... )
-    };
+    auto opts{ std::make_tuple( ( [uc, mem]<std::size_t idx, typename T>() -> std::optional<T> {
+        if constexpr (IsGprArg<T>::value)
+        {
+            constexpr std::size_t offset{ count_before<idx, IsGprArg, Args...>::value };
+            constexpr uc_ppc_reg base{ UC_PPC_REG_3 };
+            return read_argument<T>( uc, mem, static_cast<uc_ppc_reg>( base + offset ) );
+        }
+        else if constexpr (IsFprArg<T>::value)
+        {
+            constexpr std::size_t offset{ count_before<idx, IsFprArg, Args...>::value };
+            constexpr uc_ppc_reg base{ UC_PPC_REG_FPR1 };
+            return read_argument<T>( uc, mem, static_cast<uc_ppc_reg>( base + offset ) );
+        }
+        return std::optional<T>{};
+    }.template operator()<I, std::tuple_element_t<I, std::tuple<Args...>>>() )... ) };
 
     const bool ok{ ( ... && static_cast<bool>( std::get<I>( opts ) ) ) };
     if (!ok)
@@ -157,6 +158,8 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "___error",
     "___keymgr_dwarf2_register_sections",
     "___sF",
+    "___tolower",
+    "___toupper",
     "__cthread_init_routine",
     "__dyld_make_delayed_module_initializer_calls",
     "_atexit",
@@ -177,6 +180,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_memmove",
     "_memset",
     "_puts",
+    "_realloc",
     "_setjmp",
     "_setvbuf",
     "_signal",
@@ -197,6 +201,8 @@ static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Import_Items{ {
     { data::Blr_Opcode, callback::___error },                        // ___error
     { data::Blr_Opcode, callback::keymgr_dwarf2_register_sections }, // ___keymgr_dwarf2_register_sections
+    { data::Blr_Opcode, callback::___tolower },                      // ___tolower
+    { data::Blr_Opcode, callback::___toupper },                      // ___toupper
     { data::Dword_Mem, nullptr },                                    // ___sF
     { data::Blr_Opcode, callback::cthread_init_routine },            // __cthread_init_routine
     { data::Blr_Opcode,
@@ -219,6 +225,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::memmove },                  // _memmove
     { data::Blr_Opcode, callback::memset },                   // _memset
     { data::Blr_Opcode, callback::puts },                     // _puts
+    { data::Blr_Opcode, callback::realloc },                  // _realloc
     { data::Blr_Opcode, callback::_setjmp },                  // _setjmp
     { data::Blr_Opcode, callback::setvbuf },                  // _setvbuf
     { data::Blr_Opcode, callback::signal },                   // _signal
@@ -239,6 +246,8 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
 inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     0,  // ___error
     0,  // ___keymgr_dwarf2_register_sections
+    1,  // ___tolower
+    1,  // ___toupper
     0,  // ___sF
     0,  // __cthread_init_routine
     0,  // __dyld_make_delayed_module_initializer_calls
@@ -260,6 +269,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     3,  // _memmove
     3,  // _memset
     1,  // _puts
+    2,  // _realloc
     1,  // _setjmp
     4,  // _setvbuf
     2,  // _signal
