@@ -30,8 +30,8 @@ void COsxPpcEmu::init_debugger()
     m_debugger = std::make_unique<debug::CDebugger>( m_uc, &m_mem, &m_loader );
 
     // Check if GDB server mode is enabled via environment variable
-    const char* gdb_mode = std::getenv("GDB_SERVER");
-    bool enable_gdb = (gdb_mode != nullptr && std::string(gdb_mode) == "1");
+    const char *gdb_mode = std::getenv( "GDB_SERVER" );
+    bool enable_gdb = ( gdb_mode != nullptr && std::string( gdb_mode ) == "1" );
 
     if (enable_gdb)
     {
@@ -41,7 +41,8 @@ void COsxPpcEmu::init_debugger()
         if (m_gdb_server->start())
         {
             std::cout << "GDB server started successfully" << std::endl;
-            std::cout << "Connect from IDA Pro: Debugger -> Attach -> Remote GDB debugger -> localhost:23946" << std::endl;
+            std::cout << "Connect from IDA Pro: Debugger -> Attach -> Remote GDB debugger -> localhost:23946"
+                      << std::endl;
         }
         else
         {
@@ -77,7 +78,8 @@ std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, 
     if (!loader)
         return std::unexpected{ Error{ Error::Type::ImageLoaderError, std::move( loader.error().message ) } };
 
-    std::expected<memory::CMemory, memory::Error> memory{ memory::CMemory::init( uc, Guest_Virtual_Memory_Size ) };
+    std::expected<memory::CMemory, memory::Error> memory{
+        memory::CMemory::init( uc, common::Guest_Virtual_Memory_Size ) };
     if (!memory)
         return std::unexpected( Error{ Error::Type::MemoryError, std::move( memory.error().message ) } );
 
@@ -100,36 +102,6 @@ std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, 
     return COsxPpcEmu{ uc, std::move( *loader ), std::move( *memory ) };
 }
 
-bool COsxPpcEmu::print_vm_map( std::ostream &os )
-{
-    uc_mem_region *regions;
-    uint32_t count{};
-    if (uc_mem_regions( m_uc, &regions, &count ) != UC_ERR_OK)
-        return false;
-
-    for (uint32_t i = 0; i < count; i++)
-    {
-        const auto &r = regions[i];
-
-        os << std::hex << " [0x" << r.begin << " - 0x" << r.end << "]"
-           << " perms=";
-        if (r.perms & UC_PROT_READ)
-            os << "R";
-        if (r.perms & UC_PROT_WRITE)
-            os << "W";
-        if (r.perms & UC_PROT_EXEC)
-            os << "X";
-        os << "\n";
-    }
-#ifdef DEBUG
-    std::vector<uint8_t> importEntriesBuf( import::Import_Table_Size );
-    if (uc_mem_read( m_uc, common::Import_Dispatch_Table_Address, importEntriesBuf.data(), importEntriesBuf.size() ) !=
-        UC_ERR_OK)
-        return false;
-#endif
-    return true;
-}
-
 bool COsxPpcEmu::run()
 {
     const std::optional<std::pair<uint64_t, uint64_t>> textSegment{ m_loader.get_text_segment_va_range() };
@@ -140,16 +112,13 @@ bool COsxPpcEmu::run()
     uc_err errApiHook{ uc_hook_add( m_uc, &m_apiHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_api ), this,
                                     common::Import_Dispatch_Table_Address,
                                     common::Import_Dispatch_Table_Address + import::Import_Table_Size ) };
-    // uc_err errTraceHook{ uc_hook_add( m_uc, &m_traceHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_trace ), this,
-    //                                   textSegStart, textSegEnd ) };
+
     uc_err errIntHook{ uc_hook_add( m_uc, &m_interruptHook, UC_HOOK_INTR, reinterpret_cast<void *>( hook_intr ),
                                     nullptr, textSegStart, textSegEnd ) }; // delete reinterpret cast
 
     uc_err errMemInvalidHook{ uc_hook_add( m_uc, &m_memInvalidHook, UC_HOOK_MEM_INVALID,
                                            reinterpret_cast<void *>( hook_mem_invalid ), nullptr, 1, 0 ) };
-
 #ifdef DEBUG
-    // Debug hook is added but will only break at breakpoints or when stepping
     uc_err errDebugHook{ uc_hook_add( m_uc, &m_debugHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_debug ), this,
                                       textSegStart, textSegEnd ) };
     if (errDebugHook != UC_ERR_OK)
@@ -179,30 +148,38 @@ bool COsxPpcEmu::run()
         // Add a temporary breakpoint at entry point so debugger is active
         // This will cause the emulator to stop immediately when it starts
         m_debugger->add_breakpoint( ep );
-        std::cout << "Waiting for GDB client commands (will stop at entry point 0x" << std::hex << ep << std::dec << ")..." << std::endl;
+        std::cout << "Waiting for GDB client commands (will stop at entry point 0x" << std::hex << ep << std::dec
+                  << ")..." << std::endl;
     }
 #endif
 
-    // && errTraceHook != UC_ERR_OK
-    if (errApiHook != UC_ERR_OK && errIntHook != UC_ERR_OK && errMemInvalidHook != UC_ERR_OK)
+    if (errApiHook != UC_ERR_OK)
     {
-        std::cerr << "Could not create hooks." << std::endl;
+        std::cerr << "Could not create API hook." << std::endl;
         return false;
     }
+
+#ifdef DEBUG
+    if (errIntHook != UC_ERR_OK && errMemInvalidHook != UC_ERR_OK)
+    {
+        std::cerr << "Could not create other debug hooks" << std::endl;
+        return false;
+    }
+#endif
     return uc_emu_start( m_uc, m_loader.get_ep(), textSegEnd, 0, 0 ) == UC_ERR_OK;
 }
 
 bool COsxPpcEmu::set_stack( uc_engine *uc, const std::span<const std::string> args,
                             const std::span<const std::string> env, memory::CMemory &mem )
 {
-    uc_err err{ uc_reg_write( uc, UC_PPC_REG_1, &Stack_Dyld_Region_Start_Address ) };
+    uc_err err{ uc_reg_write( uc, UC_PPC_REG_1, &common::Stack_Dyld_Region_Start_Address ) };
     if (err != UC_ERR_OK)
     {
         std::cerr << "Could not set stack register R1." << std::endl;
         return false;
     }
 
-    if (!mem.commit( Stack_Region_Start_Address, Stack_Size, UC_PROT_ALL ))
+    if (!mem.commit( common::Stack_Region_Start_Address, common::Stack_Size, UC_PROT_ALL ))
     {
         std::cerr << "Could not map stack region." << std::endl;
         return false;
@@ -293,8 +270,8 @@ bool COsxPpcEmu::set_args_on_stack( uc_engine *uc, const std::span<const std::st
     uint32_t execPathAddress{};
     for (size_t idx{ 0 }; idx < targetArgs.size(); idx++)
     {
-        const uint32_t address{
-            static_cast<uint32_t>( Stack_Dyld_Region_Start_Address + stringAreaOffset + targetArgOffsets[idx] ) };
+        const uint32_t address{ static_cast<uint32_t>( common::Stack_Dyld_Region_Start_Address + stringAreaOffset +
+                                                       targetArgOffsets[idx] ) };
         const uint32_t addressBe{ common::ensure_endianness( static_cast<uint32_t>( address ), std::endian::big ) };
         if (idx == 0)
             execPathAddress = addressBe;
@@ -308,7 +285,7 @@ bool COsxPpcEmu::set_args_on_stack( uc_engine *uc, const std::span<const std::st
     for (size_t idx{ 0 }; idx < env.size(); idx++)
     {
         const uint32_t address{
-            static_cast<uint32_t>( Stack_Dyld_Region_Start_Address + stringAreaOffset + envOffsets[idx] ) };
+            static_cast<uint32_t>( common::Stack_Dyld_Region_Start_Address + stringAreaOffset + envOffsets[idx] ) };
         const uint32_t addressBe{ common::ensure_endianness( static_cast<uint32_t>( address ), std::endian::big ) };
         *reinterpret_cast<uint32_t *>( ptrsBuf.data() + off ) = addressBe;
         off += sizeof( uint32_t );
@@ -324,13 +301,13 @@ bool COsxPpcEmu::set_args_on_stack( uc_engine *uc, const std::span<const std::st
     const auto stackDataView{ stackDataArr | std::views::join };
     std::vector<uint8_t> stackData( stackDataView.begin(), stackDataView.end() );
 
-    if (stackData.size() > Stack_Dyld_Region_Size)
+    if (stackData.size() > common::Stack_Dyld_Region_Size)
     {
         std::cerr << "Dyld stack is too small, size: " << std::hex << stackData.size() << std::endl;
         return false;
     }
 
-    mem.write( Stack_Dyld_Region_Start_Address, stackData.data(), stackData.size() );
+    mem.write( common::Stack_Dyld_Region_Start_Address, stackData.data(), stackData.size() );
     return true;
 }
 
@@ -500,7 +477,6 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 #ifdef DEBUG
     g_lastAddr.store( address, std::memory_order_relaxed );
     print_api_call_source( uc, address, idx, emu );
-    //  print_context( uc );
 #endif
     if (idx > 0)
         import::Import_Items[idx - import::Unknown_Import_Shift].hook( uc,
@@ -508,27 +484,6 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 #ifdef DEBUG
     print_api_return( uc, idx );
 #endif
-}
-
-void hook_trace( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
-{
-    std::cout << "Tracing: 0x" << std::hex << address;
-    const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
-        address, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
-    if (funcName.has_value())
-    {
-        std::cout << " (" << *funcName << ")" << std::endl;
-    }
-    else
-    {
-        const std::optional<LIEF::MachO::Section> s{ emu->m_loader.get_section_for_va( address ) };
-        if (!s.has_value())
-        {
-            std::cerr << "Not mapped memory: 0x" << address << std::endl;
-            return;
-        }
-        std::cout << " unknown@" << s->name() << std::endl;
-    }
 }
 
 void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
@@ -570,6 +525,28 @@ void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int si
 {
     std::cerr << "MEM_INVALID type=" << type << " @ 0x" << std::hex << address << " size=" << size << " value=" << value
               << std::dec << "\n";
+}
+
+#ifdef DEBUG
+void hook_trace( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
+{
+    std::cout << "Tracing: 0x" << std::hex << address;
+    const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
+        address, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
+    if (funcName.has_value())
+    {
+        std::cout << " (" << *funcName << ")" << std::endl;
+    }
+    else
+    {
+        const std::optional<LIEF::MachO::Section> s{ emu->m_loader.get_section_for_va( address ) };
+        if (!s.has_value())
+        {
+            std::cerr << "Not mapped memory: 0x" << address << std::endl;
+            return;
+        }
+        std::cout << " unknown@" << s->name() << std::endl;
+    }
 }
 
 static std::string format_arg_value( uc_engine *uc, uint32_t argValue )
@@ -713,8 +690,6 @@ static void print_context( uc_engine *uc )
     uc_reg_read( uc, UC_PPC_REG_CR, &reg );
     std::cout << "CR=0x" << std::hex << reg << std::endl;
 }
-
-#ifdef DEBUG
 void hook_debug( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 {
     // Early exit if debugger is not active (no breakpoints or stepping)

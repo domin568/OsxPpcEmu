@@ -10,8 +10,8 @@
 #include "CMemory.hpp"
 #include <cstdint>
 #include <set>
-#include <vector>
 #include <unicorn/unicorn.h>
+#include <vector>
 
 // Forward declaration
 namespace loader
@@ -52,6 +52,7 @@ class CDebugger
     void hexdump( uint32_t address, size_t length ) const;
     void show_registers() const;
     void show_callstack( size_t maxDepth = 10 ) const;
+    bool print_vm_map();
 
     // Callstack utility (returns vector of addresses: [LR, saved_LR1, saved_LR2, ...])
     std::vector<uint32_t> get_callstack_addresses( size_t maxDepth = 10 ) const;

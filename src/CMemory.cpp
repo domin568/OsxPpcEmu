@@ -4,6 +4,7 @@
  * Brief:     memory manager for emu
  **/
 #include "../include/CMemory.hpp"
+#include "../include/Common.hpp"
 #include <cstddef>
 #include <cstring>
 #include <expected>
@@ -55,7 +56,7 @@ std::size_t CMemory::get_system_page_size()
 #else
         long p{ sysconf(_SC_PAGESIZE) };
         if (p <= 0)
-            page_size = Default_Page_Size;
+            page_size = common::Default_Page_Size;
         else
             page_size = static_cast<std::size_t>(p);
 #endif
@@ -173,12 +174,12 @@ uint64_t CMemory::to_host( uint32_t ptr )
 // ultra simple, just to move emulation further
 void CMemory::initialize_heap()
 {
-    commit( Heap_Start, Heap_Size, 3 );
+    commit( common::Heap_Start, common::Heap_Size, 3 );
 }
 
 uint32_t CMemory::heap_alloc( std::size_t size )
 {
-    static std::size_t ptr{ Heap_Start };
+    static std::size_t ptr{ common::Heap_Start };
     const uint32_t tmp{ static_cast<uint32_t>( ptr ) };
     ptr += size;
     return tmp;

@@ -44,11 +44,6 @@ class CMemory
 
   private:
     CMemory( uc_engine *uc, void *memPtr, size_t size, std::size_t pageSize );
-
-    static constexpr std::size_t Default_Page_Size{ 0x1000 };
-    static constexpr std::size_t Heap_Start{ 0x10'00'00'00 };
-    static constexpr std::size_t Heap_Size{ 0x10'00'00'00 };
-
     uc_engine *m_uc{ nullptr };
     union {
         void *m_memPtr{ nullptr };

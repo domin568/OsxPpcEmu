@@ -19,6 +19,16 @@ namespace common
 {
 
 inline constexpr uint32_t Import_Dispatch_Table_Address{ 0xF0'00'00'00 };
+static constexpr uint64_t Guest_Virtual_Memory_Size{ 0x1'00'00'00'00 }; // 32 bit virtual address space size
+static constexpr uint32_t Stack_Max_Address{ 0xC0'00'00'00 };
+static constexpr uint32_t Stack_Size{ 2u * 0x1000 * 0x1000 }; // 2MB
+static constexpr uint32_t Stack_Region_Start_Address{ Stack_Max_Address - Stack_Size };
+static constexpr uint32_t Stack_Dyld_Region_Size{ 0x1000'0 };
+static constexpr uint32_t Stack_Dyld_Region_Start_Address{ Stack_Max_Address -
+                                                           Stack_Dyld_Region_Size }; // it is also initial stack address
+static constexpr std::size_t Default_Page_Size{ 0x1000 };
+static constexpr std::size_t Heap_Start{ 0x10'00'00'00 };
+static constexpr std::size_t Heap_Size{ 0x10'00'00'00 };
 
 enum class ImportType
 {

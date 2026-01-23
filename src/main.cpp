@@ -27,7 +27,6 @@ int main( int argc, const char *argv[] )
 #ifdef DEBUG
     emu->init_debugger();
 #endif
-    emu->print_vm_map( std::cout );
     emu->run();
 
     return 0;

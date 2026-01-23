@@ -33,6 +33,177 @@ bool ___error( uc_engine *uc, memory::CMemory *mem )
     return true;
 }
 
+// int _setjmp(jmp_buf env);
+// Save calling environment for later use by longjmp
+bool _setjmp( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [envPtr] = *args;
+
+    if (!envPtr)
+    {
+        std::cerr << "_setjmp: null jmp_buf pointer" << std::endl;
+        return false;
+    }
+
+    auto *jmpBuf = static_cast<guest::jmp_buf *>( envPtr );
+
+    // Save registers to jmp_buf
+    uint32_t r1, r2, r13, r14, r15, r16, r17, r18, r19, r20, r21;
+    uint32_t r22, r23, r24, r25, r26, r27, r28, r29, r30, r31;
+    uint32_t cr, lr, ctr, xer;
+
+    uc_reg_read( uc, UC_PPC_REG_1, &r1 );
+    uc_reg_read( uc, UC_PPC_REG_2, &r2 );
+    uc_reg_read( uc, UC_PPC_REG_13, &r13 );
+    uc_reg_read( uc, UC_PPC_REG_14, &r14 );
+    uc_reg_read( uc, UC_PPC_REG_15, &r15 );
+    uc_reg_read( uc, UC_PPC_REG_16, &r16 );
+    uc_reg_read( uc, UC_PPC_REG_17, &r17 );
+    uc_reg_read( uc, UC_PPC_REG_18, &r18 );
+    uc_reg_read( uc, UC_PPC_REG_19, &r19 );
+    uc_reg_read( uc, UC_PPC_REG_20, &r20 );
+    uc_reg_read( uc, UC_PPC_REG_21, &r21 );
+    uc_reg_read( uc, UC_PPC_REG_22, &r22 );
+    uc_reg_read( uc, UC_PPC_REG_23, &r23 );
+    uc_reg_read( uc, UC_PPC_REG_24, &r24 );
+    uc_reg_read( uc, UC_PPC_REG_25, &r25 );
+    uc_reg_read( uc, UC_PPC_REG_26, &r26 );
+    uc_reg_read( uc, UC_PPC_REG_27, &r27 );
+    uc_reg_read( uc, UC_PPC_REG_28, &r28 );
+    uc_reg_read( uc, UC_PPC_REG_29, &r29 );
+    uc_reg_read( uc, UC_PPC_REG_30, &r30 );
+    uc_reg_read( uc, UC_PPC_REG_31, &r31 );
+    uc_reg_read( uc, UC_PPC_REG_CR, &cr );
+    uc_reg_read( uc, UC_PPC_REG_LR, &lr );
+    uc_reg_read( uc, UC_PPC_REG_CTR, &ctr );
+    uc_reg_read( uc, UC_PPC_REG_XER, &xer );
+
+    // Store in big-endian format
+    jmpBuf->r1 = common::ensure_endianness( r1, std::endian::big );
+    jmpBuf->r2 = common::ensure_endianness( r2, std::endian::big );
+    jmpBuf->r13 = common::ensure_endianness( r13, std::endian::big );
+    jmpBuf->r14 = common::ensure_endianness( r14, std::endian::big );
+    jmpBuf->r15 = common::ensure_endianness( r15, std::endian::big );
+    jmpBuf->r16 = common::ensure_endianness( r16, std::endian::big );
+    jmpBuf->r17 = common::ensure_endianness( r17, std::endian::big );
+    jmpBuf->r18 = common::ensure_endianness( r18, std::endian::big );
+    jmpBuf->r19 = common::ensure_endianness( r19, std::endian::big );
+    jmpBuf->r20 = common::ensure_endianness( r20, std::endian::big );
+    jmpBuf->r21 = common::ensure_endianness( r21, std::endian::big );
+    jmpBuf->r22 = common::ensure_endianness( r22, std::endian::big );
+    jmpBuf->r23 = common::ensure_endianness( r23, std::endian::big );
+    jmpBuf->r24 = common::ensure_endianness( r24, std::endian::big );
+    jmpBuf->r25 = common::ensure_endianness( r25, std::endian::big );
+    jmpBuf->r26 = common::ensure_endianness( r26, std::endian::big );
+    jmpBuf->r27 = common::ensure_endianness( r27, std::endian::big );
+    jmpBuf->r28 = common::ensure_endianness( r28, std::endian::big );
+    jmpBuf->r29 = common::ensure_endianness( r29, std::endian::big );
+    jmpBuf->r30 = common::ensure_endianness( r30, std::endian::big );
+    jmpBuf->r31 = common::ensure_endianness( r31, std::endian::big );
+    jmpBuf->cr = common::ensure_endianness( cr, std::endian::big );
+    jmpBuf->lr = common::ensure_endianness( lr, std::endian::big );
+    jmpBuf->ctr = common::ensure_endianness( ctr, std::endian::big );
+    jmpBuf->xer = common::ensure_endianness( xer, std::endian::big );
+
+    // Return 0 for setjmp
+    uint32_t ret = 0;
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write _setjmp return value" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+// void _longjmp(jmp_buf env, int val);
+// Restore environment saved by setjmp and return to that point
+bool _longjmp( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<void *, int>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [envPtr, val] = *args;
+
+    if (!envPtr)
+    {
+        std::cerr << "_longjmp: null jmp_buf pointer" << std::endl;
+        return false;
+    }
+
+    auto *jmpBuf = static_cast<guest::jmp_buf *>( envPtr );
+
+    // Restore registers from jmp_buf (convert from big-endian)
+    uint32_t r1 = common::ensure_endianness( jmpBuf->r1, std::endian::big );
+    uint32_t r2 = common::ensure_endianness( jmpBuf->r2, std::endian::big );
+    uint32_t r13 = common::ensure_endianness( jmpBuf->r13, std::endian::big );
+    uint32_t r14 = common::ensure_endianness( jmpBuf->r14, std::endian::big );
+    uint32_t r15 = common::ensure_endianness( jmpBuf->r15, std::endian::big );
+    uint32_t r16 = common::ensure_endianness( jmpBuf->r16, std::endian::big );
+    uint32_t r17 = common::ensure_endianness( jmpBuf->r17, std::endian::big );
+    uint32_t r18 = common::ensure_endianness( jmpBuf->r18, std::endian::big );
+    uint32_t r19 = common::ensure_endianness( jmpBuf->r19, std::endian::big );
+    uint32_t r20 = common::ensure_endianness( jmpBuf->r20, std::endian::big );
+    uint32_t r21 = common::ensure_endianness( jmpBuf->r21, std::endian::big );
+    uint32_t r22 = common::ensure_endianness( jmpBuf->r22, std::endian::big );
+    uint32_t r23 = common::ensure_endianness( jmpBuf->r23, std::endian::big );
+    uint32_t r24 = common::ensure_endianness( jmpBuf->r24, std::endian::big );
+    uint32_t r25 = common::ensure_endianness( jmpBuf->r25, std::endian::big );
+    uint32_t r26 = common::ensure_endianness( jmpBuf->r26, std::endian::big );
+    uint32_t r27 = common::ensure_endianness( jmpBuf->r27, std::endian::big );
+    uint32_t r28 = common::ensure_endianness( jmpBuf->r28, std::endian::big );
+    uint32_t r29 = common::ensure_endianness( jmpBuf->r29, std::endian::big );
+    uint32_t r30 = common::ensure_endianness( jmpBuf->r30, std::endian::big );
+    uint32_t r31 = common::ensure_endianness( jmpBuf->r31, std::endian::big );
+    uint32_t cr = common::ensure_endianness( jmpBuf->cr, std::endian::big );
+    uint32_t lr = common::ensure_endianness( jmpBuf->lr, std::endian::big );
+    uint32_t ctr = common::ensure_endianness( jmpBuf->ctr, std::endian::big );
+    uint32_t xer = common::ensure_endianness( jmpBuf->xer, std::endian::big );
+
+    // Restore all registers
+    uc_reg_write( uc, UC_PPC_REG_1, &r1 );
+    uc_reg_write( uc, UC_PPC_REG_2, &r2 );
+    uc_reg_write( uc, UC_PPC_REG_13, &r13 );
+    uc_reg_write( uc, UC_PPC_REG_14, &r14 );
+    uc_reg_write( uc, UC_PPC_REG_15, &r15 );
+    uc_reg_write( uc, UC_PPC_REG_16, &r16 );
+    uc_reg_write( uc, UC_PPC_REG_17, &r17 );
+    uc_reg_write( uc, UC_PPC_REG_18, &r18 );
+    uc_reg_write( uc, UC_PPC_REG_19, &r19 );
+    uc_reg_write( uc, UC_PPC_REG_20, &r20 );
+    uc_reg_write( uc, UC_PPC_REG_21, &r21 );
+    uc_reg_write( uc, UC_PPC_REG_22, &r22 );
+    uc_reg_write( uc, UC_PPC_REG_23, &r23 );
+    uc_reg_write( uc, UC_PPC_REG_24, &r24 );
+    uc_reg_write( uc, UC_PPC_REG_25, &r25 );
+    uc_reg_write( uc, UC_PPC_REG_26, &r26 );
+    uc_reg_write( uc, UC_PPC_REG_27, &r27 );
+    uc_reg_write( uc, UC_PPC_REG_28, &r28 );
+    uc_reg_write( uc, UC_PPC_REG_29, &r29 );
+    uc_reg_write( uc, UC_PPC_REG_30, &r30 );
+    uc_reg_write( uc, UC_PPC_REG_31, &r31 );
+    uc_reg_write( uc, UC_PPC_REG_CR, &cr );
+    uc_reg_write( uc, UC_PPC_REG_LR, &lr );
+    uc_reg_write( uc, UC_PPC_REG_CTR, &ctr );
+    uc_reg_write( uc, UC_PPC_REG_XER, &xer );
+
+    // Set PC to the return address (LR from setjmp)
+    uc_reg_write( uc, UC_PPC_REG_PC, &lr );
+
+    // Return val (or 1 if val is 0)
+    uint32_t retVal = (val == 0) ? 1 : val;
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retVal ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write _longjmp return value" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
 bool keymgr_dwarf2_register_sections( uc_engine *uc, memory::CMemory *mem )
 {
     return true;

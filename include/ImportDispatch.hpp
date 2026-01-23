@@ -51,6 +51,8 @@ callback( free );
 callback( strcmp );
 callback( fprintf );
 callback( ___error );
+callback( _setjmp );
+callback( _longjmp );
 
 template <std::size_t I, template <typename> class Pred, typename... Ts> struct count_before;
 template <std::size_t I, template <typename> class Pred> struct count_before<I, Pred>
@@ -168,12 +170,14 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_fwrite",
     "_getcwd",
     "_ioctl",
+    "_longjmp",
     "_mach_init_routine",
     "_malloc",
     "_memcpy",
     "_memmove",
     "_memset",
     "_puts",
+    "_setjmp",
     "_setvbuf",
     "_signal",
     "_sprintf",
@@ -208,12 +212,14 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::fwrite },                   // _fwrite
     { data::Blr_Opcode, callback::getcwd },                   // _getcwd
     { data::Blr_Opcode, callback::ioctl },                    // _ioctl
+    { data::Blr_Opcode, callback::_longjmp },                 // _longjmp
     { data::Blr_Opcode, callback::mach_init_routine },        // _mach_init_routine
     { data::Blr_Opcode, callback::malloc },                   // _malloc
     { data::Blr_Opcode, callback::memcpy },                   // _memcpy
     { data::Blr_Opcode, callback::memmove },                  // _memmove
     { data::Blr_Opcode, callback::memset },                   // _memset
     { data::Blr_Opcode, callback::puts },                     // _puts
+    { data::Blr_Opcode, callback::_setjmp },                  // _setjmp
     { data::Blr_Opcode, callback::setvbuf },                  // _setvbuf
     { data::Blr_Opcode, callback::signal },                   // _signal
     { data::Blr_Opcode, callback::sprintf },                  // _sprintf
@@ -247,12 +253,14 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     4,  // _fwrite
     2,  // _getcwd
     -1, // _ioctl (variadic)
+    2,  // _longjmp
     0,  // _mach_init_routine
     1,  // _malloc
     3,  // _memcpy
     3,  // _memmove
     3,  // _memset
     1,  // _puts
+    1,  // _setjmp
     4,  // _setvbuf
     2,  // _signal
     -1, // _sprintf (variadic)

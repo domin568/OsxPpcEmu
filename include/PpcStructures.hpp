@@ -132,4 +132,36 @@ struct stat
     std::int64_t st_qspare[2];    /* RESERVED: DO NOT USE! */
 };
 
+// PowerPC jmp_buf structure for setjmp/longjmp
+// Based on Mac OS X 10.4 PPC ABI
+struct jmp_buf
+{
+    uint32_t r1;   // Stack pointer (r1)
+    uint32_t r2;   // TOC pointer (r2)
+    uint32_t r13;  // Reserved (r13)
+    uint32_t r14;  // Non-volatile GPRs (r14-r31)
+    uint32_t r15;
+    uint32_t r16;
+    uint32_t r17;
+    uint32_t r18;
+    uint32_t r19;
+    uint32_t r20;
+    uint32_t r21;
+    uint32_t r22;
+    uint32_t r23;
+    uint32_t r24;
+    uint32_t r25;
+    uint32_t r26;
+    uint32_t r27;
+    uint32_t r28;
+    uint32_t r29;
+    uint32_t r30;
+    uint32_t r31;
+    uint32_t cr;   // Condition register
+    uint32_t lr;   // Link register (return address)
+    uint32_t ctr;  // Count register (optional)
+    uint32_t xer;  // Fixed-point exception register (optional)
+    // Total: 26 words = 104 bytes (matches typical PowerPC jmp_buf size)
+};
+
 } // namespace guest

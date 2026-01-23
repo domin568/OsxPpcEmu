@@ -28,9 +28,8 @@ std::string CDebugger::get_symbol_name( uint32_t address ) const
     if (!m_loader)
         return "";
 
-    const std::optional<std::string> funcName{
-        m_loader->get_symbol_name_for_va( address, LIEF::MachO::Symbol::TYPE::SECTION,
-                                          loader::CMachoLoader::SymbolSection::TEXT ) };
+    const std::optional<std::string> funcName{ m_loader->get_symbol_name_for_va(
+        address, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
     if (funcName.has_value())
         return " <" + *funcName + ">";
 
@@ -219,7 +218,7 @@ std::vector<uint32_t> CDebugger::get_callstack_addresses( size_t maxDepth ) cons
     // [SP+8]  = saved LR (return address to caller)
 
     uint32_t currentSP = sp;
-    bool useLRfirst = (lr != 0);
+    bool useLRfirst = ( lr != 0 );
 
     while (addresses.size() < maxDepth)
     {
@@ -281,12 +280,58 @@ void CDebugger::show_callstack( size_t maxDepth ) const
 
     for (size_t i = 0; i < addresses.size(); i++)
     {
-        std::cout << "  #" << (i + 1) << "  0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << addresses[i]
+        std::cout << "  #" << ( i + 1 ) << "  0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << addresses[i]
                   << std::dec << get_symbol_name( addresses[i] ) << std::endl;
     }
 
     if (addresses.size() == maxDepth)
         std::cout << "  ... (max depth reached)" << std::endl;
+}
+
+bool CDebugger::print_vm_map()
+{
+    uc_mem_region *regions;
+    uint32_t count{};
+    if (uc_mem_regions( m_uc, &regions, &count ) != UC_ERR_OK)
+        return false;
+
+    std::cout << "     va         size     perm  description" << std::endl;
+    for (uint32_t i = 0; i < count; i++)
+    {
+        const auto &r = regions[i];
+        std::cout << " 0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << r.begin << "  0x" << std::setw( 8 )
+                  << r.end - r.begin + 1 << "  ";
+
+        // Print permissions (fixed width of 3 characters + space)
+        std::string perms;
+        if (r.perms & UC_PROT_READ)
+            perms += "R";
+        if (r.perms & UC_PROT_WRITE)
+            perms += "W";
+        if (r.perms & UC_PROT_EXEC)
+            perms += "X";
+
+        std::cout << std::left << std::setw( 3 ) << perms << " ";
+
+        if (r.begin == common::Heap_Start)
+        {
+            std::cout << "(heap)";
+        }
+        else if (r.begin == common::Stack_Region_Start_Address)
+        {
+            std::cout << "(stack)";
+        }
+        else if (r.begin == common::Import_Dispatch_Table_Address)
+        {
+            std::cout << "(import dispatch table)";
+        }
+        else
+        {
+            std::cout << "(image)";
+        }
+        std::cout << "\n";
+    }
+    return true;
 }
 
 void CDebugger::print_help() const
@@ -301,6 +346,7 @@ void CDebugger::print_help() const
     std::cout << "  r                - Show registers" << std::endl;
     std::cout << "  bt               - Show call stack (backtrace)" << std::endl;
     std::cout << "  x <addr> <len>   - Hexdump memory (addr and len in hex)" << std::endl;
+    std::cout << "  vmmap            - Show virtual memory regions" << std::endl;
     std::cout << "  h / ?            - Show this help" << std::endl;
     std::cout << "  q                - Quit emulator" << std::endl;
 }
@@ -363,6 +409,10 @@ void CDebugger::handle_command( const std::string &cmd )
             hexdump( addr, len );
         else
             std::cout << "Usage: x <address> <length>" << std::endl;
+    }
+    else if (command == "vmmap")
+    {
+        print_vm_map();
     }
     else if (command == "h" || command == "?")
     {
