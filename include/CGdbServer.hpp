@@ -117,8 +117,10 @@ class CGdbServer
     static uint8_t calculate_checksum( const std::string &data );
     static std::string encode_hex( const uint8_t *data, size_t length );
     static std::string encode_hex_u32( uint32_t value );
+    static std::string encode_hex_u64( uint64_t value );
     static std::vector<uint8_t> decode_hex( const std::string &hex );
     static uint32_t decode_hex_u32( const std::string &hex );
+    static uint64_t decode_hex_u64( const std::string &hex );
 };
 
 } // namespace gdb

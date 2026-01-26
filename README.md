@@ -29,21 +29,28 @@ Then connect from IDA Pro: `Debugger → Attach → localhost:23946`
 
 ## Interactive Debugger Commands
 
-| Command          | Description          | Example      |
-|------------------|----------------------|--------------|
-| `c`              | Continue execution   | `c`          |
-| `s` or `si`      | Step one instruction | `s`          |
-| `so`             | Step out of function | `so`         |
-| `b <addr>`       | Set breakpoint       | `b 3620`     |
-| `d <addr>`       | Delete breakpoint    | `d 3620`     |
-| `l`              | List breakpoints     | `l`          |
-| `r`              | Show registers       | `r`          |
-| `bt`             | Show call stack      | `bt`         |
-| `x <addr> <len>` | Hexdump memory       | `x 1000 100` |
-| `h` or `?`       | Show help            | `h`          |
-| `q`              | Quit                 | `q`          |
+| Command                 | Description                | Example                  |
+|-------------------------|----------------------------|--------------------------|
+| `c`                     | Continue execution         | `c`                      |
+| `s` or `si`             | Step one instruction       | `s`                      |
+| `so`                    | Step out of function       | `so`                     |
+| `b <addr>`              | Set breakpoint             | `b 3620`                 |
+| `d <addr>`              | Delete breakpoint          | `d 3620`                 |
+| `l`                     | List breakpoints           | `l`                      |
+| `watch <addr> <size>`   | Set memory watchpoint      | `watch bffeff40 4`       |
+| `unwatch <addr>`        | Remove watchpoint          | `unwatch bffeff40`       |
+| `lw`                    | List watchpoints           | `lw`                     |
+| `r`                     | Show registers             | `r`                      |
+| `wr <reg> <val>`        | Write value to register    | `wr r3 1234`             |
+| `bt`                    | Show call stack            | `bt`                     |
+| `x <addr> <len>`        | Hexdump memory             | `x 1000 100`             |
+| `w <addr> <bytes>`      | Write hex bytes to memory  | `w 1000 deadbeef`        |
+| `vmmap`                 | Show memory regions        | `vmmap`                  |
+| `trace`                 | Toggle API call tracing    | `trace`                  |
+| `h` or `?`              | Show help                  | `h`                      |
+| `q`                     | Quit                       | `q`                      |
 
-**Note**: Addresses are in hexadecimal (no 0x prefix needed)
+**Note**: Addresses and values are in hexadecimal (no 0x prefix needed)
 
 ---
 
@@ -74,10 +81,11 @@ Then connect from IDA Pro: `Debugger → Attach → localhost:23946`
 
 ```bash
 ./OsxPpcEmu myapp
-(dbg) b 3700    # Function address
-(dbg) c         # Run to breakpoint
-(dbg) r         # Check registers
-(dbg) s         # Step through
+(dbg) b 3700       # Function address
+(dbg) c            # Run to breakpoint
+(dbg) r            # Check registers
+(dbg) wr r3 1000   # Modify register
+(dbg) s            # Step through
 ```
 
 ### 3. IDA Pro Analysis
@@ -97,8 +105,43 @@ GDB_SERVER=1 ./OsxPpcEmu myapp
 ✅ **API tracing works in both modes** - Check the emulator console
 ✅ **Addresses are hex** - No 0x prefix in interactive mode
 ✅ **Use bt command** - Shows call stack with symbols
+✅ **Memory/Register editing** - Use `wr` and `w` commands to modify state
 ✅ **GDB Server mode** - Better for complex reverse engineering
-✅ **Interactive mode** - Better for quick tests
+✅ **Interactive mode** - Better for quick tests and patching
+
+### Advanced Debugging
+
+**Patch function arguments:**
+```bash
+(dbg) b 4c4dc
+(dbg) c
+(dbg) wr r3 0        # Change first argument
+(dbg) c
+```
+
+**Track memory corruption:**
+```bash
+(dbg) watch bffeff40 4   # Watch 4-byte stack location
+(dbg) c                  # Continue until write
+
+=== Watchpoint Hit ===
+Write to 0xbffeff40 (size: 4 bytes)
+Value: 0xdeadbeef
+PC: 0x00004c4dc <_corrupt_function>
+```
+
+**Fix stack corruption:**
+```bash
+(dbg) x bffeff40 20  # Check stack
+(dbg) w bffeff40 bffeffa0  # Fix backchain pointer
+```
+
+**Memory patching:**
+```bash
+(dbg) x 1000 10      # Read original
+(dbg) w 1000 60000000  # Write NOP (0x60000000)
+(dbg) c              # Continue with patch
+```
 
 ---
 
@@ -126,6 +169,9 @@ netstat -an | grep 23946  # Should show LISTEN
 
 **Problem**: Step commands hang in IDA
 **Fix**: Rebuild project after latest updates
+
+**Problem**: Call stack empty in IDA Pro
+**Note**: This is a limitation of IDA Pro's GDB remote debugging for PowerPC. Use the interactive debugger's `bt` command instead, or manually follow stack frames in IDA's stack view
 
 ---
 

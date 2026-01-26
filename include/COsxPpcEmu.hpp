@@ -61,6 +61,7 @@ class COsxPpcEmu
 #ifdef DEBUG
     uc_hook m_traceHook{};
     uc_hook m_debugHook{};
+    uc_hook m_watchpointHook{};
 #endif
 
     // static initialization functions
@@ -90,7 +91,6 @@ static void hook_intr( uc_engine *uc, uint32_t intno, void *user_data );
 static void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value,
                               void *user_data );
 #ifdef DEBUG
-static void hook_trace( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu );
 static void hook_debug( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu );
 
 static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu );

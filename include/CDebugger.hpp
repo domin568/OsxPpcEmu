@@ -41,12 +41,26 @@ class CDebugger
     void list_breakpoints() const;
     bool is_breakpoint( uint32_t address ) const;
 
+    // Watchpoint management
+    void add_watchpoint( uint32_t address, size_t size );
+    void remove_watchpoint( uint32_t address );
+    void list_watchpoints() const;
+    bool check_watchpoint_write( uint32_t address, size_t size, uint64_t value );
+    uc_hook get_watchpoint_hook() const
+    {
+        return m_watchpoint_hook;
+    }
+
     // Stepping control
     void step_in();
     void step_out();
     void continue_execution();
     bool should_break( uint32_t address );
     bool is_active() const; // Returns true if debugger should be checking instructions
+    bool is_trace_mode() const
+    {
+        return m_trace_mode;
+    }
 
     // Memory inspection
     void hexdump( uint32_t address, size_t length ) const;
@@ -61,12 +75,25 @@ class CDebugger
     void interactive_prompt();
 
   private:
+    struct Watchpoint
+    {
+        uint32_t address;
+        size_t size;
+        bool operator<( const Watchpoint &other ) const
+        {
+            return address < other.address;
+        }
+    };
+
     uc_engine *m_uc;
     memory::CMemory *m_mem;
     loader::CMachoLoader *m_loader;
-    std::set<uint32_t> m_breakpoints;
+    std::set<uint32_t> m_breakpoints{};
+    std::set<Watchpoint> m_watchpoints{};
+    uc_hook m_watchpoint_hook{};
     StepMode m_stepMode;
-    uint32_t m_stepOutLR; // LR value to wait for when stepping out
+    uint32_t m_stepOutLR{};
+    bool m_trace_mode{ false };
 
     void print_help() const;
     void handle_command( const std::string &cmd );

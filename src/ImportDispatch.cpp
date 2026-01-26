@@ -234,7 +234,7 @@ bool _longjmp( uc_engine *uc, memory::CMemory *mem )
     uc_reg_write( uc, UC_PPC_REG_PC, &lr );
 
     // Return val (or 1 if val is 0)
-    uint32_t retVal = (val == 0) ? 1 : val;
+    uint32_t retVal = ( val == 0 ) ? 1 : val;
     if (uc_reg_write( uc, UC_PPC_REG_3, &retVal ) != UC_ERR_OK)
     {
         std::cerr << "Could not write _longjmp return value" << std::endl;
@@ -357,7 +357,24 @@ bool ioctl( uc_engine *uc, memory::CMemory *mem )
     const auto args{ get_arguments<int, uint32_t, void *>( uc, mem ) };
     if (!args.has_value())
         return false;
-    // TODO
+
+    const auto [fd, op, ptr]{ *args };
+
+    static constexpr std::uint32_t Get_Window_Size_Op{ 0x40087468 };
+    struct winsize
+    {
+        unsigned short ws_row;    /* rows, in characters */
+        unsigned short ws_col;    /* columns, in characters */
+        unsigned short ws_xpixel; /* horizontal size, pixels */
+        unsigned short ws_ypixel; /* vertical size, pixels */
+    };
+    if (op == Get_Window_Size_Op)
+    {
+        reinterpret_cast<winsize *>( ptr )->ws_row = common::ensure_endianness<short>( 25, std::endian::big );
+        reinterpret_cast<winsize *>( ptr )->ws_col = common::ensure_endianness<short>( 80, std::endian::big );
+        reinterpret_cast<winsize *>( ptr )->ws_xpixel = 0;
+        reinterpret_cast<winsize *>( ptr )->ws_ypixel = 0;
+    }
     return true;
 }
 
@@ -438,17 +455,18 @@ bool realloc( uc_engine *uc, memory::CMemory *mem )
     }
 
     // Allocate new memory and copy old data
-    // Note: Our simple allocator doesn't track allocation sizes, so we can't know
-    // how much to copy. We'll just allocate new memory - the caller must handle this.
+    uint32_t oldGuestPtr{ mem->to_guest( ptr ) };
+    std::size_t oldSize{ mem->get_alloc_size( oldGuestPtr ) };
+
     uint32_t newPtr{ mem->heap_alloc( size ) };
     void *newHostPtr{ mem->get( newPtr ) };
 
     if (newHostPtr && ptr)
     {
         // Copy old data to new location
-        // Since we don't track sizes, we copy up to 'size' bytes
-        // This is a limitation of the simple bump allocator
-        ::memcpy( newHostPtr, ptr, size );
+        // Copy the minimum of old size and new size to avoid reading/writing out of bounds
+        std::size_t copySize{ oldSize > 0 ? std::min( oldSize, size ) : size };
+        ::memcpy( newHostPtr, ptr, copySize );
     }
 
     if (uc_reg_write( uc, UC_PPC_REG_3, &newPtr ) != UC_ERR_OK)
@@ -555,6 +573,25 @@ bool sprintf( uc_engine *uc, memory::CMemory *mem )
     return true;
 }
 
+// int vsprintf(char * buffer, const char * format, va_list ap);
+bool vsprintf( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<char *, const char *, void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto &[s, format, apPtr] = *args;
+    std::vector formatArgs{ common::get_format_arguments( mem, apPtr, format ) };
+
+    // UB but for now works for arm64 mac os / x86_64 windows
+    int ret{ ::vsprintf( s, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write vsprintf return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // int stat(const char * restrict path,	struct stat * restrict sb);
 bool stat( uc_engine *uc, memory::CMemory *mem )
 {
@@ -598,7 +635,7 @@ bool strcat( uc_engine *uc, memory::CMemory *mem )
         return false;
     const auto [dest, src] = *args;
     char *ret{ ::strcat( dest, src ) };
-    uint32_t retGuest{ mem->to_guest( ret ) };
+    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strcat return value" << std::endl;
@@ -615,7 +652,7 @@ bool strchr( uc_engine *uc, memory::CMemory *mem )
         return false;
     const auto [str, ch] = *args;
     char *ret{ ::strchr( str, ch ) };
-    uint32_t retGuest{ mem->to_guest( ret ) };
+    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strchr return value" << std::endl;
@@ -649,7 +686,7 @@ bool strrchr( uc_engine *uc, memory::CMemory *mem )
     const auto [str, ch] = *args;
 
     char *ret{ ::strrchr( str, ch ) };
-    uint32_t retGuest{ mem->to_guest( ret ) };
+    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strrchr return value" << std::endl;
@@ -667,7 +704,7 @@ bool strcpy( uc_engine *uc, memory::CMemory *mem )
     const auto [dest, source] = *args;
 
     char *ret{ ::strcpy( dest, source ) };
-    uint32_t retGuest{ mem->to_guest( ret ) };
+    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strcpy return value" << std::endl;
@@ -685,7 +722,7 @@ bool strncpy( uc_engine *uc, memory::CMemory *mem )
     const auto [dest, source, num] = *args;
 
     char *ret{ ::strncpy( dest, source, num ) };
-    uint32_t retGuest{ mem->to_guest( ret ) };
+    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strncpy return value" << std::endl;
@@ -725,7 +762,7 @@ bool getcwd( uc_engine *uc, memory::CMemory *mem )
         return false;
     const auto [buf, size] = *args;
     char *ret{ ::getcwd( buf, size ) };
-    uint32_t retGuest{ mem->to_guest( ret ) };
+    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write getcwd return value" << std::endl;

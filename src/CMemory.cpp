@@ -164,6 +164,7 @@ void *CMemory::get( size_t offset )
 
 uint32_t CMemory::to_guest( void *ptr )
 {
+    assert( reinterpret_cast<std::size_t>( ptr ) >= m_address );
     return reinterpret_cast<size_t>( ptr ) - m_address;
 }
 
@@ -182,8 +183,21 @@ uint32_t CMemory::heap_alloc( std::size_t size )
     static std::size_t ptr{ common::Heap_Start };
     const uint32_t tmp{ static_cast<uint32_t>( ptr ) };
     // Round up to 16-byte alignment for PowerPC (required for proper alignment of all data types)
-    ptr += ( size + 15 ) & ~15;
+    std::size_t alignedSize{ ( size + 15 ) & ~15 };
+    ptr += alignedSize;
+
+    // Track allocation size
+    m_allocSizes[tmp] = size;
+
     return tmp;
+}
+
+std::size_t CMemory::get_alloc_size( uint32_t ptr )
+{
+    auto it{ m_allocSizes.find( ptr ) };
+    if (it != m_allocSizes.end())
+        return it->second;
+    return 0;
 }
 
 } // namespace memory

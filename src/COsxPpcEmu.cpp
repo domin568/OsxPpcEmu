@@ -17,8 +17,11 @@
 #include <sstream>
 
 std::atomic<uint32_t> g_lastAddr{ 0 };
+
 namespace emu
 {
+// Forward declarations for hook functions
+void hook_watchpoint( uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data );
 COsxPpcEmu::COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader, memory::CMemory mem )
     : m_uc( uc ), m_loader( std::move( loader ) ), m_mem( std::move( mem ) )
 {
@@ -127,13 +130,22 @@ bool COsxPpcEmu::run()
                                     textSegStart, textSegEnd ) };
 
     uc_err errMemInvalidHook{ uc_hook_add( m_uc, &m_memInvalidHook, UC_HOOK_MEM_INVALID,
-                                           reinterpret_cast<void *>( hook_mem_invalid ), nullptr, 1, 0 ) };
+                                           reinterpret_cast<void *>( hook_mem_invalid ), this, 1, 0 ) };
 #ifdef DEBUG
     uc_err errDebugHook{ uc_hook_add( m_uc, &m_debugHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_debug ), this,
                                       textSegStart, textSegEnd ) };
     if (errDebugHook != UC_ERR_OK)
     {
         std::cerr << "Could not create debug hook." << std::endl;
+        return false;
+    }
+
+    // Add memory write hook for watchpoints
+    uc_err errWatchpointHook{ uc_hook_add( m_uc, &m_watchpointHook, UC_HOOK_MEM_WRITE,
+                                           reinterpret_cast<void *>( hook_watchpoint ), this, 1, 0 ) };
+    if (errWatchpointHook != UC_ERR_OK)
+    {
+        std::cerr << "Could not create watchpoint hook." << std::endl;
         return false;
     }
 
@@ -486,13 +498,15 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
     const size_t idx{ ( address - common::Import_Dispatch_Table_Address ) >> import::Import_Entry_Size_Pow2 };
 #ifdef DEBUG
     g_lastAddr.store( address, std::memory_order_relaxed );
-    print_api_call_source( uc, address, idx, emu );
+    if (emu->m_debugger->is_trace_mode())
+        print_api_call_source( uc, address, idx, emu );
 #endif
     if (idx > 0)
         import::Import_Items[idx - import::Unknown_Import_Shift].hook( uc,
                                                                        &emu->m_mem ); // call API dispatch function
 #ifdef DEBUG
-    print_api_return( uc, idx );
+    if (emu->m_debugger->is_trace_mode())
+        print_api_return( uc, idx );
 #endif
 }
 
@@ -571,32 +585,107 @@ void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
 
 void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data )
 {
-    std::cerr << "MEM_INVALID type=" << type << " @ 0x" << std::hex << address << " size=" << size << " value=" << value
-              << std::dec << "\n";
+    COsxPpcEmu *emu = static_cast<COsxPpcEmu *>( user_data );
+    uint32_t pc, lr;
+
+    uc_reg_read( uc, UC_PPC_REG_PC, &pc );
+    uc_reg_read( uc, UC_PPC_REG_LR, &lr );
+
+    std::cerr << "\n>>> MEMORY ACCESS VIOLATION <<<" << std::endl;
+
+    // Decode memory access type
+    const char *access_type = "UNKNOWN";
+    switch (type)
+    {
+    case UC_MEM_READ_UNMAPPED:
+        access_type = "READ from UNMAPPED";
+        break;
+    case UC_MEM_WRITE_UNMAPPED:
+        access_type = "WRITE to UNMAPPED";
+        break;
+    case UC_MEM_FETCH_UNMAPPED:
+        access_type = "FETCH from UNMAPPED";
+        break;
+    case UC_MEM_READ_PROT:
+        access_type = "READ PROTECTED";
+        break;
+    case UC_MEM_WRITE_PROT:
+        access_type = "WRITE PROTECTED";
+        break;
+    case UC_MEM_FETCH_PROT:
+        access_type = "FETCH PROTECTED";
+        break;
+    default:
+        break;
+    }
+
+    std::cerr << "Type:    " << access_type << " (" << type << ")" << std::endl;
+    std::cerr << "Address: 0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << address << std::endl;
+    std::cerr << "Size:    " << std::dec << size << " bytes" << std::endl;
+    std::cerr << "Value:   0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << value << std::endl;
+    std::cerr << "PC:      0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << pc;
+
+#ifdef DEBUG
+    if (emu)
+    {
+        const std::optional<std::string> pcName{ emu->m_loader.get_symbol_name_for_va(
+            pc, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
+        if (pcName.has_value())
+            std::cerr << " <" << *pcName << ">";
+    }
+    std::cerr << std::endl;
+
+    std::cerr << "LR:      0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << lr;
+
+    // Show symbol name for LR (caller)
+    if (emu)
+    {
+        const std::optional<std::string> callerName{ emu->m_loader.get_symbol_name_for_va(
+            lr, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
+        if (callerName.has_value())
+            std::cerr << " <" << *callerName << ">";
+    }
+    std::cerr << std::endl;
+
+    // Show instruction bytes at PC
+    std::vector<uint8_t> buf( 4 );
+    if (uc_mem_read( uc, pc, buf.data(), buf.size() ) == UC_ERR_OK)
+    {
+        std::cerr << "Instruction: ";
+        for (auto b : buf)
+            std::fprintf( stderr, "%02x ", b );
+        std::cerr << std::endl;
+    }
+
+    // Show call stack
+    if (emu && emu->m_debugger)
+    {
+        std::cerr << "\nCall stack:" << std::endl;
+        std::cerr << "  #0  0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << pc;
+
+        const std::optional<std::string> pcName{ emu->m_loader.get_symbol_name_for_va(
+            pc, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
+        if (pcName.has_value())
+            std::cerr << " <" << *pcName << ">";
+        std::cerr << std::endl;
+
+        std::vector<uint32_t> addresses = emu->m_debugger->get_callstack_addresses( 10 );
+        for (size_t i = 0; i < addresses.size(); i++)
+        {
+            std::cerr << "  #" << ( i + 1 ) << "  0x" << std::hex << std::setfill( '0' ) << std::setw( 8 )
+                      << addresses[i];
+            const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
+                addresses[i], LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
+            if (funcName.has_value())
+                std::cerr << " <" << *funcName << ">";
+            std::cerr << std::endl;
+        }
+    }
+    std::cerr << std::dec << std::endl;
+#endif
 }
 
 #ifdef DEBUG
-void hook_trace( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
-{
-    std::cout << "Tracing: 0x" << std::hex << address;
-    const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
-        address, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
-    if (funcName.has_value())
-    {
-        std::cout << " (" << *funcName << ")" << std::endl;
-    }
-    else
-    {
-        const std::optional<LIEF::MachO::Section> s{ emu->m_loader.get_section_for_va( address ) };
-        if (!s.has_value())
-        {
-            std::cerr << "Not mapped memory: 0x" << address << std::endl;
-            return;
-        }
-        std::cout << " unknown@" << s->name() << std::endl;
-    }
-}
-
 static std::string format_arg_value( uc_engine *uc, uint32_t argValue )
 {
     std::ostringstream oss;
@@ -738,6 +827,36 @@ static void print_context( uc_engine *uc )
     uc_reg_read( uc, UC_PPC_REG_CR, &reg );
     std::cout << "CR=0x" << std::hex << reg << std::endl;
 }
+
+void hook_watchpoint( uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data )
+{
+    // Only interested in writes
+    if (type != UC_MEM_WRITE && type != UC_MEM_WRITE_UNMAPPED && type != UC_MEM_WRITE_PROT)
+        return;
+
+    COsxPpcEmu *emu = static_cast<COsxPpcEmu *>( user_data );
+    if (!emu || !emu->m_debugger)
+        return;
+
+    // Check if this write hits a watchpoint
+    if (emu->m_debugger->check_watchpoint_write( static_cast<uint32_t>( address ), static_cast<size_t>( size ),
+                                                 static_cast<uint64_t>( value ) ))
+    {
+        // Watchpoint hit - enter interactive mode
+        bool gdb_active = emu->m_gdb_server && emu->m_gdb_server->is_running();
+
+        if (gdb_active)
+        {
+            emu->m_gdb_server->notify_breakpoint( static_cast<uint32_t>( address ) );
+            emu->m_gdb_server->wait_for_continue();
+        }
+        else
+        {
+            emu->m_debugger->interactive_prompt();
+        }
+    }
+}
+
 void hook_debug( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 {
     // Early exit if debugger is not active (no breakpoints or stepping)

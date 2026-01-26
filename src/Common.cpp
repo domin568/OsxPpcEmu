@@ -80,6 +80,34 @@ std::size_t count_format_specifiers( std::string_view format )
                 continue;
             }
             count++;
+
+            // Check for * (dynamic width/precision) which consume additional arguments
+            std::size_t i = p + 1;
+            while (i < format.size())
+            {
+                char c = format[i];
+
+                if (c == '*')
+                {
+                    count++;
+                    i++;
+                    continue;
+                }
+
+                if (c == '-' || c == '+' || c == ' ' || c == '#' || c == '0' || ( c >= '1' && c <= '9' ) || c == '.')
+                {
+                    i++;
+                    continue;
+                }
+
+                // Skip length modifiers
+                if (c == 'h' || c == 'l' || c == 'L' || c == 'j' || c == 'z' || c == 't')
+                {
+                    i++;
+                    continue;
+                }
+                break;
+            }
         }
     }
     return count;

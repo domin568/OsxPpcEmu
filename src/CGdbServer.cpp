@@ -234,7 +234,6 @@ void CGdbServer::handle_client()
         // Check if execution stopped while we were waiting
         if (waiting_for_stop && m_state.load() == DebugState::Stopped)
         {
-            // std::cout << "[GDB] Execution stopped, sending stop reply" << std::endl;
             send_packet( handle_stop_reason() );
             waiting_for_stop = false;
 
@@ -263,8 +262,6 @@ void CGdbServer::handle_client()
             break; // Client disconnected
         }
 
-        // std::cout << "[GDB] RX: " << packet << std::endl;
-
         // If we're waiting for execution to stop, queue non-interrupt packets
         if (waiting_for_stop)
         {
@@ -285,7 +282,6 @@ void CGdbServer::handle_client()
         std::string response = handle_packet( packet );
         if (!response.empty())
         {
-            // std::cout << "[GDB] TX: " << response << std::endl;
             send_packet( response );
         }
         else
@@ -296,7 +292,6 @@ void CGdbServer::handle_client()
 
             if (is_async_cmd)
             {
-                // std::cout << "[GDB] Async command, waiting for stop..." << std::endl;
                 waiting_for_stop = true;
             }
         }
@@ -414,40 +409,61 @@ std::string CGdbServer::handle_packet( const std::string &packet )
             return "E01";
         uint32_t regnum = decode_hex_u32( packet.substr( 1 ) );
 
-        uint32_t value = 0;
         if (regnum < 32) // r0-r31
         {
+            uint32_t value = 0;
             uc_reg_read( m_uc, UC_PPC_REG_0 + regnum, &value );
+            return encode_hex_u32( value );
         }
-        else if (regnum == 64) // PC
+        if (regnum >= 32 && regnum <= 63) // f0-f31
         {
+            uint64_t value = 0;
+            uc_reg_read( m_uc, UC_PPC_REG_FPR0 + ( regnum - 32 ), &value );
+            return encode_hex_u64( value );
+        }
+        if (regnum == 64) // PC
+        {
+            uint32_t value = 0;
             uc_reg_read( m_uc, UC_PPC_REG_PC, &value );
+            return encode_hex_u32( value );
         }
-        else if (regnum == 65) // MSR
+        if (regnum == 65) // MSR
         {
+            uint32_t value = 0;
             uc_reg_read( m_uc, UC_PPC_REG_MSR, &value );
+            return encode_hex_u32( value );
         }
-        else if (regnum == 66) // CR
+        if (regnum == 66) // CR
         {
+            uint32_t value = 0;
             uc_reg_read( m_uc, UC_PPC_REG_CR, &value );
+            return encode_hex_u32( value );
         }
-        else if (regnum == 67) // LR
+        if (regnum == 67) // LR
         {
+            uint32_t value = 0;
             uc_reg_read( m_uc, UC_PPC_REG_LR, &value );
+            return encode_hex_u32( value );
         }
-        else if (regnum == 68) // CTR
+        if (regnum == 68) // CTR
         {
+            uint32_t value = 0;
             uc_reg_read( m_uc, UC_PPC_REG_CTR, &value );
+            return encode_hex_u32( value );
         }
-        else if (regnum == 69) // XER
+        if (regnum == 69) // XER
         {
+            uint32_t value = 0;
             uc_reg_read( m_uc, UC_PPC_REG_XER, &value );
+            return encode_hex_u32( value );
         }
-        else
+        if (regnum == 70) // FPSCR
         {
-            return "E01"; // Invalid register
+            uint32_t value = 0;
+            uc_reg_read( m_uc, UC_PPC_REG_FPSCR, &value );
+            return encode_hex_u32( value );
         }
-        return encode_hex_u32( value );
+        return "E01"; // Invalid register
     }
 
     case 'P': // Write single register
@@ -457,41 +473,63 @@ std::string CGdbServer::handle_packet( const std::string &packet )
             return "E01";
 
         uint32_t regnum = decode_hex_u32( packet.substr( 1, eq - 1 ) );
-        uint32_t value = decode_hex_u32( packet.substr( eq + 1 ) );
+        std::string payload = packet.substr( eq + 1 );
 
         if (regnum < 32) // r0-r31
         {
+            uint32_t value = decode_hex_u32( payload );
             uc_reg_write( m_uc, UC_PPC_REG_0 + regnum, &value );
+            return "OK";
         }
-        else if (regnum == 64) // PC
+        if (regnum >= 32 && regnum <= 63) // f0-f31
         {
+            uint64_t value = decode_hex_u64( payload );
+            uc_reg_write( m_uc, UC_PPC_REG_FPR0 + ( regnum - 32 ), &value );
+            return "OK";
+        }
+        if (regnum == 64) // PC
+        {
+            uint32_t value = decode_hex_u32( payload );
             uc_reg_write( m_uc, UC_PPC_REG_PC, &value );
+            return "OK";
         }
-        else if (regnum == 65) // MSR
+        if (regnum == 65) // MSR
         {
+            uint32_t value = decode_hex_u32( payload );
             uc_reg_write( m_uc, UC_PPC_REG_MSR, &value );
+            return "OK";
         }
-        else if (regnum == 66) // CR
+        if (regnum == 66) // CR
         {
+            uint32_t value = decode_hex_u32( payload );
             uc_reg_write( m_uc, UC_PPC_REG_CR, &value );
+            return "OK";
         }
-        else if (regnum == 67) // LR
+        if (regnum == 67) // LR
         {
+            uint32_t value = decode_hex_u32( payload );
             uc_reg_write( m_uc, UC_PPC_REG_LR, &value );
+            return "OK";
         }
-        else if (regnum == 68) // CTR
+        if (regnum == 68) // CTR
         {
+            uint32_t value = decode_hex_u32( payload );
             uc_reg_write( m_uc, UC_PPC_REG_CTR, &value );
+            return "OK";
         }
-        else if (regnum == 69) // XER
+        if (regnum == 69) // XER
         {
+            uint32_t value = decode_hex_u32( payload );
             uc_reg_write( m_uc, UC_PPC_REG_XER, &value );
+            return "OK";
         }
-        else
+        if (regnum == 70) // FPSCR
         {
-            return "E01"; // Invalid register
+            uint32_t value = decode_hex_u32( payload );
+            uc_reg_write( m_uc, UC_PPC_REG_FPSCR, &value );
+            return "OK";
         }
-        return "OK";
+        return "E01"; // Invalid register
     }
 
     case 'm': // Read memory
@@ -595,7 +633,7 @@ std::string CGdbServer::handle_query( const std::string &query )
 {
     if (query.find( "Supported" ) == 0)
     {
-        return "PacketSize=4000;qXfer:features:read+;QStartNoAckMode+";
+        return "PacketSize=4000;qXfer:features:read+;qXfer:threads:read+;QStartNoAckMode+;swbreak+;hwbreak+";
     }
     else if (query.find( "Attached" ) == 0)
     {
@@ -625,55 +663,181 @@ std::string CGdbServer::handle_query( const std::string &query )
     {
         return ""; // No monitor commands
     }
+    else if (query.find( "ThreadExtraInfo," ) == 0)
+    {
+        // Return thread description (IDA uses this)
+        return encode_hex( reinterpret_cast<const uint8_t *>( "Emulated PPC32" ), 14 );
+    }
+    else if (query.find( "TStatus" ) == 0)
+    {
+        // Trace status - not running a trace experiment
+        return "T0;tnotrun:0";
+    }
+    else if (query.find( "L" ) == 0 && query.length() == 1)
+    {
+        // Thread list - deprecated, use qfThreadInfo instead
+        return ""; // Not supported
+    }
+    else if (query.find( "RegisterInfo" ) == 0)
+    {
+        // Per-register information (used by LLDB/IDA)
+        // Extract register number from query like "qRegisterInfo0"
+        std::string num_str = query.substr( 12 ); // Skip "RegisterInfo"
+        if (num_str.empty())
+            return "";
+
+        uint32_t regnum = decode_hex_u32( num_str );
+
+        if (regnum == 1) // r1 (SP)
+            return "name:r1;bitsize:32;offset:4;encoding:uint;format:hex;set:General Purpose Registers;gcc:1;dwarf:1;generic:sp;";
+        else if (regnum == 67) // LR
+            return "name:lr;bitsize:32;offset:268;encoding:uint;format:hex;set:Special Purpose Registers;gcc:67;dwarf:67;generic:ra;";
+        else if (regnum == 64) // PC
+            return "name:pc;bitsize:32;offset:256;encoding:uint;format:hex;set:Special Purpose Registers;gcc:64;dwarf:64;generic:pc;alt-name:srr0;";
+        else if (regnum < 32) // r0-r31
+        {
+            std::ostringstream oss;
+            oss << "name:r" << regnum << ";bitsize:32;offset:" << (regnum * 4)
+                << ";encoding:uint;format:hex;set:General Purpose Registers;gcc:" << regnum << ";dwarf:" << regnum
+                << ";";
+            return oss.str();
+        }
+
+        return ""; // Register not found
+    }
+    else if (query.find( "Xfer:threads:read" ) == 0)
+    {
+        // IDA Pro uses this to enumerate threads with full info
+        std::string threads_xml = "<?xml version=\"1.0\"?>"
+                                   "<threads>"
+                                   "<thread id=\"1\" core=\"0\" name=\"main\"/>"
+                                   "</threads>";
+
+        size_t offset = 0;
+        size_t length = threads_xml.size();
+        size_t colon = query.rfind( ':' );
+        if (colon != std::string::npos)
+        {
+            std::string range = query.substr( colon + 1 );
+            size_t comma = range.find( ',' );
+            if (comma != std::string::npos)
+            {
+                offset = decode_hex_u32( range.substr( 0, comma ) );
+                length = decode_hex_u32( range.substr( comma + 1 ) );
+            }
+        }
+
+        if (offset >= threads_xml.size())
+            return "l";
+
+        size_t remaining = threads_xml.size() - offset;
+        size_t chunk = std::min( remaining, length );
+        char prefix = ( chunk == remaining ) ? 'l' : 'm';
+        return std::string( 1, prefix ) + threads_xml.substr( offset, chunk );
+    }
     else if (query.find( "Xfer:features:read:target.xml" ) == 0)
     {
-        // PowerPC target description with proper register layout
-        std::string xml = "l<?xml version=\"1.0\"?>"
+        // PowerPC target description with standard register layout.
+        std::string xml = "<?xml version=\"1.0\"?>"
                           "<!DOCTYPE target SYSTEM \"gdb-target.dtd\">"
-                          "<target>"
+                          "<target version=\"1.0\">"
                           "<architecture>powerpc:common</architecture>"
+                          "<osabi>none</osabi>"
                           "<feature name=\"org.gnu.gdb.power.core\">"
-                          "<reg name=\"r0\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r1\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r2\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r3\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r4\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r5\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r6\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r7\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r8\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r9\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r10\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r11\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r12\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r13\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r14\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r15\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r16\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r17\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r18\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r19\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r20\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r21\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r22\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r23\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r24\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r25\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r26\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r27\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r28\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r29\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r30\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"r31\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"pc\" bitsize=\"32\" type=\"code_ptr\" regnum=\"64\"/>"
-                          "<reg name=\"msr\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"cr\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"lr\" bitsize=\"32\" type=\"code_ptr\"/>"
-                          "<reg name=\"ctr\" bitsize=\"32\" type=\"uint32\"/>"
-                          "<reg name=\"xer\" bitsize=\"32\" type=\"uint32\"/>"
+                          "<reg name=\"r0\" bitsize=\"32\" type=\"uint32\" regnum=\"0\"/>"
+                          "<reg name=\"r1\" bitsize=\"32\" type=\"data_ptr\" regnum=\"1\" generic=\"sp\"/>"
+                          "<reg name=\"r2\" bitsize=\"32\" type=\"uint32\" regnum=\"2\"/>"
+                          "<reg name=\"r3\" bitsize=\"32\" type=\"uint32\" regnum=\"3\"/>"
+                          "<reg name=\"r4\" bitsize=\"32\" type=\"uint32\" regnum=\"4\"/>"
+                          "<reg name=\"r5\" bitsize=\"32\" type=\"uint32\" regnum=\"5\"/>"
+                          "<reg name=\"r6\" bitsize=\"32\" type=\"uint32\" regnum=\"6\"/>"
+                          "<reg name=\"r7\" bitsize=\"32\" type=\"uint32\" regnum=\"7\"/>"
+                          "<reg name=\"r8\" bitsize=\"32\" type=\"uint32\" regnum=\"8\"/>"
+                          "<reg name=\"r9\" bitsize=\"32\" type=\"uint32\" regnum=\"9\"/>"
+                          "<reg name=\"r10\" bitsize=\"32\" type=\"uint32\" regnum=\"10\"/>"
+                          "<reg name=\"r11\" bitsize=\"32\" type=\"uint32\" regnum=\"11\"/>"
+                          "<reg name=\"r12\" bitsize=\"32\" type=\"uint32\" regnum=\"12\"/>"
+                          "<reg name=\"r13\" bitsize=\"32\" type=\"uint32\" regnum=\"13\"/>"
+                          "<reg name=\"r14\" bitsize=\"32\" type=\"uint32\" regnum=\"14\"/>"
+                          "<reg name=\"r15\" bitsize=\"32\" type=\"uint32\" regnum=\"15\"/>"
+                          "<reg name=\"r16\" bitsize=\"32\" type=\"uint32\" regnum=\"16\"/>"
+                          "<reg name=\"r17\" bitsize=\"32\" type=\"uint32\" regnum=\"17\"/>"
+                          "<reg name=\"r18\" bitsize=\"32\" type=\"uint32\" regnum=\"18\"/>"
+                          "<reg name=\"r19\" bitsize=\"32\" type=\"uint32\" regnum=\"19\"/>"
+                          "<reg name=\"r20\" bitsize=\"32\" type=\"uint32\" regnum=\"20\"/>"
+                          "<reg name=\"r21\" bitsize=\"32\" type=\"uint32\" regnum=\"21\"/>"
+                          "<reg name=\"r22\" bitsize=\"32\" type=\"uint32\" regnum=\"22\"/>"
+                          "<reg name=\"r23\" bitsize=\"32\" type=\"uint32\" regnum=\"23\"/>"
+                          "<reg name=\"r24\" bitsize=\"32\" type=\"uint32\" regnum=\"24\"/>"
+                          "<reg name=\"r25\" bitsize=\"32\" type=\"uint32\" regnum=\"25\"/>"
+                          "<reg name=\"r26\" bitsize=\"32\" type=\"uint32\" regnum=\"26\"/>"
+                          "<reg name=\"r27\" bitsize=\"32\" type=\"uint32\" regnum=\"27\"/>"
+                          "<reg name=\"r28\" bitsize=\"32\" type=\"uint32\" regnum=\"28\"/>"
+                          "<reg name=\"r29\" bitsize=\"32\" type=\"uint32\" regnum=\"29\"/>"
+                          "<reg name=\"r30\" bitsize=\"32\" type=\"uint32\" regnum=\"30\"/>"
+                          "<reg name=\"r31\" bitsize=\"32\" type=\"uint32\" regnum=\"31\"/>"
+                          "<reg name=\"pc\" bitsize=\"32\" type=\"code_ptr\" regnum=\"64\" generic=\"pc\"/>"
+                          "<reg name=\"msr\" bitsize=\"32\" type=\"uint32\" regnum=\"65\"/>"
+                          "<reg name=\"cr\" bitsize=\"32\" type=\"uint32\" regnum=\"66\"/>"
+                          "<reg name=\"lr\" bitsize=\"32\" type=\"code_ptr\" regnum=\"67\" generic=\"ra\"/>"
+                          "<reg name=\"ctr\" bitsize=\"32\" type=\"uint32\" regnum=\"68\"/>"
+                          "<reg name=\"xer\" bitsize=\"32\" type=\"uint32\" regnum=\"69\"/>"
+                          "<reg name=\"fpscr\" bitsize=\"32\" type=\"uint32\" regnum=\"70\"/>"
+                          "<reg name=\"f0\" bitsize=\"64\" type=\"ieee_double\" regnum=\"32\"/>"
+                          "<reg name=\"f1\" bitsize=\"64\" type=\"ieee_double\" regnum=\"33\"/>"
+                          "<reg name=\"f2\" bitsize=\"64\" type=\"ieee_double\" regnum=\"34\"/>"
+                          "<reg name=\"f3\" bitsize=\"64\" type=\"ieee_double\" regnum=\"35\"/>"
+                          "<reg name=\"f4\" bitsize=\"64\" type=\"ieee_double\" regnum=\"36\"/>"
+                          "<reg name=\"f5\" bitsize=\"64\" type=\"ieee_double\" regnum=\"37\"/>"
+                          "<reg name=\"f6\" bitsize=\"64\" type=\"ieee_double\" regnum=\"38\"/>"
+                          "<reg name=\"f7\" bitsize=\"64\" type=\"ieee_double\" regnum=\"39\"/>"
+                          "<reg name=\"f8\" bitsize=\"64\" type=\"ieee_double\" regnum=\"40\"/>"
+                          "<reg name=\"f9\" bitsize=\"64\" type=\"ieee_double\" regnum=\"41\"/>"
+                          "<reg name=\"f10\" bitsize=\"64\" type=\"ieee_double\" regnum=\"42\"/>"
+                          "<reg name=\"f11\" bitsize=\"64\" type=\"ieee_double\" regnum=\"43\"/>"
+                          "<reg name=\"f12\" bitsize=\"64\" type=\"ieee_double\" regnum=\"44\"/>"
+                          "<reg name=\"f13\" bitsize=\"64\" type=\"ieee_double\" regnum=\"45\"/>"
+                          "<reg name=\"f14\" bitsize=\"64\" type=\"ieee_double\" regnum=\"46\"/>"
+                          "<reg name=\"f15\" bitsize=\"64\" type=\"ieee_double\" regnum=\"47\"/>"
+                          "<reg name=\"f16\" bitsize=\"64\" type=\"ieee_double\" regnum=\"48\"/>"
+                          "<reg name=\"f17\" bitsize=\"64\" type=\"ieee_double\" regnum=\"49\"/>"
+                          "<reg name=\"f18\" bitsize=\"64\" type=\"ieee_double\" regnum=\"50\"/>"
+                          "<reg name=\"f19\" bitsize=\"64\" type=\"ieee_double\" regnum=\"51\"/>"
+                          "<reg name=\"f20\" bitsize=\"64\" type=\"ieee_double\" regnum=\"52\"/>"
+                          "<reg name=\"f21\" bitsize=\"64\" type=\"ieee_double\" regnum=\"53\"/>"
+                          "<reg name=\"f22\" bitsize=\"64\" type=\"ieee_double\" regnum=\"54\"/>"
+                          "<reg name=\"f23\" bitsize=\"64\" type=\"ieee_double\" regnum=\"55\"/>"
+                          "<reg name=\"f24\" bitsize=\"64\" type=\"ieee_double\" regnum=\"56\"/>"
+                          "<reg name=\"f25\" bitsize=\"64\" type=\"ieee_double\" regnum=\"57\"/>"
+                          "<reg name=\"f26\" bitsize=\"64\" type=\"ieee_double\" regnum=\"58\"/>"
+                          "<reg name=\"f27\" bitsize=\"64\" type=\"ieee_double\" regnum=\"59\"/>"
+                          "<reg name=\"f28\" bitsize=\"64\" type=\"ieee_double\" regnum=\"60\"/>"
+                          "<reg name=\"f29\" bitsize=\"64\" type=\"ieee_double\" regnum=\"61\"/>"
+                          "<reg name=\"f30\" bitsize=\"64\" type=\"ieee_double\" regnum=\"62\"/>"
+                          "<reg name=\"f31\" bitsize=\"64\" type=\"ieee_double\" regnum=\"63\"/>"
                           "</feature>"
                           "</target>";
-        return xml;
+        size_t offset = 0;
+        size_t length = xml.size();
+        size_t colon = query.rfind( ':' );
+        if (colon != std::string::npos)
+        {
+            std::string range = query.substr( colon + 1 );
+            size_t comma = range.find( ',' );
+            if (comma != std::string::npos)
+            {
+                offset = decode_hex_u32( range.substr( 0, comma ) );
+                length = decode_hex_u32( range.substr( comma + 1 ) );
+            }
+        }
+
+        if (offset >= xml.size())
+            return "l";
+
+        size_t remaining = xml.size() - offset;
+        size_t chunk = std::min( remaining, length );
+        char prefix = ( chunk == remaining ) ? 'l' : 'm';
+        return std::string( 1, prefix ) + xml.substr( offset, chunk );
     }
 
     return ""; // Not supported
@@ -697,28 +861,44 @@ std::string CGdbServer::handle_read_registers()
         }
     }
 
+    // Read FPRs (f0-f31) - 32 registers x 8 bytes
+    for (int i = 0; i < 32; i++)
+    {
+        uint64_t reg = 0;
+        if (uc_reg_read( m_uc, UC_PPC_REG_FPR0 + i, &reg ) == UC_ERR_OK)
+        {
+            oss << encode_hex_u64( reg );
+        }
+        else
+        {
+            oss << "0000000000000000";
+        }
+    }
+
     // Read special registers
-    uint32_t pc, msr, cr, lr, ctr, xer;
+    uint32_t pc, msr, cr, lr, ctr, xer, fpscr;
     uc_reg_read( m_uc, UC_PPC_REG_PC, &pc );
     uc_reg_read( m_uc, UC_PPC_REG_MSR, &msr );
     uc_reg_read( m_uc, UC_PPC_REG_CR, &cr );
     uc_reg_read( m_uc, UC_PPC_REG_LR, &lr );
     uc_reg_read( m_uc, UC_PPC_REG_CTR, &ctr );
     uc_reg_read( m_uc, UC_PPC_REG_XER, &xer );
+    uc_reg_read( m_uc, UC_PPC_REG_FPSCR, &fpscr );
 
-    oss << encode_hex_u32( pc );  // PC
-    oss << encode_hex_u32( msr ); // MSR
-    oss << encode_hex_u32( cr );  // CR
-    oss << encode_hex_u32( lr );  // LR
-    oss << encode_hex_u32( ctr ); // CTR
-    oss << encode_hex_u32( xer ); // XER
+    oss << encode_hex_u32( pc );    // PC
+    oss << encode_hex_u32( msr );   // MSR
+    oss << encode_hex_u32( cr );    // CR
+    oss << encode_hex_u32( lr );    // LR
+    oss << encode_hex_u32( ctr );   // CTR
+    oss << encode_hex_u32( xer );   // XER
+    oss << encode_hex_u32( fpscr ); // FPSCR
 
     return oss.str();
 }
 
 std::string CGdbServer::handle_write_registers( const std::string &data )
 {
-    // Parse register data (hex string, 4 bytes per register)
+    // Parse register data (hex string, GPRs 4 bytes, FPRs 8 bytes)
     size_t offset = 0;
 
     // Write GPRs (r0-r31)
@@ -729,6 +909,14 @@ std::string CGdbServer::handle_write_registers( const std::string &data )
         offset += 8;
     }
 
+    // Write FPRs (f0-f31)
+    for (int i = 0; i < 32 && offset + 16 <= data.length(); i++)
+    {
+        uint64_t reg = decode_hex_u64( data.substr( offset, 16 ) );
+        uc_reg_write( m_uc, UC_PPC_REG_FPR0 + i, &reg );
+        offset += 16;
+    }
+
     // Write special registers
     if (offset + 8 <= data.length())
     {
@@ -737,11 +925,45 @@ std::string CGdbServer::handle_write_registers( const std::string &data )
         offset += 8;
     }
 
-    // MSR, CR, LR, CTR, XER (if provided)
     if (offset + 8 <= data.length())
     {
         uint32_t msr = decode_hex_u32( data.substr( offset, 8 ) );
         uc_reg_write( m_uc, UC_PPC_REG_MSR, &msr );
+        offset += 8;
+    }
+
+    if (offset + 8 <= data.length())
+    {
+        uint32_t cr = decode_hex_u32( data.substr( offset, 8 ) );
+        uc_reg_write( m_uc, UC_PPC_REG_CR, &cr );
+        offset += 8;
+    }
+
+    if (offset + 8 <= data.length())
+    {
+        uint32_t lr = decode_hex_u32( data.substr( offset, 8 ) );
+        uc_reg_write( m_uc, UC_PPC_REG_LR, &lr );
+        offset += 8;
+    }
+
+    if (offset + 8 <= data.length())
+    {
+        uint32_t ctr = decode_hex_u32( data.substr( offset, 8 ) );
+        uc_reg_write( m_uc, UC_PPC_REG_CTR, &ctr );
+        offset += 8;
+    }
+
+    if (offset + 8 <= data.length())
+    {
+        uint32_t xer = decode_hex_u32( data.substr( offset, 8 ) );
+        uc_reg_write( m_uc, UC_PPC_REG_XER, &xer );
+        offset += 8;
+    }
+
+    if (offset + 8 <= data.length())
+    {
+        uint32_t fpscr = decode_hex_u32( data.substr( offset, 8 ) );
+        uc_reg_write( m_uc, UC_PPC_REG_FPSCR, &fpscr );
         offset += 8;
     }
 
@@ -852,7 +1074,17 @@ std::string CGdbServer::handle_stop_reason()
         break;
     }
 
-    // Add thread info
+    // Add register values needed for call stack unwinding
+    // r1 (sp - regnum 1) and lr (regnum 67) are critical for IDA Pro
+    uint32_t sp = 0, lr = 0, pc = 0;
+    uc_reg_read( m_uc, UC_PPC_REG_1, &sp );  // r1 (stack pointer)
+    uc_reg_read( m_uc, UC_PPC_REG_LR, &lr ); // link register
+    uc_reg_read( m_uc, UC_PPC_REG_PC, &pc ); // program counter
+
+    // Format: regnum:value; (regnum in hex, values in target byte order - big endian for PPC)
+    oss << "1:" << encode_hex_u32( sp ) << ";";   // r1 (sp)
+    oss << "40:" << encode_hex_u32( pc ) << ";";  // pc (regnum 64 = 0x40)
+    oss << "43:" << encode_hex_u32( lr ) << ";";  // lr (regnum 67 = 0x43)
     oss << "thread:1;";
 
     return oss.str();
@@ -882,14 +1114,27 @@ std::string CGdbServer::encode_hex( const uint8_t *data, size_t length )
 
 std::string CGdbServer::encode_hex_u32( uint32_t value )
 {
-    // Encode as little-endian hex string (GDB protocol expects target byte order)
-    // For PowerPC big-endian target, we send bytes in memory order
+    // Encode as target-endian hex string.
     uint8_t bytes[4];
     bytes[0] = ( value >> 24 ) & 0xFF; // MSB first (big-endian)
     bytes[1] = ( value >> 16 ) & 0xFF;
     bytes[2] = ( value >> 8 ) & 0xFF;
     bytes[3] = value & 0xFF; // LSB last
     return encode_hex( bytes, 4 );
+}
+
+std::string CGdbServer::encode_hex_u64( uint64_t value )
+{
+    uint8_t bytes[8];
+    bytes[0] = ( value >> 56 ) & 0xFF;
+    bytes[1] = ( value >> 48 ) & 0xFF;
+    bytes[2] = ( value >> 40 ) & 0xFF;
+    bytes[3] = ( value >> 32 ) & 0xFF;
+    bytes[4] = ( value >> 24 ) & 0xFF;
+    bytes[5] = ( value >> 16 ) & 0xFF;
+    bytes[6] = ( value >> 8 ) & 0xFF;
+    bytes[7] = value & 0xFF;
+    return encode_hex( bytes, 8 );
 }
 
 std::vector<uint8_t> CGdbServer::decode_hex( const std::string &hex )
@@ -907,6 +1152,11 @@ std::vector<uint8_t> CGdbServer::decode_hex( const std::string &hex )
 uint32_t CGdbServer::decode_hex_u32( const std::string &hex )
 {
     return static_cast<uint32_t>( strtoul( hex.c_str(), nullptr, 16 ) );
+}
+
+uint64_t CGdbServer::decode_hex_u64( const std::string &hex )
+{
+    return static_cast<uint64_t>( strtoull( hex.c_str(), nullptr, 16 ) );
 }
 
 } // namespace gdb

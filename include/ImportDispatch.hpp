@@ -37,6 +37,7 @@ callback( puts );
 callback( setvbuf );
 callback( signal );
 callback( sprintf );
+callback( vsprintf );
 callback( stat );
 callback( strcat );
 callback( strchr );
@@ -195,6 +196,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_strrchr",
     "_stub_binding_helper_ptr_in_dyld",
     "_vsnprintf",
+    "_vsprintf",
 } ) };
 static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 
@@ -240,6 +242,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::strrchr },                  // _strrchr
     { data::Blr_Opcode, callback::dyld_stub_binding_helper }, // _stub_binding_helper_ptr_in_dyld
     { data::Blr_Opcode, callback::vsnprintf },                // _vsnprintf
+    { data::Blr_Opcode, callback::vsprintf },                 // _vsprintf
 } };
 
 // Argument counts for each API (-1 for variadic functions)
@@ -284,6 +287,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     2,  // _strrchr
     0,  // _stub_binding_helper_ptr_in_dyld
     4,  // _vsnprintf
+    3,  // _vsprintf
 } };
 
 inline constexpr std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Import_Names.size()>
