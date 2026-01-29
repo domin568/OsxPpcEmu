@@ -113,7 +113,7 @@ std::size_t count_format_specifiers( std::string_view format )
     return count;
 };
 
-std::vector<void *> get_format_arguments( memory::CMemory *mem, void *argsPtr, std::string_view format )
+std::vector<void *> get_va_arguments( memory::CMemory *mem, void *argsPtr, std::string_view format )
 {
     std::vector<void *> args{};
     const std::size_t formatSpecifiersCount{ count_format_specifiers( format ) };
@@ -126,7 +126,8 @@ std::vector<void *> get_format_arguments( memory::CMemory *mem, void *argsPtr, s
     return args;
 }
 
-std::vector<uint64_t> get_sprintf_arguments( uc_engine *uc, memory::CMemory *mem, const char *format )
+std::vector<uint64_t> get_ellipsis_arguments( uc_engine *uc, memory::CMemory *mem, const char *format,
+                                              const int regIdx )
 {
     std::vector<uint64_t> formatArgs;
     std::size_t argIdx = 0;
@@ -151,7 +152,7 @@ std::vector<uint64_t> get_sprintf_arguments( uc_engine *uc, memory::CMemory *mem
 
             char spec = format[i];
             uint32_t guestArg;
-            uc_reg_read( uc, UC_PPC_REG_5 + argIdx, &guestArg );
+            uc_reg_read( uc, regIdx + argIdx, &guestArg );
 
             // Check if this specifier expects a pointer or an integer
             if (spec == 's' || spec == 'p' || spec == 'n')

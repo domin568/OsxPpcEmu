@@ -39,7 +39,7 @@ std::string CDebugger::get_symbol_name( uint32_t address ) const
 void CDebugger::add_breakpoint( uint32_t address )
 {
     m_breakpoints.insert( address );
-    std::cout << "Breakpoint added at 0x" << std::hex << address << std::dec << std::endl;
+    // std::cout << "Breakpoint added at 0x" << std::hex << address << std::dec << std::endl;
 }
 
 void CDebugger::remove_breakpoint( uint32_t address )

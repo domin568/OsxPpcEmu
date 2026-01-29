@@ -295,6 +295,28 @@ bool exit( uc_engine *uc, memory::CMemory *mem )
     return true;
 }
 
+// int fflush(FILE *stream);
+bool fflush( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [stream] = *args;
+
+    FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
+    if (!f)
+        return false;
+
+    int ret{ ::fflush( f ) };
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write fflush return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // size_t fwrite( const void * buffer, size_t size, size_t count, FILE * stream );
 bool fwrite( uc_engine *uc, memory::CMemory *mem )
 {
@@ -561,13 +583,33 @@ bool sprintf( uc_engine *uc, memory::CMemory *mem )
 
     auto [buffer, format]{ *args };
 
-    std::vector<uint64_t> formatArgs{ common::get_sprintf_arguments( uc, mem, format ) };
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5 ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vsprintf( buffer, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write sprintf return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int printf(const char *format, ...)
+bool printf( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    auto [format]{ *args };
+
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_4 ) };
+
+    // UB but for now works for arm64 mac os / x86_64 windows
+    int ret{ ::vprintf( format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write printf return value" << std::endl;
         return false;
     }
     return true;
@@ -580,7 +622,7 @@ bool vsprintf( uc_engine *uc, memory::CMemory *mem )
     if (!args.has_value())
         return false;
     const auto &[s, format, apPtr] = *args;
-    std::vector formatArgs{ common::get_format_arguments( mem, apPtr, format ) };
+    std::vector formatArgs{ common::get_va_arguments( mem, apPtr, format ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vsprintf( s, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
@@ -742,7 +784,7 @@ bool vsnprintf( uc_engine *uc, memory::CMemory *mem )
     if (!args.has_value())
         return false;
     const auto &[s, n, format, apPtr] = *args;
-    std::vector formatArgs{ common::get_format_arguments( mem, apPtr, format ) };
+    std::vector formatArgs{ common::get_va_arguments( mem, apPtr, format ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vsnprintf( s, n, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
@@ -810,13 +852,55 @@ bool fprintf( uc_engine *uc, memory::CMemory *mem )
     if (!f)
         return false;
 
-    std::vector<uint64_t> formatArgs{ common::get_sprintf_arguments( uc, mem, format ) };
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5 ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vfprintf( f, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write fprintf return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// ssize_t readlink(const char *path, char *buf, size_t bufsiz);
+bool readlink( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<const char *, char *, size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [path, buf, bufsiz] = *args;
+
+    ssize_t ret{ ::readlink( path, buf, bufsiz ) };
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write readlink return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// char *getenv(const char *name);
+bool getenv( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [name] = *args;
+
+    char *ret{ ::getenv( name ) };
+    uint32_t retGuest{ 0 };
+    if (ret != nullptr)
+    {
+        char *heap_ptr{ reinterpret_cast<char *>( mem->to_host( mem->heap_alloc( ::strlen( ret ) ) ) ) };
+        ::memcpy( heap_ptr, ret, ::strlen( ret ) );
+        retGuest = mem->to_guest( heap_ptr );
+    }
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write getenv return value" << std::endl;
         return false;
     }
     return true;

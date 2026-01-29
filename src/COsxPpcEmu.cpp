@@ -498,14 +498,14 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
     const size_t idx{ ( address - common::Import_Dispatch_Table_Address ) >> import::Import_Entry_Size_Pow2 };
 #ifdef DEBUG
     g_lastAddr.store( address, std::memory_order_relaxed );
-    if (emu->m_debugger->is_trace_mode())
+    if (idx == 0 || emu->m_debugger->is_trace_mode())
         print_api_call_source( uc, address, idx, emu );
 #endif
     if (idx > 0)
         import::Import_Items[idx - import::Unknown_Import_Shift].hook( uc,
                                                                        &emu->m_mem ); // call API dispatch function
 #ifdef DEBUG
-    if (emu->m_debugger->is_trace_mode())
+    if (idx == 0 || emu->m_debugger->is_trace_mode())
         print_api_return( uc, idx );
 #endif
 }

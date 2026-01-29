@@ -25,6 +25,7 @@ callback( dyld_func_lookup );
 callback( atexit );
 callback( exit );
 callback( fwrite );
+callback( fflush );
 callback( fstat );
 callback( ioctl );
 callback( mach_init_routine );
@@ -33,6 +34,7 @@ callback( calloc );
 callback( memcpy );
 callback( memmove );
 callback( memset );
+callback( printf );
 callback( puts );
 callback( setvbuf );
 callback( signal );
@@ -51,12 +53,14 @@ callback( getcwd );
 callback( free );
 callback( strcmp );
 callback( fprintf );
+callback( getenv );
 callback( ___error );
 callback( ___tolower );
 callback( ___toupper );
 callback( _setjmp );
 callback( _longjmp );
 callback( realloc );
+callback( readlink );
 
 template <std::size_t I, template <typename> class Pred, typename... Ts> struct count_before;
 template <std::size_t I, template <typename> class Pred> struct count_before<I, Pred>
@@ -168,11 +172,13 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_dyld_func_lookup_ptr_in_dyld",
     "_errno",
     "_exit",
+    "_fflush",
     "_fprintf",
     "_free",
     "_fstat",
     "_fwrite",
     "_getcwd",
+    "_getenv",
     "_ioctl",
     "_longjmp",
     "_mach_init_routine",
@@ -180,7 +186,9 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_memcpy",
     "_memmove",
     "_memset",
+    "_printf",
     "_puts",
+    "_readlink",
     "_realloc",
     "_setjmp",
     "_setvbuf",
@@ -214,11 +222,13 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::dyld_func_lookup },         // _dyld_func_lookup_ptr_in_dyld
     { data::Dword_Mem, nullptr },                             // _errno
     { data::Trap_Opcode, callback::exit },                    // _exit
+    { data::Blr_Opcode, callback::fflush },                   // _fflush
     { data::Blr_Opcode, callback::fprintf },                  // _fprintf
     { data::Blr_Opcode, callback::free },                     // _free
     { data::Blr_Opcode, callback::fstat },                    // _fstat
     { data::Blr_Opcode, callback::fwrite },                   // _fwrite
     { data::Blr_Opcode, callback::getcwd },                   // _getcwd
+    { data::Blr_Opcode, callback::getenv },                   // _getenv
     { data::Blr_Opcode, callback::ioctl },                    // _ioctl
     { data::Blr_Opcode, callback::_longjmp },                 // _longjmp
     { data::Blr_Opcode, callback::mach_init_routine },        // _mach_init_routine
@@ -226,7 +236,9 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::memcpy },                   // _memcpy
     { data::Blr_Opcode, callback::memmove },                  // _memmove
     { data::Blr_Opcode, callback::memset },                   // _memset
+    { data::Blr_Opcode, callback::printf },                   // _printf
     { data::Blr_Opcode, callback::puts },                     // _puts
+    { data::Blr_Opcode, callback::readlink },                 // _readlink
     { data::Blr_Opcode, callback::realloc },                  // _realloc
     { data::Blr_Opcode, callback::_setjmp },                  // _setjmp
     { data::Blr_Opcode, callback::setvbuf },                  // _setvbuf
@@ -259,11 +271,13 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     2,  // _dyld_func_lookup_ptr_in_dyld
     0,  // _errno
     1,  // _exit
+    1,  // _fflush
     -1, // _fprintf (variadic)
     1,  // _free
     2,  // _fstat
     4,  // _fwrite
     2,  // _getcwd
+    1,  // _getenv
     -1, // _ioctl (variadic)
     2,  // _longjmp
     0,  // _mach_init_routine
@@ -271,7 +285,9 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     3,  // _memcpy
     3,  // _memmove
     3,  // _memset
+    -1, // _printf
     1,  // _puts
+    3,  // _readlink
     2,  // _realloc
     1,  // _setjmp
     4,  // _setvbuf

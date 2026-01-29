@@ -55,8 +55,9 @@ uint64_t page_align_up( uint64_t a );
 std::optional<std::string> read_string_at_va( uc_engine *uc, uint32_t va );
 std::optional<uint32_t> get_import_entry_va_by_name( const std::string &name );
 std::size_t count_format_specifiers( std::string_view format_spec );
-std::vector<void *> get_format_arguments( memory::CMemory *mem, void *argsPtr, std::string_view format );
-std::vector<uint64_t> get_sprintf_arguments( uc_engine *uc, memory::CMemory *mem, const char *format );
+std::vector<void *> get_va_arguments( memory::CMemory *mem, void *argsPtr, std::string_view format );
+std::vector<uint64_t> get_ellipsis_arguments( uc_engine *uc, memory::CMemory *mem, const char *format,
+                                              const int regIdx );
 FILE *resolve_file_stream( std::uint32_t guestStream );
 
 } // namespace common
