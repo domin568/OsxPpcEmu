@@ -136,10 +136,10 @@ struct stat
 // Based on Mac OS X 10.4 PPC ABI
 struct jmp_buf
 {
-    uint32_t r1;   // Stack pointer (r1)
-    uint32_t r2;   // TOC pointer (r2)
-    uint32_t r13;  // Reserved (r13)
-    uint32_t r14;  // Non-volatile GPRs (r14-r31)
+    uint32_t r1;  // Stack pointer (r1)
+    uint32_t r2;  // TOC pointer (r2)
+    uint32_t r13; // Reserved (r13)
+    uint32_t r14; // Non-volatile GPRs (r14-r31)
     uint32_t r15;
     uint32_t r16;
     uint32_t r17;
@@ -157,11 +157,35 @@ struct jmp_buf
     uint32_t r29;
     uint32_t r30;
     uint32_t r31;
-    uint32_t cr;   // Condition register
-    uint32_t lr;   // Link register (return address)
-    uint32_t ctr;  // Count register (optional)
-    uint32_t xer;  // Fixed-point exception register (optional)
+    uint32_t cr;  // Condition register
+    uint32_t lr;  // Link register (return address)
+    uint32_t ctr; // Count register (optional)
+    uint32_t xer; // Fixed-point exception register (optional)
     // Total: 26 words = 104 bytes (matches typical PowerPC jmp_buf size)
+};
+
+struct tm
+{
+    std::int32_t tm_sec;    /* seconds after the minute [0-60] */
+    std::int32_t tm_min;    /* minutes after the hour [0-59] */
+    std::int32_t tm_hour;   /* hours since midnight [0-23] */
+    std::int32_t tm_mday;   /* day of the month [1-31] */
+    std::int32_t tm_mon;    /* months since January [0-11] */
+    std::int32_t tm_year;   /* years since 1900 */
+    std::int32_t tm_wday;   /* days since Sunday [0-6] */
+    std::int32_t tm_yday;   /* days since January 1 [0-365] */
+    std::int32_t tm_isdst;  /* Daylight Savings Time flag */
+    std::int32_t tm_gmtoff; /* offset from UTC in seconds */
+    std::uint32_t tm_zone;  /* timezone abbreviation */
+};
+
+struct hostent
+{
+    std::uint32_t h_name;      /* official name of host (guest pointer) */
+    std::uint32_t h_aliases;   /* alias list (guest pointer to array of guest pointers) */
+    std::int32_t h_addrtype;   /* host address type */
+    std::int32_t h_length;     /* length of address */
+    std::uint32_t h_addr_list; /* list of addresses (guest pointer to array of guest pointers) */
 };
 
 } // namespace guest

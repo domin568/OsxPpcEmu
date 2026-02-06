@@ -7,7 +7,11 @@
 #include "../include/ImportDispatch.hpp"
 #include "../include/COsxPpcEmu.hpp"
 #include "../include/PpcStructures.hpp"
+
+#include <netdb.h>
+#include <sys/fcntl.h>
 #include <sys/stat.h>
+#include <sys/times.h>
 
 namespace import::callback
 {
@@ -309,6 +313,11 @@ bool fflush( uc_engine *uc, memory::CMemory *mem )
 
     int ret{ ::fflush( f ) };
 
+    if (ret == EOF)
+    {
+        set_guest_errno( mem, errno );
+    }
+
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write fflush return value" << std::endl;
@@ -330,6 +339,12 @@ bool fwrite( uc_engine *uc, memory::CMemory *mem )
         return false;
 
     std::size_t ret{ ::fwrite( buffer, size, count, f ) };
+
+    // fwrite returns less than count on error
+    if (ret < count)
+    {
+        set_guest_errno( mem, errno );
+    }
 
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
@@ -364,6 +379,10 @@ bool fstat( uc_engine *uc, memory::CMemory *mem )
         guestStat->st_blksize = common::ensure_endianness( hostStat.st_blksize, std::endian::big );
         guestStat->st_blocks = common::ensure_endianness( hostStat.st_blocks, std::endian::big );
     }
+    else if (ret == -1)
+    {
+        set_guest_errno( mem, errno );
+    }
 
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
@@ -390,12 +409,24 @@ bool ioctl( uc_engine *uc, memory::CMemory *mem )
         unsigned short ws_xpixel; /* horizontal size, pixels */
         unsigned short ws_ypixel; /* vertical size, pixels */
     };
+    std::int32_t ret{};
     if (op == Get_Window_Size_Op)
     {
         reinterpret_cast<winsize *>( ptr )->ws_row = common::ensure_endianness<short>( 25, std::endian::big );
         reinterpret_cast<winsize *>( ptr )->ws_col = common::ensure_endianness<short>( 80, std::endian::big );
         reinterpret_cast<winsize *>( ptr )->ws_xpixel = 0;
         reinterpret_cast<winsize *>( ptr )->ws_ypixel = 0;
+        ret = 0;
+    }
+    else
+    {
+        ret = -1;
+        assert( "Missing implementation for ioctl" );
+    }
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write malloc return" << std::endl;
+        return false;
     }
     return true;
 }
@@ -414,6 +445,13 @@ bool malloc( uc_engine *uc, memory::CMemory *mem )
     const auto [size]{ *args };
 
     uint32_t ret{ mem->heap_alloc( size ) };
+
+    // Set errno if allocation failed
+    if (ret == 0)
+    {
+        set_guest_errno( mem, ENOMEM );
+    }
+
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write malloc return" << std::endl;
@@ -435,6 +473,10 @@ bool calloc( uc_engine *uc, memory::CMemory *mem )
     void *ptr{ mem->get( ret ) };
     if (ptr)
         ::memset( ptr, 0, num * size );
+    else if (ret == 0)
+    {
+        set_guest_errno( mem, ENOMEM );
+    }
 
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
@@ -456,6 +498,10 @@ bool realloc( uc_engine *uc, memory::CMemory *mem )
     if (!ptr)
     {
         uint32_t ret{ mem->heap_alloc( size ) };
+        if (ret == 0)
+        {
+            set_guest_errno( mem, ENOMEM );
+        }
         if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
         {
             std::cerr << "Could not write realloc return" << std::endl;
@@ -490,6 +536,10 @@ bool realloc( uc_engine *uc, memory::CMemory *mem )
         std::size_t copySize{ oldSize > 0 ? std::min( oldSize, size ) : size };
         ::memcpy( newHostPtr, ptr, copySize );
     }
+    else if (newPtr == 0)
+    {
+        set_guest_errno( mem, ENOMEM );
+    }
 
     if (uc_reg_write( uc, UC_PPC_REG_3, &newPtr ) != UC_ERR_OK)
     {
@@ -507,6 +557,11 @@ bool memcpy( uc_engine *uc, memory::CMemory *mem )
         return false;
     const auto [dest, source, count] = *args;
     ::memcpy( dest, source, count );
+    if (uc_reg_write( uc, UC_PPC_REG_3, &dest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write memcpy return" << std::endl;
+        return false;
+    }
     return true;
 }
 
@@ -532,7 +587,7 @@ bool memset( uc_engine *uc, memory::CMemory *mem )
     if (uc_reg_write( uc, UC_PPC_REG_3, &str ) != UC_ERR_OK)
     {
         std::cerr << "Could not write memset return" << std::endl;
-        return true;
+        return false;
     }
     return true;
 }
@@ -559,7 +614,7 @@ bool setvbuf( uc_engine *uc, memory::CMemory *mem )
     if (uc_reg_write( uc, UC_PPC_REG_3, &success ) != UC_ERR_OK)
     {
         std::cerr << "Could not write return value of setvbuf" << std::endl;
-        return true;
+        return false;
     }
     return true;
 }
@@ -659,6 +714,10 @@ bool stat( uc_engine *uc, memory::CMemory *mem )
         guestStat->st_size = common::ensure_endianness( hostStat.st_size, std::endian::big );
         guestStat->st_blksize = common::ensure_endianness( hostStat.st_blksize, std::endian::big );
         guestStat->st_blocks = common::ensure_endianness( hostStat.st_blocks, std::endian::big );
+    }
+    else if (ret == -1)
+    {
+        set_guest_errno( mem, errno );
     }
 
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
@@ -804,6 +863,12 @@ bool getcwd( uc_engine *uc, memory::CMemory *mem )
         return false;
     const auto [buf, size] = *args;
     char *ret{ ::getcwd( buf, size ) };
+
+    if (ret == nullptr)
+    {
+        set_guest_errno( mem, errno );
+    }
+
     uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
@@ -874,6 +939,11 @@ bool readlink( uc_engine *uc, memory::CMemory *mem )
 
     ssize_t ret{ ::readlink( path, buf, bufsiz ) };
 
+    if (ret == -1)
+    {
+        set_guest_errno( mem, errno );
+    }
+
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write readlink return value" << std::endl;
@@ -895,12 +965,349 @@ bool getenv( uc_engine *uc, memory::CMemory *mem )
     if (ret != nullptr)
     {
         char *heap_ptr{ reinterpret_cast<char *>( mem->to_host( mem->heap_alloc( ::strlen( ret ) ) ) ) };
-        ::memcpy( heap_ptr, ret, ::strlen( ret ) );
+        ::memcpy( heap_ptr, ret, ::strlen( ret ) + 1 );
         retGuest = mem->to_guest( heap_ptr );
     }
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write getenv return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int open(const char *path, int flags, ...);
+bool open( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<const char *, int, int>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [path, flags, mode] = *args;
+
+    int ret{ ::open( path, flags, mode ) };
+
+    if (ret == -1)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write open return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int close(int fd);
+bool close( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<int>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [fd] = *args;
+
+    int ret{ ::close( fd ) };
+
+    if (ret == -1)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write close return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// ssize_t read(int fd, void *buf, size_t count);
+bool read( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<int, void *, size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [fd, buf, count] = *args;
+
+    ssize_t ret{ ::read( fd, buf, count ) };
+
+    if (ret == -1)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write read return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// ssize_t write(int fd, const void *buf, size_t count);
+bool write( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<int, const void *, size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [fd, buf, count] = *args;
+
+    ssize_t ret{ ::write( fd, buf, count ) };
+
+    if (ret == -1)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write write return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int memcmp(const void *s1, const void *s2, size_t n);
+bool memcmp( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<const void *, const void *, size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [s1, s2, n] = *args;
+
+    int ret{ ::memcmp( s1, s2, n ) };
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write memcmp return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// time_t time(time_t *tloc);
+bool time( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<time_t *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [tloc] = *args;
+
+    time_t ret{ ::time( nullptr ) };
+    std::uint32_t guestTime{ common::ensure_endianness( static_cast<std::uint32_t>( ret ), std::endian::big ) };
+    if (tloc != nullptr)
+    {
+        ::memcpy( tloc, &guestTime, sizeof( guestTime ) );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &guestTime ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write time return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// clock_t times(struct tms *buf);
+bool times( uc_engine *uc, memory::CMemory *mem )
+{
+    /*
+    const auto args{ get_arguments<struct tms *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [buf] = *args;
+
+    clock_t ret{ ::times( buf ) };
+    std::uint32_t guestRet{ common::ensure_endianness( static_cast<std::uint32_t>( ret ), std::endian::big ) };
+    if (ret == static_cast<clock_t>( -1 ))
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &guestRet ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write times return value" << std::endl;
+        return false;
+    }
+    */
+    return true;
+}
+
+// int getdtablesize(void);
+bool getdtablesize( uc_engine *uc, memory::CMemory *mem )
+{
+    int ret{ ::getdtablesize() };
+    std::uint32_t retGuest{ common::ensure_endianness( static_cast<std::uint32_t>( ret ), std::endian::big ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write getdtablesize return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// struct tm *localtime(const time_t *timep);
+bool localtime( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<const time_t *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [timep] = *args;
+
+    // Read the time_t value from guest memory (big-endian)
+    time_t hostTime{};
+    if (timep != nullptr)
+    {
+        uint32_t guestTime;
+        ::memcpy( &guestTime, timep, sizeof( guestTime ) );
+        hostTime = static_cast<time_t>( common::ensure_endianness( guestTime, std::endian::big ) );
+    }
+    else
+    {
+        hostTime = ::time( nullptr );
+    }
+    struct tm *ret{ ::localtime( &hostTime ) };
+    void *zone_ptr{ nullptr };
+    if (ret->tm_zone != nullptr)
+    {
+        zone_ptr = reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( ::strlen( ret->tm_zone ) + 1 ) ) );
+        ::memcpy( zone_ptr, ret->tm_zone, ::strlen( ret->tm_zone ) + 1 );
+    }
+    guest::tm tmGuest{ .tm_sec = common::ensure_endianness( ret->tm_sec, std::endian::big ),
+                       .tm_min = common::ensure_endianness( ret->tm_min, std::endian::big ),
+                       .tm_hour = common::ensure_endianness( ret->tm_hour, std::endian::big ),
+                       .tm_mday = common::ensure_endianness( ret->tm_mday, std::endian::big ),
+                       .tm_mon = common::ensure_endianness( ret->tm_mon, std::endian::big ),
+                       .tm_year = common::ensure_endianness( ret->tm_year, std::endian::big ),
+                       .tm_wday = common::ensure_endianness( ret->tm_wday, std::endian::big ),
+                       .tm_yday = common::ensure_endianness( ret->tm_yday, std::endian::big ),
+                       .tm_isdst = common::ensure_endianness( ret->tm_isdst, std::endian::big ),
+                       .tm_gmtoff = common::ensure_endianness( ret->tm_isdst, std::endian::big ),
+                       .tm_zone = mem->to_guest( zone_ptr ) };
+    void *retPtrHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( sizeof( guest::tm ) ) ) ) };
+    ::memcpy( retPtrHost, &tmGuest, sizeof( guest::tm ) );
+    uint32_t retGuest{ mem->to_guest( retPtrHost ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write localtime return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// struct hostent *gethostbyname(const char *name);
+bool gethostbyname( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [name] = *args;
+
+    struct hostent *ret{ ::gethostbyname( name ) };
+
+    if (!ret)
+    {
+        uint32_t nullPtr{ 0 };
+        if (uc_reg_write( uc, UC_PPC_REG_3, &nullPtr ) != UC_ERR_OK)
+        {
+            std::cerr << "Could not write gethostbyname return value" << std::endl;
+            return false;
+        }
+        return true;
+    }
+    uint32_t namePtr{ 0 };
+    if (ret->h_name)
+    {
+        size_t nameLen{ ::strlen( ret->h_name ) + 1 };
+        void *nameHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( nameLen ) ) ) };
+        ::memcpy( nameHost, ret->h_name, nameLen );
+        namePtr = mem->to_guest( nameHost );
+    }
+
+    uint32_t aliasesPtr{ 0 };
+    if (ret->h_aliases)
+    {
+        size_t aliasCount{ 0 };
+        while (ret->h_aliases[aliasCount])
+            aliasCount++;
+
+        // Allocate array of guest pointers (aliasCount + 1 for NULL terminator)
+        void *aliasArrayHost{
+            reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( ( aliasCount + 1 ) * sizeof( uint32_t ) ) ) ) };
+        uint32_t *aliasArray{ static_cast<uint32_t *>( aliasArrayHost ) };
+
+        for (size_t i = 0; i < aliasCount; i++)
+        {
+            size_t aliasLen{ ::strlen( ret->h_aliases[i] ) + 1 };
+            void *aliasHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( aliasLen ) ) ) };
+            ::memcpy( aliasHost, ret->h_aliases[i], aliasLen );
+            aliasArray[i] = common::ensure_endianness( mem->to_guest( aliasHost ), std::endian::big );
+        }
+        aliasArray[aliasCount] = 0; // NULL terminator
+        aliasesPtr = mem->to_guest( aliasArrayHost );
+    }
+
+    uint32_t addrListPtr{ 0 };
+    if (ret->h_addr_list)
+    {
+        size_t addrCount{ 0 };
+        while (ret->h_addr_list[addrCount])
+            addrCount++;
+
+        // Allocate array of guest pointers (addrCount + 1 for NULL terminator)
+        void *addrArrayHost{
+            reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( ( addrCount + 1 ) * sizeof( uint32_t ) ) ) ) };
+        uint32_t *addrArray{ static_cast<uint32_t *>( addrArrayHost ) };
+
+        for (size_t i = 0; i < addrCount; i++)
+        {
+            void *addrHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( ret->h_length ) ) ) };
+            ::memcpy( addrHost, ret->h_addr_list[i], ret->h_length );
+            addrArray[i] = common::ensure_endianness( mem->to_guest( addrHost ), std::endian::big );
+        }
+        addrArray[addrCount] = 0; // NULL terminator
+        addrListPtr = mem->to_guest( addrArrayHost );
+    }
+
+    guest::hostent guestHostent{ .h_name = common::ensure_endianness( namePtr, std::endian::big ),
+                                 .h_aliases = common::ensure_endianness( aliasesPtr, std::endian::big ),
+                                 .h_addrtype = common::ensure_endianness( ret->h_addrtype, std::endian::big ),
+                                 .h_length = common::ensure_endianness( ret->h_length, std::endian::big ),
+                                 .h_addr_list = common::ensure_endianness( addrListPtr, std::endian::big ) };
+
+    void *hostentHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( sizeof( guest::hostent ) ) ) ) };
+    ::memcpy( hostentHost, &guestHostent, sizeof( guest::hostent ) );
+    uint32_t hostentGuest{ mem->to_guest( hostentHost ) };
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &hostentGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write gethostbyname return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int sscanf(const char *str, const char *format, ...);
+bool sscanf( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [str, format] = *args;
+
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5 ) };
+
+    for (auto arg : formatArgs)
+    {
+        arg = mem->to_host( arg );
+    }
+    // UB but for now works for arm64 mac os / x86_64 windows
+    int ret{ ::vsscanf( str, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write sscanf return value" << std::endl;
         return false;
     }
     return true;

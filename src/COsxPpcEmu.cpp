@@ -353,7 +353,7 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, loader::CMachoLoader &loader, m
     if (!write_unknown_import_entry( uc, mem ))
         return false;
     // then known static imports (got by parsing MachO) are resolved and import entries table filled
-    if (!redirect_known_imports( uc, *staticImports, mem ))
+    if (!redirect_imports( uc, *staticImports, mem ))
         return false;
     // then fill entries for dynamic imoprts (e.g. using dyld_lookup_func)
     if (!write_dynamic_import_entries( uc, mem ))
@@ -361,14 +361,13 @@ bool COsxPpcEmu::resolve_imports( uc_engine *uc, loader::CMachoLoader &loader, m
     return true;
 }
 
-bool COsxPpcEmu::redirect_known_imports(
+bool COsxPpcEmu::redirect_imports(
     uc_engine *uc, const std::span<const std::pair<std::string, std::pair<uint32_t, common::ImportType>>> &allImports,
     memory::CMemory &mem )
 {
     for (const auto &[name, addressAndType] : allImports)
     {
         const auto [address, type] = addressAndType;
-
         auto importNameMatches{
             []( const std::pair<std::string_view, import::Known_Import_Entry> &p ) { return p.first; } };
         const auto importIt{

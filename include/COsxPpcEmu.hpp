@@ -73,7 +73,7 @@ class COsxPpcEmu
                                    const std::span<const std::string> env, memory::CMemory &mem );
 
     static bool resolve_imports( uc_engine *uc, loader::CMachoLoader &loader, memory::CMemory &mem );
-    static bool redirect_known_imports(
+    static bool redirect_imports(
         uc_engine *uc,
         const std::span<const std::pair<std::string, std::pair<uint32_t, common::ImportType>>> &allImports,
         memory::CMemory &mem );

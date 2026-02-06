@@ -61,6 +61,17 @@ callback( _setjmp );
 callback( _longjmp );
 callback( realloc );
 callback( readlink );
+callback( open );
+callback( close );
+callback( read );
+callback( write );
+callback( memcmp );
+callback( time );
+callback( times );
+callback( getdtablesize );
+callback( localtime );
+callback( gethostbyname );
+callback( sscanf );
 
 template <std::size_t I, template <typename> class Pred, typename... Ts> struct count_before;
 template <std::size_t I, template <typename> class Pred> struct count_before<I, Pred>
@@ -126,6 +137,21 @@ template <typename... Args> std::optional<std::tuple<Args...>> get_arguments( uc
     return read_arguments_idx<Args...>( uc, mem, std::index_sequence_for<Args...>{} );
 }
 
+// Helper function to set errno in guest memory
+inline void set_guest_errno( memory::CMemory *mem, int errnoValue )
+{
+    std::optional<uint32_t> errnoVa{ common::get_import_entry_va_by_name( "_errno" ) };
+    if (errnoVa.has_value())
+    {
+        uint32_t guestErrno = common::ensure_endianness( static_cast<uint32_t>( errnoValue ), std::endian::big );
+        void* errnoPtr = mem->get( *errnoVa );
+        if (errnoPtr)
+        {
+            ::memcpy( errnoPtr, &guestErrno, sizeof( guestErrno ) );
+        }
+    }
+}
+
 } // namespace callback
 
 namespace data
@@ -169,6 +195,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "__dyld_make_delayed_module_initializer_calls",
     "_atexit",
     "_calloc",
+    "_close",
     "_dyld_func_lookup_ptr_in_dyld",
     "_errno",
     "_exit",
@@ -178,22 +205,29 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_fstat",
     "_fwrite",
     "_getcwd",
+    "_getdtablesize",
     "_getenv",
+    "_gethostbyname",
     "_ioctl",
+    "_localtime",
     "_longjmp",
     "_mach_init_routine",
     "_malloc",
+    "_memcmp",
     "_memcpy",
     "_memmove",
     "_memset",
+    "_open",
     "_printf",
     "_puts",
+    "_read",
     "_readlink",
     "_realloc",
     "_setjmp",
     "_setvbuf",
     "_signal",
     "_sprintf",
+    "_sscanf",
     "_stat",
     "_strcat",
     "_strchr",
@@ -203,8 +237,11 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_strncpy",
     "_strrchr",
     "_stub_binding_helper_ptr_in_dyld",
+    "_time",
+    "_times",
     "_vsnprintf",
     "_vsprintf",
+    "_write",
 } ) };
 static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 
@@ -219,6 +256,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
       callback::dyld_make_delayed_module_initializer_calls }, // __dyld_make_delayed_module_initializer_calls
     { data::Blr_Opcode, callback::atexit },                   // _atexit
     { data::Blr_Opcode, callback::calloc },                   // _calloc
+    { data::Blr_Opcode, callback::close },                    // _close
     { data::Blr_Opcode, callback::dyld_func_lookup },         // _dyld_func_lookup_ptr_in_dyld
     { data::Dword_Mem, nullptr },                             // _errno
     { data::Trap_Opcode, callback::exit },                    // _exit
@@ -228,22 +266,29 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::fstat },                    // _fstat
     { data::Blr_Opcode, callback::fwrite },                   // _fwrite
     { data::Blr_Opcode, callback::getcwd },                   // _getcwd
+    { data::Blr_Opcode, callback::getdtablesize },            // _getdtablesize
     { data::Blr_Opcode, callback::getenv },                   // _getenv
+    { data::Blr_Opcode, callback::gethostbyname },            // _gethostbyname
     { data::Blr_Opcode, callback::ioctl },                    // _ioctl
+    { data::Blr_Opcode, callback::localtime },                // _localtime
     { data::Blr_Opcode, callback::_longjmp },                 // _longjmp
     { data::Blr_Opcode, callback::mach_init_routine },        // _mach_init_routine
     { data::Blr_Opcode, callback::malloc },                   // _malloc
+    { data::Blr_Opcode, callback::memcmp },                   // _memcmp
     { data::Blr_Opcode, callback::memcpy },                   // _memcpy
     { data::Blr_Opcode, callback::memmove },                  // _memmove
     { data::Blr_Opcode, callback::memset },                   // _memset
+    { data::Blr_Opcode, callback::open },                     // _open
     { data::Blr_Opcode, callback::printf },                   // _printf
     { data::Blr_Opcode, callback::puts },                     // _puts
+    { data::Blr_Opcode, callback::read },                     // _read
     { data::Blr_Opcode, callback::readlink },                 // _readlink
     { data::Blr_Opcode, callback::realloc },                  // _realloc
     { data::Blr_Opcode, callback::_setjmp },                  // _setjmp
     { data::Blr_Opcode, callback::setvbuf },                  // _setvbuf
     { data::Blr_Opcode, callback::signal },                   // _signal
     { data::Blr_Opcode, callback::sprintf },                  // _sprintf
+    { data::Blr_Opcode, callback::sscanf },                   // _sscanf
     { data::Blr_Opcode, callback::stat },                     // _stat
     { data::Blr_Opcode, callback::strcat },                   // _strcat
     { data::Blr_Opcode, callback::strchr },                   // _strchr
@@ -253,8 +298,11 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::strncpy },                  // _strncpy
     { data::Blr_Opcode, callback::strrchr },                  // _strrchr
     { data::Blr_Opcode, callback::dyld_stub_binding_helper }, // _stub_binding_helper_ptr_in_dyld
+    { data::Blr_Opcode, callback::time },                     // _time
+    { data::Blr_Opcode, callback::times },                    // _times
     { data::Blr_Opcode, callback::vsnprintf },                // _vsnprintf
     { data::Blr_Opcode, callback::vsprintf },                 // _vsprintf
+    { data::Blr_Opcode, callback::write },                    // _write
 } };
 
 // Argument counts for each API (-1 for variadic functions)
@@ -268,6 +316,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     0,  // __dyld_make_delayed_module_initializer_calls
     1,  // _atexit
     2,  // _calloc
+    1,  // _close
     2,  // _dyld_func_lookup_ptr_in_dyld
     0,  // _errno
     1,  // _exit
@@ -277,22 +326,29 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     2,  // _fstat
     4,  // _fwrite
     2,  // _getcwd
+    0,  // _getdtablesize
     1,  // _getenv
+    1,  // _gethostbyname
     -1, // _ioctl (variadic)
+    1,  // _localtime
     2,  // _longjmp
     0,  // _mach_init_routine
     1,  // _malloc
+    3,  // _memcmp
     3,  // _memcpy
     3,  // _memmove
     3,  // _memset
+    3,  // _open
     -1, // _printf
     1,  // _puts
+    3,  // _read
     3,  // _readlink
     2,  // _realloc
     1,  // _setjmp
     4,  // _setvbuf
     2,  // _signal
     -1, // _sprintf (variadic)
+    -1, // _sscanf (variadic)
     2,  // _stat
     2,  // _strcat
     2,  // _strchr
@@ -302,8 +358,11 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     3,  // _strncpy
     2,  // _strrchr
     0,  // _stub_binding_helper_ptr_in_dyld
+    1,  // _time
+    1,  // _times
     4,  // _vsnprintf
     3,  // _vsprintf
+    3,  // _write
 } };
 
 inline constexpr std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Import_Names.size()>

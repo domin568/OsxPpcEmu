@@ -173,6 +173,8 @@ std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::Imp
             {
                 const LIEF::MachO::Symbol importSymbol{
                     m_executable->dynamic_symbol_command()->indirect_symbols()[indirectSymbolsIdx + idx] };
+                if (importSymbol.origin() == LIEF::MachO::Symbol::ORIGIN::UNKNOWN)
+                    continue;
                 imports.push_back(
                     { importSymbol.name(), { s.virtual_address() + idx * sizeof( uint32_t ), importType } } );
             }
