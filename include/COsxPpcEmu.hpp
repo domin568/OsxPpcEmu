@@ -82,6 +82,10 @@ class COsxPpcEmu
     static bool write_import_entry( uc_engine *uc, size_t offset, const import::Runtime_Import_Table_Entry entry,
                                     memory::CMemory &mem );
     static bool patch_import_ptr( uc_engine *uc, size_t offset, uint32_t symbolAddress, memory::CMemory &mem );
+    static bool init_default_rune_locale(
+        uc_engine *uc,
+        const std::span<const std::pair<std::string, std::pair<uint32_t, common::ImportType>>> &staticImports,
+        memory::CMemory &mem );
 };
 
 // unicorn hooks

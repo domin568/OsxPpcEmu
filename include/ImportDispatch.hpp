@@ -24,8 +24,11 @@ callback( dyld_make_delayed_module_initializer_calls );
 callback( dyld_func_lookup );
 callback( atexit );
 callback( exit );
+callback( fclose );
 callback( fwrite );
 callback( fflush );
+callback( fgetc );
+callback( fopen );
 callback( fstat );
 callback( ioctl );
 callback( mach_init_routine );
@@ -71,7 +74,9 @@ callback( times );
 callback( getdtablesize );
 callback( localtime );
 callback( gethostbyname );
+callback( gethostname );
 callback( sscanf );
+callback( ungetc );
 
 template <std::size_t I, template <typename> class Pred, typename... Ts> struct count_before;
 template <std::size_t I, template <typename> class Pred> struct count_before<I, Pred>
@@ -144,7 +149,7 @@ inline void set_guest_errno( memory::CMemory *mem, int errnoValue )
     if (errnoVa.has_value())
     {
         uint32_t guestErrno = common::ensure_endianness( static_cast<uint32_t>( errnoValue ), std::endian::big );
-        void* errnoPtr = mem->get( *errnoVa );
+        void *errnoPtr = mem->get( *errnoVa );
         if (errnoPtr)
         {
             ::memcpy( errnoPtr, &guestErrno, sizeof( guestErrno ) );
@@ -186,6 +191,7 @@ struct Import_Info
 inline constexpr size_t Unknown_Import_Index{ 0 };
 inline constexpr size_t Unknown_Import_Shift{ 1 };
 inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
+    "__DefaultRuneLocale",
     "___error",
     "___keymgr_dwarf2_register_sections",
     "___sF",
@@ -199,7 +205,10 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_dyld_func_lookup_ptr_in_dyld",
     "_errno",
     "_exit",
+    "_fclose",
     "_fflush",
+    "_fgetc",
+    "_fopen",
     "_fprintf",
     "_free",
     "_fstat",
@@ -208,6 +217,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_getdtablesize",
     "_getenv",
     "_gethostbyname",
+    "_gethostname",
     "_ioctl",
     "_localtime",
     "_longjmp",
@@ -239,6 +249,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_stub_binding_helper_ptr_in_dyld",
     "_time",
     "_times",
+    "_ungetc",
     "_vsnprintf",
     "_vsprintf",
     "_write",
@@ -246,6 +257,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
 static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 
 inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Import_Items{ {
+    { data::Dword_Mem, nullptr },                                    // __DefaultRuneLocale
     { data::Blr_Opcode, callback::___error },                        // ___error
     { data::Blr_Opcode, callback::keymgr_dwarf2_register_sections }, // ___keymgr_dwarf2_register_sections
     { data::Blr_Opcode, callback::___tolower },                      // ___tolower
@@ -260,7 +272,10 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::dyld_func_lookup },         // _dyld_func_lookup_ptr_in_dyld
     { data::Dword_Mem, nullptr },                             // _errno
     { data::Trap_Opcode, callback::exit },                    // _exit
+    { data::Blr_Opcode, callback::fclose },                   // _fclose
     { data::Blr_Opcode, callback::fflush },                   // _fflush
+    { data::Blr_Opcode, callback::fgetc },                    // _fgetc
+    { data::Blr_Opcode, callback::fopen },                    // _fopen
     { data::Blr_Opcode, callback::fprintf },                  // _fprintf
     { data::Blr_Opcode, callback::free },                     // _free
     { data::Blr_Opcode, callback::fstat },                    // _fstat
@@ -269,6 +284,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::getdtablesize },            // _getdtablesize
     { data::Blr_Opcode, callback::getenv },                   // _getenv
     { data::Blr_Opcode, callback::gethostbyname },            // _gethostbyname
+    { data::Blr_Opcode, callback::gethostname },              // _gethostname
     { data::Blr_Opcode, callback::ioctl },                    // _ioctl
     { data::Blr_Opcode, callback::localtime },                // _localtime
     { data::Blr_Opcode, callback::_longjmp },                 // _longjmp
@@ -300,6 +316,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::dyld_stub_binding_helper }, // _stub_binding_helper_ptr_in_dyld
     { data::Blr_Opcode, callback::time },                     // _time
     { data::Blr_Opcode, callback::times },                    // _times
+    { data::Blr_Opcode, callback::ungetc },                   // _ungetc
     { data::Blr_Opcode, callback::vsnprintf },                // _vsnprintf
     { data::Blr_Opcode, callback::vsprintf },                 // _vsprintf
     { data::Blr_Opcode, callback::write },                    // _write
@@ -307,11 +324,12 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
 
 // Argument counts for each API (-1 for variadic functions)
 inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
+    0,  // __DefaultRuneLocale
     0,  // ___error
     0,  // ___keymgr_dwarf2_register_sections
+    0,  // ___sF
     1,  // ___tolower
     1,  // ___toupper
-    0,  // ___sF
     0,  // __cthread_init_routine
     0,  // __dyld_make_delayed_module_initializer_calls
     1,  // _atexit
@@ -320,7 +338,10 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     2,  // _dyld_func_lookup_ptr_in_dyld
     0,  // _errno
     1,  // _exit
+    1,  // _fclose
     1,  // _fflush
+    1,  // _fgetc
+    2,  // _fopen
     -1, // _fprintf (variadic)
     1,  // _free
     2,  // _fstat
@@ -329,6 +350,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     0,  // _getdtablesize
     1,  // _getenv
     1,  // _gethostbyname
+    2,  // _gethostname
     -1, // _ioctl (variadic)
     1,  // _localtime
     2,  // _longjmp
@@ -360,6 +382,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     0,  // _stub_binding_helper_ptr_in_dyld
     1,  // _time
     1,  // _times
+    2,  // _ungetc
     4,  // _vsnprintf
     3,  // _vsprintf
     3,  // _write

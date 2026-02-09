@@ -188,4 +188,27 @@ struct hostent
     std::uint32_t h_addr_list; /* list of addresses (guest pointer to array of guest pointers) */
 };
 
+// _RuneLocale structure for Mac OS X 10.4 PPC
+struct _RuneRange
+{
+    std::int32_t rr_nranges;      /* number of ranges */
+    std::uint32_t rr_rune_ranges; /* pointer to array of _RuneEntry (guest pointer) */
+};
+
+struct _RuneLocale
+{
+    std::int8_t rl_magic[8];      /* magic string "RuneMagi" */
+    std::int8_t rl_encoding[32];  /* encoding name "NONE" */
+    std::uint32_t rl_variable;    /* pointer to variable data (guest pointer) */
+    std::int32_t rl_variable_len; /* length of variable data */
+
+    std::int32_t rl_runetype[_CACHED_RUNES]; /* character type table (256 * 4 bytes) */
+    std::int32_t rl_maplower[_CACHED_RUNES]; /* lowercase mapping table (256 * 4 bytes) */
+    std::int32_t rl_mapupper[_CACHED_RUNES]; /* uppercase mapping table (256 * 4 bytes) */
+
+    _RuneRange rl_runetype_ext; /* extended runetype range */
+    _RuneRange rl_maplower_ext; /* extended lowercase range */
+    _RuneRange rl_mapupper_ext; /* extended uppercase range */
+};
+
 } // namespace guest

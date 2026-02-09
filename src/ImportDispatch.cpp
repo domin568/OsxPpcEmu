@@ -299,6 +299,30 @@ bool exit( uc_engine *uc, memory::CMemory *mem )
     return true;
 }
 
+// int fclose(FILE *stream);
+bool fclose( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [stream] = *args;
+
+    FILE *f{ static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) ) };
+    int ret{ ::fclose( f ) };
+
+    if (ret == EOF)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write fgetc return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // int fflush(FILE *stream);
 bool fflush( uc_engine *uc, memory::CMemory *mem )
 {
@@ -321,6 +345,81 @@ bool fflush( uc_engine *uc, memory::CMemory *mem )
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write fflush return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int fgetc(FILE *stream);
+bool fgetc( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [stream] = *args;
+
+    FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
+    if (!f)
+        f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
+
+    int ret{ ::fgetc( f ) };
+
+    if (ret == EOF)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write fgetc return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// FILE *fopen(const char *filename, const char *mode);
+bool fopen( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [filename, mode] = *args;
+
+    FILE *ret{ ::fopen( filename, mode ) };
+
+    if (ret == nullptr)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    // Store the FILE* in guest memory and return pointer to it
+    uint32_t retGuest{ 0 };
+    if (ret != nullptr)
+    {
+        // Allocate space for the FILE* on the heap
+        retGuest = mem->heap_alloc( sizeof( FILE * ) );
+        if (retGuest != 0)
+        {
+            FILE **filePtr{ static_cast<FILE **>( mem->get( retGuest ) ) };
+            if (filePtr)
+            {
+                *filePtr = ret;
+            }
+            else
+            {
+                ::fclose( ret );
+                retGuest = 0;
+            }
+        }
+        else
+        {
+            ::fclose( ret );
+        }
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write fopen return value" << std::endl;
         return false;
     }
     return true;
@@ -638,7 +737,7 @@ bool sprintf( uc_engine *uc, memory::CMemory *mem )
 
     auto [buffer, format]{ *args };
 
-    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5 ) };
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5, false ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vsprintf( buffer, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
@@ -658,7 +757,7 @@ bool printf( uc_engine *uc, memory::CMemory *mem )
         return false;
     auto [format]{ *args };
 
-    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_4 ) };
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_4, false ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vprintf( format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
@@ -917,7 +1016,7 @@ bool fprintf( uc_engine *uc, memory::CMemory *mem )
     if (!f)
         return false;
 
-    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5 ) };
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5, false ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vfprintf( f, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
@@ -962,12 +1061,21 @@ bool getenv( uc_engine *uc, memory::CMemory *mem )
 
     char *ret{ ::getenv( name ) };
     uint32_t retGuest{ 0 };
-    if (ret != nullptr)
+    if (name != nullptr && std::strlen( name ) >= 7 && !std::memcmp( name, "DISPLAY", 7 ))
+    {
+        static constexpr std::string_view retStr{ ":0" };
+        char *heap_ptr{ reinterpret_cast<char *>( mem->to_host( mem->heap_alloc( retStr.size() + 1 ) ) ) };
+        ::memcpy( heap_ptr, retStr.data(), retStr.size() );
+        heap_ptr[retStr.size()] = '\0';
+        retGuest = mem->to_guest( heap_ptr );
+    }
+    else if (ret != nullptr)
     {
         char *heap_ptr{ reinterpret_cast<char *>( mem->to_host( mem->heap_alloc( ::strlen( ret ) ) ) ) };
         ::memcpy( heap_ptr, ret, ::strlen( ret ) + 1 );
         retGuest = mem->to_guest( heap_ptr );
     }
+
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write getenv return value" << std::endl;
@@ -1288,6 +1396,53 @@ bool gethostbyname( uc_engine *uc, memory::CMemory *mem )
     return true;
 }
 
+// int gethostname(char *name, size_t namelen);
+bool gethostname( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<char *, size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [name, namelen] = *args;
+
+    int ret{ ::gethostname( name, namelen ) };
+
+    if (ret == -1)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write gethostname return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int ungetc( int character, FILE * stream );
+bool ungetc( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<int, void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [character, stream] = *args;
+
+    FILE *f{ static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) ) };
+    int ret{ ::ungetc( character, f ) };
+
+    if (ret == EOF)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write gethostname return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // int sscanf(const char *str, const char *format, ...);
 bool sscanf( uc_engine *uc, memory::CMemory *mem )
 {
@@ -1296,12 +1451,8 @@ bool sscanf( uc_engine *uc, memory::CMemory *mem )
         return false;
     const auto [str, format] = *args;
 
-    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5 ) };
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5, true ) };
 
-    for (auto arg : formatArgs)
-    {
-        arg = mem->to_host( arg );
-    }
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vsscanf( str, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
 

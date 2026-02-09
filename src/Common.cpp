@@ -113,30 +113,20 @@ std::size_t count_format_specifiers( std::string_view format )
     return count;
 };
 
-std::vector<void *> get_va_arguments( memory::CMemory *mem, void *argsPtr, std::string_view format )
+static inline bool is_pointer_specifier( char spec )
 {
-    std::vector<void *> args{};
-    const std::size_t formatSpecifiersCount{ count_format_specifiers( format ) };
-    const std::span<const uint32_t> argsGuest{ reinterpret_cast<uint32_t *>( argsPtr ), formatSpecifiersCount };
-    for (const auto guestVaBe : argsGuest)
-    {
-        const uint32_t guestVa{ ensure_endianness( guestVaBe, std::endian::big ) };
-        args.push_back( mem->get( guestVa ) );
-    };
-    return args;
+    return spec == 's' || spec == 'p' || spec == 'n';
 }
 
-std::vector<uint64_t> get_ellipsis_arguments( uc_engine *uc, memory::CMemory *mem, const char *format,
-                                              const int regIdx )
+template <typename Func> static void process_format_arguments( std::string_view format, Func &&c )
 {
-    std::vector<uint64_t> formatArgs;
     std::size_t argIdx = 0;
 
-    for (std::size_t i = 0; i < ::strlen( format ); i++)
+    for (std::size_t i = 0; i < format.size(); i++)
     {
         if (format[i] == '%')
         {
-            if (i + 1 < ::strlen( format ) && format[i + 1] == '%')
+            if (i + 1 < format.size() && format[i + 1] == '%')
             {
                 i++; // Skip %%
                 continue;
@@ -144,31 +134,56 @@ std::vector<uint64_t> get_ellipsis_arguments( uc_engine *uc, memory::CMemory *me
 
             // Find the conversion specifier
             i++;
-            while (i < ::strlen( format ) && ::strchr( "-+ #0123456789.*hlLjzt", format[i] ))
+            while (i < format.size() && ::strchr( "-+ #0123456789.*hlLjzt", format[i] ))
                 i++;
 
-            if (i >= ::strlen( format ))
+            if (i >= format.size())
                 break;
 
             char spec = format[i];
-            uint32_t guestArg;
-            uc_reg_read( uc, regIdx + argIdx, &guestArg );
-
-            // Check if this specifier expects a pointer or an integer
-            if (spec == 's' || spec == 'p' || spec == 'n')
-            {
-                // Pointer type - convert guest address to host pointer
-                formatArgs.push_back( reinterpret_cast<uint64_t>( mem->get( guestArg ) ) );
-            }
-            else
-            {
-                // Integer/character type (d, i, u, o, x, X, c, etc.) - use value directly
-                formatArgs.push_back( static_cast<uint64_t>( guestArg ) );
-            }
+            c( argIdx, spec );
             argIdx++;
         }
     }
+}
 
+std::vector<std::uint64_t> get_va_arguments( memory::CMemory *mem, void *argsPtr, std::string_view format )
+{
+    std::vector<std::uint64_t> args{};
+    const std::span<const uint32_t> argsGuest{ reinterpret_cast<uint32_t *>( argsPtr ), 256 }; // Large enough buffer
+
+    process_format_arguments( format, [&]( std::size_t argIdx, char spec ) {
+        const uint32_t guestVa{ ensure_endianness( argsGuest[argIdx], std::endian::big ) };
+
+        if (is_pointer_specifier( spec ))
+        {
+            args.push_back( reinterpret_cast<std::uint64_t>( mem->get( guestVa ) ) );
+        }
+        else
+        {
+            args.push_back( guestVa );
+        }
+    } );
+    return args;
+}
+
+std::vector<std::uint64_t> get_ellipsis_arguments( uc_engine *uc, memory::CMemory *mem, std::string_view format,
+                                                   const int regIdx, bool scan )
+{
+    std::vector<uint64_t> formatArgs;
+    process_format_arguments( std::string_view( format ), [&]( std::size_t argIdx, char spec ) {
+        uint32_t guestArg;
+        uc_reg_read( uc, regIdx + argIdx, &guestArg );
+
+        if (is_pointer_specifier( spec ) || scan)
+        {
+            formatArgs.push_back( reinterpret_cast<uint64_t>( mem->get( guestArg ) ) );
+        }
+        else
+        {
+            formatArgs.push_back( static_cast<uint64_t>( guestArg ) );
+        }
+    } );
     return formatArgs;
 }
 
