@@ -41,6 +41,7 @@ class CMachoLoader
     bool map_image_memory( uc_engine *uc, memory::CMemory &mem );
     bool set_unix_thread( uc_engine *uc );
     std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, Error> get_imports();
+    std::vector<uint32_t> get_static_constructors();
     uint32_t get_ep();
     std::optional<std::pair<uint64_t, uint64_t>> get_text_segment_va_range();
     std::optional<std::string> get_symbol_name_for_va( const uint32_t va, LIEF::MachO::Symbol::TYPE type,
@@ -57,6 +58,7 @@ class CMachoLoader
     static constexpr std::string_view Lazy_Symbols_Ptr_Section_Name{ "__la_symbol_ptr" };
     static constexpr std::string_view Dyld_Symbol_Ptr_Section_Name{ "__dyld" };
     static constexpr std::string_view Text_Segment_Name{ "__TEXT" };
+    static constexpr std::string_view Mod_Init_Section_Name{ "__mod_init_func" };
 
     static inline const std::unordered_map<SymbolSection, std::string> Symbol_Section_Name{ {
         { SymbolSection::TEXT, "__text" },

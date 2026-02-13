@@ -194,6 +194,30 @@ std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::Imp
     return imports;
 }
 
+std::vector<std::uint32_t> CMachoLoader::get_static_constructors()
+{
+    std::vector<std::uint32_t> initializers;
+    for (const LIEF::MachO::Section &s : m_executable->sections())
+    {
+        if (s.name() == Mod_Init_Section_Name)
+        {
+            const std::size_t count{ s.content().size() / sizeof( uint32_t ) };
+            for (std::size_t i{ 0 }; i < count; i++)
+            {
+                uint32_t funcPtr{};
+                std::memcpy( &funcPtr, s.content().data() + i * sizeof( uint32_t ), sizeof( uint32_t ) );
+                funcPtr = common::ensure_endianness( funcPtr, std::endian::big );
+                if (funcPtr != 0)
+                {
+                    initializers.push_back( funcPtr );
+                }
+            }
+            break;
+        }
+    }
+    return initializers;
+}
+
 uint32_t CMachoLoader::get_ep()
 {
     return m_ep;

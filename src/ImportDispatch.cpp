@@ -260,6 +260,7 @@ bool cthread_init_routine( uc_engine *uc, memory::CMemory *mem )
 
 bool dyld_make_delayed_module_initializer_calls( uc_engine *uc, memory::CMemory *mem )
 {
+    // TODO call static constructors here
     return true;
 }
 
@@ -1220,6 +1221,7 @@ bool time( uc_engine *uc, memory::CMemory *mem )
 // clock_t times(struct tms *buf);
 bool times( uc_engine *uc, memory::CMemory *mem )
 {
+    // TODO
     /*
     const auto args{ get_arguments<struct tms *>( uc, mem ) };
     if (!args.has_value())
@@ -1459,6 +1461,143 @@ bool sscanf( uc_engine *uc, memory::CMemory *mem )
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write sscanf return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// time_t mktime(struct tm *timeptr);
+bool mktime( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [timeptrGuest] = *args;
+
+    if (!timeptrGuest)
+    {
+        uint32_t ret{ static_cast<uint32_t>( -1 ) };
+        if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+        {
+            std::cerr << "Could not write mktime return value" << std::endl;
+            return false;
+        }
+        return true;
+    }
+
+    auto *tmGuest{ static_cast<guest::tm *>( timeptrGuest ) };
+    struct tm tmHost{};
+    tmHost.tm_sec = common::ensure_endianness( tmGuest->tm_sec, std::endian::big );
+    tmHost.tm_min = common::ensure_endianness( tmGuest->tm_min, std::endian::big );
+    tmHost.tm_hour = common::ensure_endianness( tmGuest->tm_hour, std::endian::big );
+    tmHost.tm_mday = common::ensure_endianness( tmGuest->tm_mday, std::endian::big );
+    tmHost.tm_mon = common::ensure_endianness( tmGuest->tm_mon, std::endian::big );
+    tmHost.tm_year = common::ensure_endianness( tmGuest->tm_year, std::endian::big );
+    tmHost.tm_wday = common::ensure_endianness( tmGuest->tm_wday, std::endian::big );
+    tmHost.tm_yday = common::ensure_endianness( tmGuest->tm_yday, std::endian::big );
+    tmHost.tm_isdst = common::ensure_endianness( tmGuest->tm_isdst, std::endian::big );
+
+    time_t result{ ::mktime( &tmHost ) };
+    uint32_t resultGuest{ common::ensure_endianness( static_cast<uint32_t>( result ), std::endian::big ) };
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &resultGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write mktime return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// void qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));
+bool qsort( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<void *, size_t, size_t, uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [base, nmemb, size, comparGuestPtr] = *args;
+
+    if (!base || nmemb == 0 || size == 0)
+        return true;
+    // TODO implement if needed
+    return true;
+}
+
+// clock_t clock(void);
+bool clock( uc_engine *uc, memory::CMemory *mem )
+{
+    clock_t ret{ ::clock() };
+    uint32_t retGuest{ common::ensure_endianness( static_cast<uint32_t>( ret ), std::endian::big ) };
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write clock return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// char *setlocale(int category, const char *locale);
+bool setlocale( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<int, const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [category, locale] = *args;
+
+    char *ret{ ::setlocale( category, locale ) };
+    uint32_t retGuest{ 0 };
+
+    if (ret != nullptr)
+    {
+        size_t len{ ::strlen( ret ) + 1 };
+        void *localeHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( len ) ) ) };
+        ::memcpy( localeHost, ret, len );
+        retGuest = mem->to_guest( localeHost );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write setlocale return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int snprintf(char *str, size_t size, const char *format, ...);
+bool snprintf( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<char *, size_t, const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [str, size, format] = *args;
+
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_6, false ) };
+
+    // UB but for now works for arm64 mac os / x86_64 windows
+    int ret{ ::vsnprintf( str, size, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write snprintf return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// char *strncat(char *dest, const char *src, size_t n);
+bool strncat( uc_engine *uc, memory::CMemory *mem )
+{
+    const auto args{ get_arguments<char *, const char *, size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [dest, src, n] = *args;
+
+    char *ret{ ::strncat( dest, src, n ) };
+    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write strncat return value" << std::endl;
         return false;
     }
     return true;
