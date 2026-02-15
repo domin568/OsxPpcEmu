@@ -43,13 +43,10 @@ class COsxPpcEmu
 #endif
 
     memory::CMemory m_mem;
-#ifndef DEBUG
-  private:
-#endif
     loader::CMachoLoader m_loader;
 #ifdef DEBUG
-    std::unique_ptr<debug::CDebugger> m_debugger;
-    std::unique_ptr<gdb::CGdbServer> m_gdb_server;
+    std::unique_ptr<debug::CDebugger> m_debugger{};
+    std::unique_ptr<gdb::CGdbServer> m_gdb_server{};
 #endif
 
   private:

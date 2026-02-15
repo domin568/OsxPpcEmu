@@ -175,7 +175,7 @@ uint64_t CMemory::to_host( uint32_t ptr )
 // ultra simple, just to move emulation further
 void CMemory::initialize_heap()
 {
-    commit( common::Heap_Start, common::Heap_Size, 3 );
+    commit( common::Heap_Start, common::Heap_Size, UC_PROT_ALL );
 }
 
 uint32_t CMemory::heap_alloc( std::size_t size )

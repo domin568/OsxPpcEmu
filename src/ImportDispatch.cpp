@@ -17,7 +17,7 @@ namespace import::callback
 {
 // int *___error(void);
 // Returns a pointer to the errno variable
-bool ___error( uc_engine *uc, memory::CMemory *mem )
+bool ___error( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     // Get the address of the _errno import entry
     std::optional<uint32_t> errnoVa{ common::get_import_entry_va_by_name( "_errno" ) };
@@ -39,7 +39,7 @@ bool ___error( uc_engine *uc, memory::CMemory *mem )
 
 // int ___tolower(int c);
 // Converts uppercase letter to lowercase
-bool ___tolower( uc_engine *uc, memory::CMemory *mem )
+bool ___tolower( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<int>( uc, mem ) };
     if (!args.has_value())
@@ -59,7 +59,7 @@ bool ___tolower( uc_engine *uc, memory::CMemory *mem )
 
 // int ___toupper(int c);
 // Converts lowercase letter to uppercase
-bool ___toupper( uc_engine *uc, memory::CMemory *mem )
+bool ___toupper( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<int>( uc, mem ) };
     if (!args.has_value())
@@ -79,7 +79,7 @@ bool ___toupper( uc_engine *uc, memory::CMemory *mem )
 
 // int _setjmp(jmp_buf env);
 // Save calling environment for later use by longjmp
-bool _setjmp( uc_engine *uc, memory::CMemory *mem )
+bool _setjmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *>( uc, mem ) };
     if (!args.has_value())
@@ -165,7 +165,7 @@ bool _setjmp( uc_engine *uc, memory::CMemory *mem )
 
 // void _longjmp(jmp_buf env, int val);
 // Restore environment saved by setjmp and return to that point
-bool _longjmp( uc_engine *uc, memory::CMemory *mem )
+bool _longjmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *, int>( uc, mem ) };
     if (!args.has_value())
@@ -248,24 +248,70 @@ bool _longjmp( uc_engine *uc, memory::CMemory *mem )
     return true;
 }
 
-bool keymgr_dwarf2_register_sections( uc_engine *uc, memory::CMemory *mem )
+bool keymgr_dwarf2_register_sections( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     return true;
 }
 
-bool cthread_init_routine( uc_engine *uc, memory::CMemory *mem )
+bool cthread_init_routine( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     return true;
 }
 
-bool dyld_make_delayed_module_initializer_calls( uc_engine *uc, memory::CMemory *mem )
+bool dyld_make_delayed_module_initializer_calls( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
-    // TODO call static constructors here
+    static constexpr std::uint8_t Stack_Frame_Size{ 0x20 };
+    static constexpr std::array<std::uint8_t, 12> prolog{
+        0x7C, 0x08, 0x02, 0xA6,                     // mflr      r0
+        0x90, 0x01, 0x00, 0x08,                     // stw r0, 8( r1 )
+        0x94, 0x21, 0xFF, 0x100 - Stack_Frame_Size, // stwu r1 -0x20( r1 )
+    };
+    static constexpr std::array<std::uint8_t, 16> epilog{
+        0x80, 0x01, 0x00, Stack_Frame_Size + 8, // lwz       r0, 0x28(r1)
+        0x38, 0x21, 0x00, Stack_Frame_Size,     // addi      r1, r1, 0x20
+        0x7C, 0x08, 0x03, 0xA6,                 // mtlr      r0
+        0x4E, 0x80, 0x00, 0x20,                 // blr
+    };
+    static constexpr std::array<std::uint8_t, 16> constructor_call{
+        0x3D, 0x80, 0x00, 0x00, // lis r12,XXXX (FUNC1 hi)  <-- patch
+        0x39, 0x8C, 0x00, 0x00, // addi r12,r12,XXXX (FUNC1 lo) <-- patch
+        0x7D, 0x89, 0x03, 0xA6, // mtctr r12
+        0x4E, 0x80, 0x04, 0x21, // bctrl
+    };
+
+    std::vector<std::uint8_t> trampoline_mem{};
+    std::copy( prolog.begin(), prolog.end(), std::back_inserter( trampoline_mem ) );
+
+    std::vector<std::uint32_t> static_constructor_arr{ loader->get_static_constructors() };
+    for (const std::uint32_t constructor_va : static_constructor_arr)
+    {
+        std::array<uint8_t, 16> current_constructor_call{ constructor_call };
+        std::uint16_t hi{ static_cast<std::uint16_t>( ( constructor_va + 0x8000 ) >> 16 ) };
+        std::uint16_t lo{ static_cast<std::uint16_t>( constructor_va & 0xFFFF ) };
+        current_constructor_call[2] = static_cast<std::uint8_t>( hi >> 8 );
+        current_constructor_call[3] = static_cast<std::uint8_t>( hi & 0xFF );
+        current_constructor_call[6] = static_cast<std::uint8_t>( lo >> 8 );
+        current_constructor_call[7] = static_cast<std::uint8_t>( lo & 0xFF );
+        std::copy( current_constructor_call.begin(), current_constructor_call.end(),
+                   std::back_inserter( trampoline_mem ) );
+    }
+    std::copy( epilog.begin(), epilog.end(), std::back_inserter( trampoline_mem ) );
+
+    std::uint32_t trampoline_guest_addr{ mem->heap_alloc( trampoline_mem.size() ) };
+    void *trampoline_host_addr{ reinterpret_cast<void *>( mem->to_host( trampoline_guest_addr ) ) };
+
+    std::memcpy( trampoline_host_addr, trampoline_mem.data(), trampoline_mem.size() );
+
+    if (uc_reg_write( uc, UC_PPC_REG_PC, &trampoline_guest_addr ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write trampoline return address" << std::endl;
+        return false;
+    }
     return true;
 }
 
 // int _dyld_func_lookup(const char *dyld_func_name, void **address);
-bool dyld_func_lookup( uc_engine *uc, memory::CMemory *mem )
+bool dyld_func_lookup( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const char *, uint64_t>( uc, mem ) };
     if (!args.has_value())
@@ -289,19 +335,19 @@ bool dyld_func_lookup( uc_engine *uc, memory::CMemory *mem )
     return true;
 }
 
-bool atexit( uc_engine *uc, memory::CMemory *mem )
+bool atexit( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     return true;
 }
 
-bool exit( uc_engine *uc, memory::CMemory *mem )
+bool exit( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     uc_emu_stop( uc );
     return true;
 }
 
 // int fclose(FILE *stream);
-bool fclose( uc_engine *uc, memory::CMemory *mem )
+bool fclose( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *>( uc, mem ) };
     if (!args.has_value())
@@ -325,7 +371,7 @@ bool fclose( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int fflush(FILE *stream);
-bool fflush( uc_engine *uc, memory::CMemory *mem )
+bool fflush( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *>( uc, mem ) };
     if (!args.has_value())
@@ -352,7 +398,7 @@ bool fflush( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int fgetc(FILE *stream);
-bool fgetc( uc_engine *uc, memory::CMemory *mem )
+bool fgetc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *>( uc, mem ) };
     if (!args.has_value())
@@ -379,7 +425,7 @@ bool fgetc( uc_engine *uc, memory::CMemory *mem )
 }
 
 // FILE *fopen(const char *filename, const char *mode);
-bool fopen( uc_engine *uc, memory::CMemory *mem )
+bool fopen( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
     if (!args.has_value())
@@ -427,7 +473,7 @@ bool fopen( uc_engine *uc, memory::CMemory *mem )
 }
 
 // size_t fwrite( const void * buffer, size_t size, size_t count, FILE * stream );
-bool fwrite( uc_engine *uc, memory::CMemory *mem )
+bool fwrite( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const void *, std::size_t, std::size_t, void *>( uc, mem ) };
     if (!args.has_value())
@@ -455,7 +501,7 @@ bool fwrite( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int fstat(int fd, struct stat *buf);
-bool fstat( uc_engine *uc, memory::CMemory *mem )
+bool fstat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<int, void *>( uc, mem ) };
     if (!args.has_value())
@@ -493,7 +539,7 @@ bool fstat( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int ioctl(int fd, unsigned long op, ...);
-bool ioctl( uc_engine *uc, memory::CMemory *mem )
+bool ioctl( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<int, uint32_t, void *>( uc, mem ) };
     if (!args.has_value())
@@ -531,13 +577,13 @@ bool ioctl( uc_engine *uc, memory::CMemory *mem )
     return true;
 }
 
-bool mach_init_routine( uc_engine *uc, memory::CMemory *mem )
+bool mach_init_routine( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     return true;
 }
 
 // void* malloc(std::size_t size);
-bool malloc( uc_engine *uc, memory::CMemory *mem )
+bool malloc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<std::size_t>( uc, mem ) };
     if (!args.has_value())
@@ -561,7 +607,7 @@ bool malloc( uc_engine *uc, memory::CMemory *mem )
 }
 
 // void* calloc(std::size_t num, std::size_t size);
-bool calloc( uc_engine *uc, memory::CMemory *mem )
+bool calloc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<std::size_t, std::size_t>( uc, mem ) };
     if (!args.has_value())
@@ -587,7 +633,7 @@ bool calloc( uc_engine *uc, memory::CMemory *mem )
 }
 
 // void* realloc(void* ptr, std::size_t size);
-bool realloc( uc_engine *uc, memory::CMemory *mem )
+bool realloc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *, std::size_t>( uc, mem ) };
     if (!args.has_value())
@@ -650,7 +696,7 @@ bool realloc( uc_engine *uc, memory::CMemory *mem )
 }
 
 // void* memcpy(void * destination, const void * source, size_t num);
-bool memcpy( uc_engine *uc, memory::CMemory *mem )
+bool memcpy( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *, const void *, std::size_t>( uc, mem ) };
     if (!args.has_value())
@@ -666,7 +712,7 @@ bool memcpy( uc_engine *uc, memory::CMemory *mem )
 }
 
 // void* memmove( void* dest, const void* src, std::size_t count );
-bool memmove( uc_engine *uc, memory::CMemory *mem )
+bool memmove( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *, const void *, std::size_t>( uc, mem ) };
     if (!args.has_value())
@@ -677,7 +723,7 @@ bool memmove( uc_engine *uc, memory::CMemory *mem )
 }
 
 // void *memset(void *str, int c, size_t n)
-bool memset( uc_engine *uc, memory::CMemory *mem )
+bool memset( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *, int, std::size_t>( uc, mem ) };
     if (!args.has_value())
@@ -693,7 +739,7 @@ bool memset( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int puts(const char *str);
-bool puts( uc_engine *uc, memory::CMemory *mem )
+bool puts( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const char *>( uc, mem ) };
     if (!args.has_value())
@@ -704,7 +750,7 @@ bool puts( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int setvbuf( FILE * stream, char * buffer, int mode, size_t size );
-bool setvbuf( uc_engine *uc, memory::CMemory *mem )
+bool setvbuf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *, char *, int, size_t>( uc, mem ) };
     if (!args.has_value())
@@ -720,7 +766,7 @@ bool setvbuf( uc_engine *uc, memory::CMemory *mem )
 }
 
 // sighandler_t signal(int signum, sighandler_t handler);
-bool signal( uc_engine *uc, memory::CMemory *mem )
+bool signal( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<int, void *>( uc, mem ) };
     if (!args.has_value())
@@ -730,7 +776,7 @@ bool signal( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int sprintf(char * buffer, const char * format, ...);
-bool sprintf( uc_engine *uc, memory::CMemory *mem )
+bool sprintf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<char *, const char *>( uc, mem ) };
     if (!args.has_value())
@@ -751,7 +797,7 @@ bool sprintf( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int printf(const char *format, ...)
-bool printf( uc_engine *uc, memory::CMemory *mem )
+bool printf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const char *>( uc, mem ) };
     if (!args.has_value())
@@ -771,7 +817,7 @@ bool printf( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int vsprintf(char * buffer, const char * format, va_list ap);
-bool vsprintf( uc_engine *uc, memory::CMemory *mem )
+bool vsprintf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<char *, const char *, void *>( uc, mem ) };
     if (!args.has_value())
@@ -790,7 +836,7 @@ bool vsprintf( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int stat(const char * restrict path,	struct stat * restrict sb);
-bool stat( uc_engine *uc, memory::CMemory *mem )
+bool stat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const char *, void *>( uc, mem ) };
     if (!args.has_value())
@@ -829,7 +875,7 @@ bool stat( uc_engine *uc, memory::CMemory *mem )
 }
 
 // char * strcat( char * destination, const char * source );
-bool strcat( uc_engine *uc, memory::CMemory *mem )
+bool strcat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<char *, const char *>( uc, mem ) };
     if (!args.has_value())
@@ -846,7 +892,7 @@ bool strcat( uc_engine *uc, memory::CMemory *mem )
 }
 
 // char * strchr( const char * str, int ch );
-bool strchr( uc_engine *uc, memory::CMemory *mem )
+bool strchr( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<char *, int>( uc, mem ) };
     if (!args.has_value())
@@ -863,7 +909,7 @@ bool strchr( uc_engine *uc, memory::CMemory *mem )
 }
 
 // size_t strlen( const char * str );
-bool strlen( uc_engine *uc, memory::CMemory *mem )
+bool strlen( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const char *>( uc, mem ) };
     if (!args.has_value())
@@ -879,7 +925,7 @@ bool strlen( uc_engine *uc, memory::CMemory *mem )
 }
 
 // char * strrchr( const char * str, int ch );
-bool strrchr( uc_engine *uc, memory::CMemory *mem )
+bool strrchr( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<char *, int>( uc, mem ) };
     if (!args.has_value())
@@ -897,7 +943,7 @@ bool strrchr( uc_engine *uc, memory::CMemory *mem )
 }
 
 // char *strcpy( char *dest, const char *src );
-bool strcpy( uc_engine *uc, memory::CMemory *mem )
+bool strcpy( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<char *, const char *>( uc, mem ) };
     if (!args.has_value())
@@ -915,7 +961,7 @@ bool strcpy( uc_engine *uc, memory::CMemory *mem )
 }
 
 // char * strncpy ( char * destination, const char * source, size_t num );
-bool strncpy( uc_engine *uc, memory::CMemory *mem )
+bool strncpy( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<char *, const char *, std::size_t>( uc, mem ) };
     if (!args.has_value())
@@ -932,12 +978,12 @@ bool strncpy( uc_engine *uc, memory::CMemory *mem )
     return true;
 }
 
-bool dyld_stub_binding_helper( uc_engine *uc, memory::CMemory *mem )
+bool dyld_stub_binding_helper( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     return true;
 }
 
-bool vsnprintf( uc_engine *uc, memory::CMemory *mem )
+bool vsnprintf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<char *, size_t, const char *, void *>( uc, mem ) };
     if (!args.has_value())
@@ -956,7 +1002,7 @@ bool vsnprintf( uc_engine *uc, memory::CMemory *mem )
 }
 
 // char *getcwd(char *buf, size_t size);
-bool getcwd( uc_engine *uc, memory::CMemory *mem )
+bool getcwd( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<char *, size_t>( uc, mem ) };
     if (!args.has_value())
@@ -979,7 +1025,7 @@ bool getcwd( uc_engine *uc, memory::CMemory *mem )
 }
 
 // void free(void *ptr);
-bool free( uc_engine *uc, memory::CMemory *mem )
+bool free( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *>( uc, mem ) };
     if (!args.has_value())
@@ -989,7 +1035,7 @@ bool free( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int strcmp( const char *lhs, const char *rhs );
-bool strcmp( uc_engine *uc, memory::CMemory *mem )
+bool strcmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
     if (!args.has_value())
@@ -1005,7 +1051,7 @@ bool strcmp( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int fprintf(FILE *stream, const char *format, ...);
-bool fprintf( uc_engine *uc, memory::CMemory *mem )
+bool fprintf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *, const char *>( uc, mem ) };
     if (!args.has_value())
@@ -1030,7 +1076,7 @@ bool fprintf( uc_engine *uc, memory::CMemory *mem )
 }
 
 // ssize_t readlink(const char *path, char *buf, size_t bufsiz);
-bool readlink( uc_engine *uc, memory::CMemory *mem )
+bool readlink( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const char *, char *, size_t>( uc, mem ) };
     if (!args.has_value())
@@ -1053,7 +1099,7 @@ bool readlink( uc_engine *uc, memory::CMemory *mem )
 }
 
 // char *getenv(const char *name);
-bool getenv( uc_engine *uc, memory::CMemory *mem )
+bool getenv( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const char *>( uc, mem ) };
     if (!args.has_value())
@@ -1086,7 +1132,7 @@ bool getenv( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int open(const char *path, int flags, ...);
-bool open( uc_engine *uc, memory::CMemory *mem )
+bool open( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const char *, int, int>( uc, mem ) };
     if (!args.has_value())
@@ -1109,7 +1155,7 @@ bool open( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int close(int fd);
-bool close( uc_engine *uc, memory::CMemory *mem )
+bool close( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<int>( uc, mem ) };
     if (!args.has_value())
@@ -1132,7 +1178,7 @@ bool close( uc_engine *uc, memory::CMemory *mem )
 }
 
 // ssize_t read(int fd, void *buf, size_t count);
-bool read( uc_engine *uc, memory::CMemory *mem )
+bool read( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<int, void *, size_t>( uc, mem ) };
     if (!args.has_value())
@@ -1155,7 +1201,7 @@ bool read( uc_engine *uc, memory::CMemory *mem )
 }
 
 // ssize_t write(int fd, const void *buf, size_t count);
-bool write( uc_engine *uc, memory::CMemory *mem )
+bool write( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<int, const void *, size_t>( uc, mem ) };
     if (!args.has_value())
@@ -1178,7 +1224,7 @@ bool write( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int memcmp(const void *s1, const void *s2, size_t n);
-bool memcmp( uc_engine *uc, memory::CMemory *mem )
+bool memcmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const void *, const void *, size_t>( uc, mem ) };
     if (!args.has_value())
@@ -1196,7 +1242,7 @@ bool memcmp( uc_engine *uc, memory::CMemory *mem )
 }
 
 // time_t time(time_t *tloc);
-bool time( uc_engine *uc, memory::CMemory *mem )
+bool time( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<time_t *>( uc, mem ) };
     if (!args.has_value())
@@ -1219,7 +1265,7 @@ bool time( uc_engine *uc, memory::CMemory *mem )
 }
 
 // clock_t times(struct tms *buf);
-bool times( uc_engine *uc, memory::CMemory *mem )
+bool times( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     // TODO
     /*
@@ -1245,7 +1291,7 @@ bool times( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int getdtablesize(void);
-bool getdtablesize( uc_engine *uc, memory::CMemory *mem )
+bool getdtablesize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     int ret{ ::getdtablesize() };
     std::uint32_t retGuest{ common::ensure_endianness( static_cast<std::uint32_t>( ret ), std::endian::big ) };
@@ -1258,7 +1304,7 @@ bool getdtablesize( uc_engine *uc, memory::CMemory *mem )
 }
 
 // struct tm *localtime(const time_t *timep);
-bool localtime( uc_engine *uc, memory::CMemory *mem )
+bool localtime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const time_t *>( uc, mem ) };
     if (!args.has_value())
@@ -1307,7 +1353,7 @@ bool localtime( uc_engine *uc, memory::CMemory *mem )
 }
 
 // struct hostent *gethostbyname(const char *name);
-bool gethostbyname( uc_engine *uc, memory::CMemory *mem )
+bool gethostbyname( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const char *>( uc, mem ) };
     if (!args.has_value())
@@ -1399,7 +1445,7 @@ bool gethostbyname( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int gethostname(char *name, size_t namelen);
-bool gethostname( uc_engine *uc, memory::CMemory *mem )
+bool gethostname( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<char *, size_t>( uc, mem ) };
     if (!args.has_value())
@@ -1422,7 +1468,7 @@ bool gethostname( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int ungetc( int character, FILE * stream );
-bool ungetc( uc_engine *uc, memory::CMemory *mem )
+bool ungetc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<int, void *>( uc, mem ) };
     if (!args.has_value())
@@ -1446,7 +1492,7 @@ bool ungetc( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int sscanf(const char *str, const char *format, ...);
-bool sscanf( uc_engine *uc, memory::CMemory *mem )
+bool sscanf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
     if (!args.has_value())
@@ -1467,7 +1513,7 @@ bool sscanf( uc_engine *uc, memory::CMemory *mem )
 }
 
 // time_t mktime(struct tm *timeptr);
-bool mktime( uc_engine *uc, memory::CMemory *mem )
+bool mktime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *>( uc, mem ) };
     if (!args.has_value())
@@ -1509,7 +1555,7 @@ bool mktime( uc_engine *uc, memory::CMemory *mem )
 }
 
 // void qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));
-bool qsort( uc_engine *uc, memory::CMemory *mem )
+bool qsort( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<void *, size_t, size_t, uint32_t>( uc, mem ) };
     if (!args.has_value())
@@ -1523,7 +1569,7 @@ bool qsort( uc_engine *uc, memory::CMemory *mem )
 }
 
 // clock_t clock(void);
-bool clock( uc_engine *uc, memory::CMemory *mem )
+bool clock( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     clock_t ret{ ::clock() };
     uint32_t retGuest{ common::ensure_endianness( static_cast<uint32_t>( ret ), std::endian::big ) };
@@ -1537,7 +1583,7 @@ bool clock( uc_engine *uc, memory::CMemory *mem )
 }
 
 // char *setlocale(int category, const char *locale);
-bool setlocale( uc_engine *uc, memory::CMemory *mem )
+bool setlocale( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<int, const char *>( uc, mem ) };
     if (!args.has_value())
@@ -1564,7 +1610,7 @@ bool setlocale( uc_engine *uc, memory::CMemory *mem )
 }
 
 // int snprintf(char *str, size_t size, const char *format, ...);
-bool snprintf( uc_engine *uc, memory::CMemory *mem )
+bool snprintf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<char *, size_t, const char *>( uc, mem ) };
     if (!args.has_value())
@@ -1585,7 +1631,7 @@ bool snprintf( uc_engine *uc, memory::CMemory *mem )
 }
 
 // char *strncat(char *dest, const char *src, size_t n);
-bool strncat( uc_engine *uc, memory::CMemory *mem )
+bool strncat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<char *, const char *, size_t>( uc, mem ) };
     if (!args.has_value())

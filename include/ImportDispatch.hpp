@@ -16,8 +16,8 @@ namespace import
 
 namespace callback
 {
-using CallbackPtr = bool ( * )( uc_engine *, memory::CMemory *mem );
-#define callback( name ) bool name( uc_engine *, memory::CMemory * )
+using CallbackPtr = bool ( * )( uc_engine *, memory::CMemory *mem, loader::CMachoLoader * );
+#define callback( name ) bool name( uc_engine *, memory::CMemory *, loader::CMachoLoader * )
 callback( clock );
 callback( setlocale );
 callback( snprintf );
