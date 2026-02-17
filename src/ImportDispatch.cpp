@@ -924,6 +924,24 @@ bool strlen( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     return true;
 }
 
+// char *strpbrk(const char *str1, const char *str2);
+// Finds the first character in str1 that matches any character in str2
+bool strpbrk( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [str1, str2] = *args;
+    const char *ret{ ::strpbrk( str1, str2 ) };
+    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write strpbrk return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // char * strrchr( const char * str, int ch );
 bool strrchr( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
@@ -1050,6 +1068,22 @@ bool strcmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     return true;
 }
 
+// int strncmp(const char *s1, const char *s2, size_t n);
+bool strncmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const char *, const char *, size_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [s1, s2, n] = *args;
+    int ret{ ::strncmp( s1, s2, n ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write strncmp return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // int fprintf(FILE *stream, const char *format, ...);
 bool fprintf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
@@ -1093,6 +1127,30 @@ bool readlink( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write readlink return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// off_t lseek(int fd, off_t offset, int whence);
+bool lseek( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<int, int32_t, int>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [fd, offset, whence] = *args;
+
+    off_t ret{ ::lseek( fd, static_cast<off_t>( offset ), whence ) };
+
+    if (ret == static_cast<off_t>( -1 ))
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    uint32_t retGuest = static_cast<uint32_t>( ret );
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write lseek return value" << std::endl;
         return false;
     }
     return true;
@@ -1155,6 +1213,29 @@ bool open( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 }
 
 // int close(int fd);
+// int chmod(const char *path, mode_t mode);
+bool chmod( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const char *, uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [path, mode] = *args;
+
+    int ret{ ::chmod( path, static_cast<mode_t>( mode ) ) };
+
+    if (ret == -1)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write chmod return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 bool close( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<int>( uc, mem ) };
@@ -1298,6 +1379,25 @@ bool getdtablesize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write getdtablesize return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// mode_t umask(mode_t mask);
+bool umask( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [mask] = *args;
+
+    mode_t ret{ ::umask( static_cast<mode_t>( mask ) ) };
+    uint32_t retGuest = static_cast<uint32_t>( ret );
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write umask return value" << std::endl;
         return false;
     }
     return true;
@@ -1644,6 +1744,80 @@ bool strncat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strncat return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// void *bsearch(const void *key, const void *base, size_t num, size_t width, int (*compare)(const void *, const void
+// *)); Binary search implementation using strcmp for comparison (host code only)
+// TODO change
+bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const void *, const void *, std::size_t, std::size_t, void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [key, base, num, width, compare] = *args;
+
+    if (!key || !base || num == 0 || width == 0)
+    {
+        uint32_t result = 0;
+        if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+        {
+            std::cerr << "Could not write bsearch return value" << std::endl;
+            return false;
+        }
+        return true;
+    }
+
+    // Binary search using strcmp: key is const char*, base points to array of const char*
+    const auto *keyStr = static_cast<const char *>( key );
+    const auto *baseBytes = static_cast<const char *>( base );
+
+    size_t left = 0;
+    size_t right = num;
+
+    while (left < right)
+    {
+        size_t mid = left + ( right - left ) / 2;
+        const void *midElem = baseBytes + mid * width;
+        const std::uint32_t ptr{ *reinterpret_cast<const std::uint32_t *>( midElem ) };
+        const std::uint32_t ptrBe{ common::ensure_endianness( ptr, std::endian::big ) };
+        const void *ptrHost{ reinterpret_cast<const void *>( mem->to_host( ptrBe ) ) };
+
+        const std::uint32_t ptr2{ *reinterpret_cast<const std::uint32_t *>( ptrHost ) };
+        const std::uint32_t ptr2Be{ common::ensure_endianness( ptr2, std::endian::big ) };
+        const char *ptr2Host{ reinterpret_cast<const char *>( mem->to_host( ptr2Be ) ) };
+
+        int cmp = ::strcmp( keyStr, ptr2Host );
+
+        if (cmp == 0)
+        {
+            assert( false );
+            // Found exact match - return pointer to array element
+            uint32_t result = mem->to_guest( const_cast<void *>( midElem ) );
+            if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+            {
+                std::cerr << "Could not write bsearch return value" << std::endl;
+                return false;
+            }
+            return true;
+        }
+        else if (cmp < 0)
+        {
+            right = mid;
+        }
+        else
+        {
+            left = mid + 1;
+        }
+    }
+
+    // Not found - return NULL
+    uint32_t result = 0;
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write bsearch return value" << std::endl;
         return false;
     }
     return true;

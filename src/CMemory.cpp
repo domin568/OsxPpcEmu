@@ -162,7 +162,7 @@ void *CMemory::get( size_t offset )
     return reinterpret_cast<void *>( m_address + offset );
 }
 
-uint32_t CMemory::to_guest( void *ptr )
+uint32_t CMemory::to_guest( const void *ptr )
 {
     assert( reinterpret_cast<std::size_t>( ptr ) >= m_address );
     return reinterpret_cast<size_t>( ptr ) - m_address;

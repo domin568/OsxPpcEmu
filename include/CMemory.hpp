@@ -6,8 +6,8 @@
 #pragma once
 #include <expected>
 #include <string>
-#include <unordered_map>
 #include <unicorn/unicorn.h>
+#include <unordered_map>
 
 namespace memory
 {
@@ -37,7 +37,7 @@ class CMemory
     void write( size_t guestAddress, const void *srcPtr, size_t byteCount );
     bool check( size_t offset, size_t size );
     void *get( size_t offset );
-    uint32_t to_guest( void *ptr );
+    uint32_t to_guest( const void *ptr );
     uint64_t to_host( uint32_t ptr );
 
     void initialize_heap();
