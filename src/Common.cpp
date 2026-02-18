@@ -134,8 +134,28 @@ template <typename Func> static void process_format_arguments( std::string_view 
 
             // Find the conversion specifier
             i++;
-            while (i < format.size() && ::strchr( "-+ #0123456789.*hlLjzt", format[i] ))
-                i++;
+            while (i < format.size())
+            {
+                char ch = format[i];
+
+                // Handle dynamic width/precision (*)
+                if (ch == '*')
+                {
+                    c( argIdx, 'd' ); // * consumes an integer argument
+                    argIdx++;
+                    i++;
+                    continue;
+                }
+
+                // Skip flags, width digits, and other modifiers
+                if (::strchr( "-+ #0123456789.hlLjzt", ch ))
+                {
+                    i++;
+                    continue;
+                }
+
+                break;
+            }
 
             if (i >= format.size())
                 break;

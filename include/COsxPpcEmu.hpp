@@ -12,6 +12,7 @@
 #include "../include/CGdbServer.hpp"
 #endif
 #include <expected>
+#include <fstream>
 #include <unicorn/unicorn.h>
 
 namespace emu
@@ -47,6 +48,7 @@ class COsxPpcEmu
 #ifdef DEBUG
     std::unique_ptr<debug::CDebugger> m_debugger{};
     std::unique_ptr<gdb::CGdbServer> m_gdb_server{};
+    std::ofstream m_trace_file;
 #endif
 
   private:
@@ -96,6 +98,6 @@ static void hook_debug( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcE
 
 static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu );
 static void print_context( uc_engine *uc );
-static void print_api_return( uc_engine *uc, size_t idx );
+static void print_api_return( uc_engine *uc, size_t idx, COsxPpcEmu *emu );
 #endif
 } // namespace emu

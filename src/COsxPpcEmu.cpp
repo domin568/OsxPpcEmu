@@ -33,6 +33,9 @@ void COsxPpcEmu::init_debugger()
 {
     m_debugger = std::make_unique<debug::CDebugger>( m_uc, &m_mem, &m_loader );
 
+    // Open trace file
+    m_trace_file.open( "trace.txt", std::ios::out | std::ios::trunc );
+
     // Check if GDB server mode is enabled via environment variable
     const char *gdb_mode = std::getenv( "GDB_SERVER" );
     bool enable_gdb = ( gdb_mode != nullptr && std::string( gdb_mode ) == "1" );
@@ -716,7 +719,7 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
                                                                        &emu->m_loader ); // call API dispatch function
 #ifdef DEBUG
     if (idx == 0 || emu->m_debugger->is_trace_mode())
-        print_api_return( uc, idx );
+        print_api_return( uc, idx, emu );
 #endif
 }
 
@@ -934,6 +937,9 @@ static std::string format_arg_value( uc_engine *uc, uint32_t argValue )
 
 static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu )
 {
+    if (!emu->m_trace_file.is_open())
+        return;
+
     // Build callstack string (API <- caller <- caller's caller <- ...)
     std::ostringstream callstack;
 
@@ -949,7 +955,7 @@ static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, 
     }
     else
     {
-        std::cerr << "Could not read API name." << std::endl;
+        emu->m_trace_file << "Could not read API name." << std::endl;
         return;
     }
 
@@ -971,7 +977,7 @@ static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, 
     }
 
     // Print header with callstack
-    std::cout << "┌─ " << callstack.str() << std::dec << std::endl;
+    emu->m_trace_file << "┌─ " << callstack.str() << std::dec << std::endl;
 
     // Print arguments
     if (idx != import::Unknown_Import_Index && idx - import::Unknown_Import_Shift < import::Known_Import_Names.size())
@@ -985,23 +991,28 @@ static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, 
             uint32_t argValue;
             if (uc_reg_read( uc, UC_PPC_REG_3 + i, &argValue ) == UC_ERR_OK)
             {
-                std::cout << "│  arg" << i << ": " << format_arg_value( uc, argValue ) << std::endl;
+                emu->m_trace_file << "│  arg" << i << ": " << format_arg_value( uc, argValue ) << std::endl;
             }
         }
     }
+    emu->m_trace_file.flush();
 }
 
-static void print_api_return( uc_engine *uc, size_t idx )
+static void print_api_return( uc_engine *uc, size_t idx, COsxPpcEmu *emu )
 {
     if (idx == import::Unknown_Import_Index || idx - import::Unknown_Import_Shift >= import::Known_Import_Names.size())
     {
         return;
     }
 
+    if (!emu->m_trace_file.is_open())
+        return;
+
     uint32_t retValue;
     if (uc_reg_read( uc, UC_PPC_REG_3, &retValue ) == UC_ERR_OK)
     {
-        std::cout << "└─ return: " << format_arg_value( uc, retValue ) << std::endl;
+        emu->m_trace_file << "└─ return: " << format_arg_value( uc, retValue ) << std::endl;
+        emu->m_trace_file.flush();
     }
 }
 
