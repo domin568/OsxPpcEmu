@@ -508,12 +508,13 @@ bool fstat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         return false;
     const auto [fd, buf] = *args;
 
-    struct stat hostStat;
+    struct stat hostStat{};
     int ret{ ::fstat( fd, &hostStat ) };
 
     if (ret == 0 && buf != nullptr)
     {
         auto *guestStat{ static_cast<guest::stat *>( buf ) };
+        ::memset( guestStat, 0, sizeof( guest::stat ) );
         guestStat->st_dev = common::ensure_endianness( hostStat.st_dev, std::endian::big );
         guestStat->st_ino = common::ensure_endianness( hostStat.st_ino, std::endian::big );
         guestStat->st_mode = common::ensure_endianness( hostStat.st_mode, std::endian::big );
@@ -1135,11 +1136,12 @@ bool readlink( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader
 // off_t lseek(int fd, off_t offset, int whence);
 bool lseek( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
-    const auto args{ get_arguments<int, int32_t, int>( uc, mem ) };
+    const auto args{ get_arguments<int, std::uint32_t, std::uint32_t, int>( uc, mem ) };
     if (!args.has_value())
         return false;
-    const auto [fd, offset, whence] = *args;
+    const auto [fd, offsetHi, offsetLo, whence] = *args;
 
+    std::int64_t offset{ offsetLo | ( static_cast<std::int64_t>( offsetHi ) << 32 ) };
     off_t ret{ ::lseek( fd, static_cast<off_t>( offset ), whence ) };
 
     if (ret == static_cast<off_t>( -1 ))
