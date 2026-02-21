@@ -937,7 +937,10 @@ static std::string format_arg_value( uc_engine *uc, uint32_t argValue )
 
 static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu )
 {
-    if (!emu->m_trace_file.is_open())
+    // Determine if this is an unknown API
+    const bool isUnknown = ( idx == import::Unknown_Import_Index );
+
+    if (!isUnknown && !emu->m_trace_file.is_open())
         return;
 
     // Build callstack string (API <- caller <- caller's caller <- ...)
@@ -955,7 +958,9 @@ static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, 
     }
     else
     {
-        emu->m_trace_file << "Could not read API name." << std::endl;
+        std::cout << "Could not read API name." << std::endl;
+        if (emu->m_trace_file.is_open())
+            emu->m_trace_file << "Could not read API name." << std::endl;
         return;
     }
 
@@ -977,7 +982,19 @@ static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, 
     }
 
     // Print header with callstack
-    emu->m_trace_file << "┌─ " << callstack.str() << std::dec << std::endl;
+    const std::string header = "┌─ " + callstack.str();
+    if (isUnknown)
+    {
+        // Unknown API: output to both stdout and file
+        std::cout << header << std::dec << std::endl;
+        if (emu->m_trace_file.is_open())
+            emu->m_trace_file << header << std::dec << std::endl;
+    }
+    else
+    {
+        // Known API: output to file only
+        emu->m_trace_file << header << std::dec << std::endl;
+    }
 
     // Print arguments
     if (idx != import::Unknown_Import_Index && idx - import::Unknown_Import_Shift < import::Known_Import_Names.size())
@@ -991,7 +1008,8 @@ static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, 
             uint32_t argValue;
             if (uc_reg_read( uc, UC_PPC_REG_3 + i, &argValue ) == UC_ERR_OK)
             {
-                emu->m_trace_file << "│  arg" << i << ": " << format_arg_value( uc, argValue ) << std::endl;
+                const std::string argLine = "│  arg" + std::to_string( i ) + ": " + format_arg_value( uc, argValue );
+                emu->m_trace_file << argLine << std::endl;
             }
         }
     }
@@ -1011,7 +1029,9 @@ static void print_api_return( uc_engine *uc, size_t idx, COsxPpcEmu *emu )
     uint32_t retValue;
     if (uc_reg_read( uc, UC_PPC_REG_3, &retValue ) == UC_ERR_OK)
     {
-        emu->m_trace_file << "└─ return: " << format_arg_value( uc, retValue ) << std::endl;
+        const std::string retLine = "└─ return: " + format_arg_value( uc, retValue );
+        // Known API: output to file only
+        emu->m_trace_file << retLine << std::endl;
         emu->m_trace_file.flush();
     }
 }

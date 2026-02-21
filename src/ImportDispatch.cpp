@@ -8,6 +8,7 @@
 #include "../include/COsxPpcEmu.hpp"
 #include "../include/PpcStructures.hpp"
 
+#include <dirent.h>
 #include <netdb.h>
 #include <sys/fcntl.h>
 #include <sys/stat.h>
@@ -32,6 +33,47 @@ bool ___error( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader
     if (uc_reg_write( uc, UC_PPC_REG_3, &errnoAddr ) != UC_ERR_OK)
     {
         std::cerr << "Could not write ___error return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int __istype(int c, unsigned long mask);
+// Check if character has certain properties based on bitmask
+bool ___istype( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<int, uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [c, mask] = *args;
+
+    uint32_t chartype = 0;
+
+    if (c >= 'A' && c <= 'Z')
+        chartype |= _CTYPE_U | _CTYPE_X;
+    if (c >= 'a' && c <= 'z')
+        chartype |= _CTYPE_L | _CTYPE_X;
+    if (c >= '0' && c <= '9')
+        chartype |= _CTYPE_D | _CTYPE_X;
+    if (c >= 'A' && c <= 'F')
+        chartype |= _CTYPE_X;
+    if (c >= 'a' && c <= 'f')
+        chartype |= _CTYPE_X;
+    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v')
+        chartype |= _CTYPE_S;
+    if (c == ' ' || c == '\t')
+        chartype |= _CTYPE_B;
+    if (( c >= 0 && c <= 31 ) || c == 127)
+        chartype |= _CTYPE_C;
+    if (( c >= 33 && c <= 47 ) || ( c >= 58 && c <= 64 ) || ( c >= 91 && c <= 96 ) || ( c >= 123 && c <= 126 ))
+        chartype |= _CTYPE_P;
+
+    // Check if any of the requested mask bits are set
+    uint32_t result = ( chartype & mask ) != 0 ? 1 : 0;
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write ___istype return value" << std::endl;
         return false;
     }
     return true;
@@ -961,6 +1003,24 @@ bool strrchr( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     return true;
 }
 
+// char *strstr(const char *haystack, const char *needle);
+bool strstr( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [haystack, needle] = *args;
+
+    const char *ret{ ::strstr( haystack, needle ) };
+    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write strstr return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // char *strcpy( char *dest, const char *src );
 bool strcpy( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
@@ -1214,7 +1274,120 @@ bool open( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     return true;
 }
 
-// int close(int fd);
+// DIR *opendir(const char *path);
+bool opendir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [path] = *args;
+
+    DIR *hostDir{ ::opendir( path ) };
+    DIR *hostDirDst{ reinterpret_cast<DIR *>( mem->to_host( mem->heap_alloc( sizeof( DIR ) ) ) ) };
+    ::memcpy( hostDirDst, hostDir, sizeof( DIR ) );
+
+    std::uint32_t retPtr{ 0 };
+    if (hostDir == nullptr)
+    {
+        set_guest_errno( mem, errno );
+    }
+    else
+    {
+        retPtr = mem->to_guest( hostDirDst );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retPtr ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write opendir return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// struct dirent *readdir(DIR *dirp);
+bool readdir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [guestDirPtr] = *args;
+
+    std::uint32_t retPtr{ 0 };
+    if (guestDirPtr == 0)
+    {
+        set_guest_errno( mem, EBADF );
+    }
+    else
+    {
+        DIR *hostDir{ reinterpret_cast<DIR *>( mem->to_host( guestDirPtr ) ) };
+        struct dirent *hostEntry{ ::readdir( hostDir ) };
+
+        if (hostEntry == nullptr)
+        {
+            if (errno != 0)
+                set_guest_errno( mem, errno );
+            // NULL return with errno=0 means end of directory
+        }
+        else
+        {
+            std::uint32_t guestEntryVa{ mem->heap_alloc( sizeof( guest::dirent ) ) };
+            guest::dirent *guestEntry{ reinterpret_cast<guest::dirent *>( mem->to_host( guestEntryVa ) ) };
+            std::memset( guestEntry, 0, sizeof( guest::dirent ) );
+            if (!guestEntry)
+            {
+                set_guest_errno( mem, ENOMEM );
+            }
+            else
+            {
+                guestEntry->d_ino =
+                    common::ensure_endianness( static_cast<uint32_t>( hostEntry->d_ino ), std::endian::big );
+                guestEntry->d_reclen =
+                    common::ensure_endianness( static_cast<uint16_t>( hostEntry->d_reclen ), std::endian::big );
+                guestEntry->d_type = hostEntry->d_type;
+                guestEntry->d_namlen =
+                    common::ensure_endianness( static_cast<uint16_t>( hostEntry->d_namlen ), std::endian::big );
+                std::strncpy( guestEntry->d_name, hostEntry->d_name, sizeof( guestEntry->d_name ) - 1 );
+                guestEntry->d_name[sizeof( guestEntry->d_name ) - 1] = '\0';
+
+                retPtr = guestEntryVa;
+            }
+        }
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retPtr ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write readdir return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int closedir(DIR *dirp);
+bool closedir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [guestDir] = *args;
+
+    int ret{ 0 };
+    if (guestDir == 0)
+    {
+        set_guest_errno( mem, EBADF );
+    }
+    else
+    {
+        // no ::closedir as it calls free on non heap address
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write closedir return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // int chmod(const char *path, mode_t mode);
 bool chmod( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
@@ -1238,6 +1411,7 @@ bool chmod( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     return true;
 }
 
+// int close(int fd);
 bool close( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     const auto args{ get_arguments<int>( uc, mem ) };
@@ -1751,7 +1925,8 @@ bool strncat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     return true;
 }
 
-// void *bsearch(const void *key, const void *base, size_t num, size_t width, int (*compare)(const void *, const void
+// void *bsearch(const void *key, const void *base, size_t num, size_t width, int (*compare)(const void *, const
+// void
 // *)); Binary search implementation using strcmp for comparison (host code only)
 // TODO change
 bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )

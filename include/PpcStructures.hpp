@@ -211,4 +211,14 @@ struct _RuneLocale
     _RuneRange rl_mapupper_ext; /* extended uppercase range */
 };
 
+// dirent structure for Mac OS X 10.4 PPC
+struct dirent
+{
+    std::uint32_t d_ino;    /* file number of entry */
+    std::uint16_t d_reclen; /* length of this record */
+    std::uint8_t d_type;    /* file type */
+    std::uint8_t d_namlen;  /* length of string in d_name */
+    char d_name[256];       /* name must be no longer than this */
+};
+
 } // namespace guest

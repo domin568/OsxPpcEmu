@@ -57,6 +57,7 @@ callback( strcpy );
 callback( strlen );
 callback( strpbrk );
 callback( strrchr );
+callback( strstr );
 callback( strncpy );
 callback( dyld_stub_binding_helper );
 callback( vsnprintf );
@@ -67,6 +68,7 @@ callback( strncmp );
 callback( fprintf );
 callback( getenv );
 callback( ___error );
+callback( ___istype );
 callback( ___tolower );
 callback( ___toupper );
 callback( _setjmp );
@@ -89,6 +91,9 @@ callback( gethostname );
 callback( sscanf );
 callback( ungetc );
 callback( mktime );
+callback( opendir );
+callback( readdir );
+callback( closedir );
 
 template <std::size_t I, template <typename> class Pred, typename... Ts> struct count_before;
 template <std::size_t I, template <typename> class Pred> struct count_before<I, Pred>
@@ -205,6 +210,7 @@ inline constexpr size_t Unknown_Import_Shift{ 1 };
 inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "__DefaultRuneLocale",
     "___error",
+    "___istype",
     "___keymgr_dwarf2_register_sections",
     "___sF",
     "___tolower",
@@ -217,6 +223,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_chmod",
     "_clock",
     "_close",
+    "_closedir",
     "_dyld_func_lookup_ptr_in_dyld",
     "_errno",
     "_exit",
@@ -245,10 +252,12 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_memset",
     "_mktime",
     "_open",
+    "_opendir",
     "_printf",
     "_puts",
     "_qsort",
     "_read",
+    "_readdir",
     "_readlink",
     "_realloc",
     "_setjmp",
@@ -269,6 +278,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_strncpy",
     "_strpbrk",
     "_strrchr",
+    "_strstr",
     "_stub_binding_helper_ptr_in_dyld",
     "_time",
     "_times",
@@ -283,10 +293,11 @@ static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Import_Items{ {
     { data::Dword_Mem, nullptr },                                    // __DefaultRuneLocale
     { data::Blr_Opcode, callback::___error },                        // ___error
+    { data::Blr_Opcode, callback::___istype },                       // ___istype
     { data::Blr_Opcode, callback::keymgr_dwarf2_register_sections }, // ___keymgr_dwarf2_register_sections
+    { data::Dword_Mem, nullptr },                                    // ___sF
     { data::Blr_Opcode, callback::___tolower },                      // ___tolower
     { data::Blr_Opcode, callback::___toupper },                      // ___toupper
-    { data::Dword_Mem, nullptr },                                    // ___sF
     { data::Blr_Opcode, callback::cthread_init_routine },            // __cthread_init_routine
     { data::Blr_Opcode,
       callback::dyld_make_delayed_module_initializer_calls }, // __dyld_make_delayed_module_initializer_calls
@@ -296,6 +307,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::chmod },                    // _chmod
     { data::Blr_Opcode, callback::clock },                    // _clock
     { data::Blr_Opcode, callback::close },                    // _close
+    { data::Blr_Opcode, callback::closedir },                 // _closedir
     { data::Blr_Opcode, callback::dyld_func_lookup },         // _dyld_func_lookup_ptr_in_dyld
     { data::Dword_Mem, nullptr },                             // _errno
     { data::Trap_Opcode, callback::exit },                    // _exit
@@ -324,10 +336,12 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::memset },                   // _memset
     { data::Blr_Opcode, callback::mktime },                   // _mktime
     { data::Blr_Opcode, callback::open },                     // _open
+    { data::Blr_Opcode, callback::opendir },                  // _opendir
     { data::Blr_Opcode, callback::printf },                   // _printf
     { data::Blr_Opcode, callback::puts },                     // _puts
     { data::Blr_Opcode, callback::qsort },                    // _qsort
     { data::Blr_Opcode, callback::read },                     // _read
+    { data::Blr_Opcode, callback::readdir },                  // _readdir
     { data::Blr_Opcode, callback::readlink },                 // _readlink
     { data::Blr_Opcode, callback::realloc },                  // _realloc
     { data::Blr_Opcode, callback::_setjmp },                  // _setjmp
@@ -348,6 +362,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::strncpy },                  // _strncpy
     { data::Blr_Opcode, callback::strpbrk },                  // _strpbrk
     { data::Blr_Opcode, callback::strrchr },                  // _strrchr
+    { data::Blr_Opcode, callback::strstr },                   // _strstr
     { data::Blr_Opcode, callback::dyld_stub_binding_helper }, // _stub_binding_helper_ptr_in_dyld
     { data::Blr_Opcode, callback::time },                     // _time
     { data::Blr_Opcode, callback::times },                    // _times
@@ -362,6 +377,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
 inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     0,  // __DefaultRuneLocale
     0,  // ___error
+    2,  // ___istype
     0,  // ___keymgr_dwarf2_register_sections
     0,  // ___sF
     1,  // ___tolower
@@ -374,6 +390,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     2,  // _chmod
     0,  // _clock
     1,  // _close
+    1,  // _closedir
     2,  // _dyld_func_lookup_ptr_in_dyld
     0,  // _errno
     1,  // _exit
@@ -402,10 +419,12 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     3,  // _memset
     1,  // _mktime
     3,  // _open
+    1,  // _opendir
     -1, // _printf
     1,  // _puts
     4,  // _qsort
     3,  // _read
+    1,  // _readdir
     3,  // _readlink
     2,  // _realloc
     1,  // _setjmp
@@ -426,6 +445,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     3,  // _strncpy
     2,  // _strpbrk
     2,  // _strrchr
+    2,  // _strstr
     0,  // _stub_binding_helper_ptr_in_dyld
     1,  // _time
     1,  // _times
