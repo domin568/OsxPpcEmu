@@ -1,24 +1,44 @@
-OsxPpcEmu
+# OsxPpcEmu
 
-Project was instantiated to emulate some old PowerPC32 command line OSX programs.
-Linking is based on dyld 46.16 (from Mac OS X 10.4.11).
+Translation layer for PowerPC Mac OS X executables.
+
+Project was instantiated to emulate Metrowerks CodeWarrior 9.0 for Mac OS X (PowerPC commandline program).
+all API declarations are based on dyld 46.16 / Mac OS X 10.4 SDK.
+
+Under the hood it uses Unicorn Engine (https://github.com/unicorn-engine/unicorn) for emulation. All API calls are
+redirected and resolved by host.
+
+At the moment it was tested only against Metrowerks CodeWarrior 9.0 for Mac OS X, CLI, mwpefcc, mwpefld on
+arm64-apple-darwin25.1.0 host.
+Other host platforms are not yet fully tested at the time. No GUI support. The project is in the early development
+stage. 100% API coverage is not guaranteed.
+
+Debug configuration has debugger (interactive or gdb server). Release just emulates the binary.
+
+Project needs c++ 23 compiler (tested with apple clang-1700.6.4.2).
+
+If emulator has unimplemented API call it could look like this in stdout
+
+```bash
+┌─ 0xf0000004 (unknown) <- 0x213c <- 0x199c <- 0x1900f
+```
 
 # Quick Start Guide
 
-## Choose Your Debugger Mode
-
-### Interactive Debugger (Default)
-
 ```bash
-./OsxPpcEmu <binary>
+./OsxPpcEmu <ppc32 macho executable> [arguments]
 ```
 
-**When to use**: Quick debugging, command-line workflow, simple tasks
+## Choose Your Debugger Mode
 
-### IDA Pro Integration
+### 1. Interactive Debugger (Default)
+
+**When to use**: Quick debugging, command-line workflow, simple tasks, tracing API calls
+
+### 2. GDB Server Mode (IDA Pro integration)
 
 ```bash
-GDB_SERVER=1 ./OsxPpcEmu <binary>
+GDB_SERVER=1 ./OsxPpcEmu <binary> [arguments]
 ```
 
 Then connect from IDA Pro: `Debugger → Attach → localhost:23946`
@@ -29,41 +49,30 @@ Then connect from IDA Pro: `Debugger → Attach → localhost:23946`
 
 ## Interactive Debugger Commands
 
-| Command                 | Description                | Example                  |
-|-------------------------|----------------------------|--------------------------|
-| `c`                     | Continue execution         | `c`                      |
-| `s` or `si`             | Step one instruction       | `s`                      |
-| `so`                    | Step out of function       | `so`                     |
-| `b <addr>`              | Set breakpoint             | `b 3620`                 |
-| `d <addr>`              | Delete breakpoint          | `d 3620`                 |
-| `l`                     | List breakpoints           | `l`                      |
-| `watch <addr> <size>`   | Set memory watchpoint      | `watch bffeff40 4`       |
-| `unwatch <addr>`        | Remove watchpoint          | `unwatch bffeff40`       |
-| `lw`                    | List watchpoints           | `lw`                     |
-| `r`                     | Show registers             | `r`                      |
-| `wr <reg> <val>`        | Write value to register    | `wr r3 1234`             |
-| `bt`                    | Show call stack            | `bt`                     |
-| `x <addr> <len>`        | Hexdump memory             | `x 1000 100`             |
-| `w <addr> <bytes>`      | Write hex bytes to memory  | `w 1000 deadbeef`        |
-| `vmmap`                 | Show memory regions        | `vmmap`                  |
-| `trace`                 | Toggle API call tracing    | `trace`                  |
-| `h` or `?`              | Show help                  | `h`                      |
-| `q`                     | Quit                       | `q`                      |
+| Command               | Description               | Example            |
+|-----------------------|---------------------------|--------------------|
+| `c`                   | Continue execution        | `c`                |
+| `s` or `si`           | Step one instruction      | `s`                |
+| `so`                  | Step out of function      | `so`               |
+| `b <addr>`            | Set breakpoint            | `b 3620`           |
+| `d <addr>`            | Delete breakpoint         | `d 3620`           |
+| `l`                   | List breakpoints          | `l`                |
+| `watch <addr> <size>` | Set memory watchpoint     | `watch bffeff40 4` |
+| `unwatch <addr>`      | Remove watchpoint         | `unwatch bffeff40` |
+| `lw`                  | List watchpoints          | `lw`               |
+| `r`                   | Show registers            | `r`                |
+| `wr <reg> <val>`      | Write value to register   | `wr r3 1234`       |
+| `bt`                  | Show call stack           | `bt`               |
+| `x <addr> <len>`      | Hexdump memory            | `x 1000 100`       |
+| `w <addr> <bytes>`    | Write hex bytes to memory | `w 1000 deadbeef`  |
+| `vmmap`               | Show memory regions       | `vmmap`            |
+| `trace`               | Toggle API call tracing   | `trace`            |
+| `h` or `?`            | Show help                 | `h`                |
+| `q`                   | Quit                      | `q`                |
 
 **Note**: Addresses and values are in hexadecimal (no 0x prefix needed)
 
----
-
-## IDA Pro Quick Keys
-
-| Key      | Action                |
-|----------|-----------------------|
-| `F7`     | Step Into             |
-| `F8`     | Step Over             |
-| `F9`     | Continue              |
-| `F2`     | Set/Remove Breakpoint |
-| `Ctrl+S` | Segments view         |
-| `Alt+T`  | Stack view            |
+**Note**: trace command dumps API calls to trace.txt file (except unknown API calls which are printed to console)
 
 ---
 
@@ -100,51 +109,6 @@ GDB_SERVER=1 ./OsxPpcEmu myapp
 
 ---
 
-## Tips
-
-✅ **API tracing works in both modes** - Check the emulator console
-✅ **Addresses are hex** - No 0x prefix in interactive mode
-✅ **Use bt command** - Shows call stack with symbols
-✅ **Memory/Register editing** - Use `wr` and `w` commands to modify state
-✅ **GDB Server mode** - Better for complex reverse engineering
-✅ **Interactive mode** - Better for quick tests and patching
-
-### Advanced Debugging
-
-**Patch function arguments:**
-```bash
-(dbg) b 4c4dc
-(dbg) c
-(dbg) wr r3 0        # Change first argument
-(dbg) c
-```
-
-**Track memory corruption:**
-```bash
-(dbg) watch bffeff40 4   # Watch 4-byte stack location
-(dbg) c                  # Continue until write
-
-=== Watchpoint Hit ===
-Write to 0xbffeff40 (size: 4 bytes)
-Value: 0xdeadbeef
-PC: 0x00004c4dc <_corrupt_function>
-```
-
-**Fix stack corruption:**
-```bash
-(dbg) x bffeff40 20  # Check stack
-(dbg) w bffeff40 bffeffa0  # Fix backchain pointer
-```
-
-**Memory patching:**
-```bash
-(dbg) x 1000 10      # Read original
-(dbg) w 1000 60000000  # Write NOP (0x60000000)
-(dbg) c              # Continue with patch
-```
-
----
-
 ## Environment Variables
 
 | Variable     | Value        | Effect                   |
@@ -154,31 +118,10 @@ PC: 0x00004c4dc <_corrupt_function>
 
 ---
 
-## Troubleshooting
-
-**Problem**: Commands not working
-**Fix**: Make sure you're in the right mode (check startup message)
-
-**Problem**: IDA Pro won't connect
-**Fix**:
-
-```bash
-echo $GDB_SERVER  # Should show "1"
-netstat -an | grep 23946  # Should show LISTEN
-```
-
-**Problem**: Step commands hang in IDA
-**Fix**: Rebuild project after latest updates
-
-**Problem**: Call stack empty in IDA Pro
-**Note**: This is a limitation of IDA Pro's GDB remote debugging for PowerPC. Use the interactive debugger's `bt` command instead, or manually follow stack frames in IDA's stack view
-
----
-
 ## Example Session
 
 ```bash
-$ ./OsxPpcEmu samples/mwpefcc
+$ ./OsxPpcEmu mwpefcc
 
 === Interactive Debugger ===
 Entry point: 0x3610
@@ -208,6 +151,65 @@ Call stack:
 (dbg) s
 (dbg) s
 (dbg) c
+```
+
+## Example API trace
+
+```bash
+┌─ _mach_init_routine <- 0x1960 <- 0x1900
+└─ return: 0x1
+┌─ __cthread_init_routine <- 0x197c <- 0x1900
+└─ return: 0x1
+┌─ ___keymgr_dwarf2_register_sections <- 0x1980 <- 0x1900
+└─ return: 0x1
+┌─ 0xf0000004 (unknown) <- 0x213c <- 0x199c <- 0x1900
+┌─ 0xf0000004 (unknown) <- 0x217c <- 0x199c <- 0x1900
+┌─ 0xf0000004 (unknown) <- 0x2188 <- 0x199c <- 0x1900
+┌─ _dyld_func_lookup_ptr_in_dyld <- 0x1ba4 <- 0x19a0 <- 0x1900
+│  arg0: 0x2bdc ("__dyld_make_delayed_module_initializer_calls")
+│  arg1: 0xbffeff18
+└─ return: 0x2bdc ("__dyld_make_delayed_module_initializer_calls")
+┌─ __dyld_make_delayed_module_initializer_calls <- 0x1bb0 <- 0x19a0 <- 0x1900
+└─ return: 0x2bdc ("__dyld_make_delayed_module_initializer_calls")
+┌─ _dyld_func_lookup_ptr_in_dyld <- 0x1ca0 <- 0x19a4 <- 0x1900
+│  arg0: 0x2c0c ("__dyld_image_count")
+│  arg1: 0xbffefef8
+└─ return: 0x2c0c ("__dyld_image_count")
+┌─ _dyld_func_lookup_ptr_in_dyld <- 0x1cb0 <- 0x19a4 <- 0x1900
+│  arg0: 0x2c20 ("__dyld_get_image_name")
+│  arg1: 0xbffefefc
+└─ return: 0x2c20 ("__dyld_get_image_name")
+┌─ _dyld_func_lookup_ptr_in_dyld <- 0x1cc0 <- 0x19a4 <- 0x1900
+│  arg0: 0x2c38 ("__dyld_get_image_header")
+│  arg1: 0xbffeff00
+└─ return: 0x2c38 ("__dyld_get_image_header")
+┌─ _dyld_func_lookup_ptr_in_dyld <- 0x1cd0 <- 0x19a4 <- 0x1900
+│  arg0: 0x2c50 ("__dyld_NSLookupSymbolInImage")
+│  arg1: 0xbffeff04
+└─ return: 0x2c50 ("__dyld_NSLookupSymbolInImage")
+┌─ _dyld_func_lookup_ptr_in_dyld <- 0x1ce0 <- 0x19a4 <- 0x1900
+│  arg0: 0x2c70 ("__dyld_NSAddressOfSymbol")
+│  arg1: 0xbffeff08
+└─ return: 0x2c70 ("__dyld_NSAddressOfSymbol")
+┌─ _dyld_func_lookup_ptr_in_dyld <- 0x19b4 <- 0x1900
+│  arg0: 0x2bc4 ("__dyld_mod_term_funcs")
+│  arg1: 0xbffeff78
+└─ return: 0x2bc4 ("__dyld_mod_term_funcs")
+┌─ _setlocale <- 0x2224 <- 0x1a5c <- 0x1900
+│  arg0: 0x0
+│  arg1: 0x2bc0
+└─ return: 0x10000c80 ("C.UTF-8")
+┌─ 0xf0000004 (unknown) <- 0x23e4 <- 0x1a5c <- 0x1900
+┌─ _fwrite <- 0x23c8 <- 0x1a5c <- 0x1900
+│  arg0: 0x2d8c
+│  arg1: 0x1
+│  arg2: 0x25
+│  arg3: 0xf0000168
+└─ return: 0x25
+┌─ _exit <- 0x24a8 <- 0x1a5c <- 0x1900
+│  arg0: 0x1
+└─ return: 0x1
+
 ```
 
 ---

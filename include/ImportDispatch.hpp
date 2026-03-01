@@ -18,6 +18,29 @@ namespace callback
 {
 using CallbackPtr = bool ( * )( uc_engine *, memory::CMemory *mem, loader::CMachoLoader * );
 #define callback( name ) bool name( uc_engine *, memory::CMemory *, loader::CMachoLoader * )
+
+// some Carbon functions
+
+callback( BlockMoveData );
+callback( DisposeHandle );
+callback( FSClose );
+callback( FSpOpenRF );
+callback( FSPathMakeRef );
+callback( FSWrite );
+callback( GetHandleSize );
+callback( HandAndHand );
+callback( HLock );
+callback( HLockHi );
+callback( HUnlock );
+callback( MemError );
+callback( NewHandle );
+callback( NewHandleClear );
+callback( PBGetCatInfoSync );
+callback( PtrAndHand );
+callback( SetHandleSize );
+callback( TempNewHandle );
+
+// C library
 callback( clock );
 callback( setlocale );
 callback( snprintf );
@@ -54,6 +77,7 @@ callback( stat );
 callback( strcat );
 callback( strchr );
 callback( strcpy );
+callback( strdup );
 callback( strlen );
 callback( strpbrk );
 callback( strrchr );
@@ -85,6 +109,7 @@ callback( time );
 callback( times );
 callback( getdtablesize );
 callback( localtime );
+callback( lstat );
 callback( umask );
 callback( gethostbyname );
 callback( gethostname );
@@ -94,6 +119,8 @@ callback( mktime );
 callback( opendir );
 callback( readdir );
 callback( closedir );
+callback( unlink );
+callback( utime );
 
 template <std::size_t I, template <typename> class Pred, typename... Ts> struct count_before;
 template <std::size_t I, template <typename> class Pred> struct count_before<I, Pred>
@@ -208,6 +235,24 @@ struct Import_Info
 inline constexpr size_t Unknown_Import_Index{ 0 };
 inline constexpr size_t Unknown_Import_Shift{ 1 };
 inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
+    "_BlockMoveData",
+    "_DisposeHandle",
+    "_FSClose",
+    "_FSPathMakeRef",
+    "_FSWrite",
+    "_FSpOpenRF",
+    "_GetHandleSize",
+    "_HLock",
+    "_HLockHi",
+    "_HUnlock",
+    "_HandAndHand",
+    "_MemError",
+    "_NewHandle",
+    "_NewHandleClear",
+    "_PBGetCatInfoSync",
+    "_PtrAndHand",
+    "_SetHandleSize",
+    "_TempNewHandle",
     "__DefaultRuneLocale",
     "___error",
     "___istype",
@@ -244,6 +289,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_localtime",
     "_longjmp",
     "_lseek",
+    "_lstat",
     "_mach_init_routine",
     "_malloc",
     "_memcmp",
@@ -272,6 +318,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_strchr",
     "_strcmp",
     "_strcpy",
+    "_strdup",
     "_strlen",
     "_strncat",
     "_strncmp",
@@ -284,6 +331,8 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_times",
     "_umask",
     "_ungetc",
+    "_unlink",
+    "_utime",
     "_vsnprintf",
     "_vsprintf",
     "_write",
@@ -291,6 +340,24 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
 static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 
 inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Import_Items{ {
+    { data::Blr_Opcode, callback::BlockMoveData },                   // _BlockMoveData
+    { data::Blr_Opcode, callback::DisposeHandle },                   // _DisposeHandle
+    { data::Blr_Opcode, callback::FSClose },                         // _FSClose
+    { data::Blr_Opcode, callback::FSPathMakeRef },                   // _FSPathMakeRef
+    { data::Blr_Opcode, callback::FSWrite },                         // _FSWrite
+    { data::Blr_Opcode, callback::FSpOpenRF },                       // _FSpOpenRF
+    { data::Blr_Opcode, callback::GetHandleSize },                   // _GetHandleSize
+    { data::Blr_Opcode, callback::HLock },                           // _HLock
+    { data::Blr_Opcode, callback::HLockHi },                         // _HLockHi
+    { data::Blr_Opcode, callback::HUnlock },                         // _HUnlock
+    { data::Blr_Opcode, callback::HandAndHand },                     // _HandAndHand
+    { data::Blr_Opcode, callback::MemError },                        // _MemError
+    { data::Blr_Opcode, callback::NewHandle },                       // _NewHandle
+    { data::Blr_Opcode, callback::NewHandleClear },                  // _NewHandleClear
+    { data::Blr_Opcode, callback::PBGetCatInfoSync },                // _PBGetCatInfoSync
+    { data::Blr_Opcode, callback::PtrAndHand },                      // _PtrAndHand
+    { data::Blr_Opcode, callback::SetHandleSize },                   // _SetHandleSize
+    { data::Blr_Opcode, callback::TempNewHandle },                   // _TempNewHandle
     { data::Dword_Mem, nullptr },                                    // __DefaultRuneLocale
     { data::Blr_Opcode, callback::___error },                        // ___error
     { data::Blr_Opcode, callback::___istype },                       // ___istype
@@ -328,6 +395,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::localtime },                // _localtime
     { data::Blr_Opcode, callback::_longjmp },                 // _longjmp
     { data::Blr_Opcode, callback::lseek },                    // _lseek
+    { data::Blr_Opcode, callback::lstat },                    // _lstat
     { data::Blr_Opcode, callback::mach_init_routine },        // _mach_init_routine
     { data::Blr_Opcode, callback::malloc },                   // _malloc
     { data::Blr_Opcode, callback::memcmp },                   // _memcmp
@@ -356,6 +424,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::strchr },                   // _strchr
     { data::Blr_Opcode, callback::strcmp },                   // _strcmp
     { data::Blr_Opcode, callback::strcpy },                   // _strcpy
+    { data::Blr_Opcode, callback::strdup },                   // _strdup
     { data::Blr_Opcode, callback::strlen },                   // _strlen
     { data::Blr_Opcode, callback::strncat },                  // _strncat
     { data::Blr_Opcode, callback::strncmp },                  // _strncmp
@@ -368,6 +437,8 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::times },                    // _times
     { data::Blr_Opcode, callback::umask },                    // _umask
     { data::Blr_Opcode, callback::ungetc },                   // _ungetc
+    { data::Blr_Opcode, callback::unlink },                   // _unlink
+    { data::Blr_Opcode, callback::utime },                    // _utime
     { data::Blr_Opcode, callback::vsnprintf },                // _vsnprintf
     { data::Blr_Opcode, callback::vsprintf },                 // _vsprintf
     { data::Blr_Opcode, callback::write },                    // _write
@@ -375,6 +446,24 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
 
 // Argument counts for each API (-1 for variadic functions)
 inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
+    3,  // _BlockMoveData
+    1,  // _DisposeHandle
+    1,  // _FSClose
+    3,  // _FSPathMakeRef
+    4,  // _FSWrite
+    2,  // _FSpOpenRF
+    1,  // _GetHandleSize
+    1,  // _HLock
+    1,  // _HLockHi
+    1,  // _HUnlock
+    2,  // _HandAndHand
+    0,  // _MemError
+    1,  // _NewHandle
+    1,  // _NewHandleClear
+    1,  // _PBGetCatInfoSync
+    3,  // _PtrAndHand
+    2,  // _SetHandleSize
+    2,  // _TempNewHandle
     0,  // __DefaultRuneLocale
     0,  // ___error
     2,  // ___istype
@@ -411,6 +500,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     1,  // _localtime
     2,  // _longjmp
     3,  // _lseek
+    2,  // _lstat
     0,  // _mach_init_routine
     1,  // _malloc
     3,  // _memcmp
@@ -439,6 +529,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     2,  // _strchr
     2,  // _strcmp
     2,  // _strcpy
+    1,  // _strdup
     1,  // _strlen
     3,  // _strncat
     3,  // _strncmp
@@ -451,6 +542,8 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     1,  // _times
     1,  // _umask
     2,  // _ungetc
+    1,  // _unlink
+    2,  // _utime
     4,  // _vsnprintf
     3,  // _vsprintf
     3,  // _write

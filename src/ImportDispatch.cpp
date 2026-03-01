@@ -13,9 +13,537 @@
 #include <sys/fcntl.h>
 #include <sys/stat.h>
 #include <sys/times.h>
+#include <utime.h>
 
 namespace import::callback
 {
+// Mac OS Memory Manager error codes
+constexpr int noErr{ 0 };
+constexpr int memFullErr{ -108 };
+static thread_local int g_lastMemError{ noErr };
+
+// OSErr PBGetCatInfoSync(CInfoPBPtr paramBlock)
+// Gets catalog information about a file or directory synchronously
+bool PBGetCatInfoSync( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [paramBlock] = *args;
+
+    std::int32_t result{ -1 };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write PBGetCatInfoSync return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// OSErr FSpOpenRF(const FSSpec *spec, SInt8 permission, SInt16 *refNum)
+// Opens the resource fork of a file
+bool FSpOpenRF( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const void *, std::int8_t, std::int16_t *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [spec, permission, refNumPtr] = *args;
+
+    std::uint32_t result{ 0 };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write FSpOpenRF return value" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+// OSErr FSWrite(SInt16 refNum, SInt32 *count, const void *buffPtr)
+// Writes data to an open file
+bool FSWrite( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::int16_t, std::int32_t *, const void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [refNum, countPtr, buffPtr] = *args;
+
+    std::uint32_t result{ 0 };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write FSWrite return value" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+// OSErr FSClose(SInt16 refNum)
+// Closes an open file
+bool FSClose( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::int16_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [refNum] = *args;
+
+    std::uint32_t result{ 0 }; // noErr
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write FSClose return value" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+// void BlockMoveData(const void *srcPtr, void *destPtr, Size byteCount)
+// CoreServices.framework/Frameworks/CarbonCore.framework/Headers/MacMemory.h
+bool BlockMoveData( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<void *, void *, std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [srcPtr, destPtr, byteCount] = *args;
+
+    if (byteCount > 0)
+        ::memmove( destPtr, srcPtr, byteCount );
+
+    return true;
+}
+
+// OSStatus FSPathMakeRef(const UInt8 *path, FSRef *ref, Boolean *isDirectory)
+// converts a POSIX path to an FSRef
+bool FSPathMakeRef( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<unsigned char *, void *, unsigned char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [path, ref, isDirectory] = *args;
+
+    std::int32_t result{ -1 };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write TempNewHandle return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+// Handle TempNewHandle(Size logicalSize, OSErr* resultCode)
+// Allocate a relocatable memory block of a specified size.
+bool TempNewHandle( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [logicalSize] = *args;
+
+    const std::uint32_t alloc{ mem->heap_alloc( logicalSize ) };
+    std::uint32_t *ptrHost{
+        reinterpret_cast<std::uint32_t *>( mem->to_host( mem->heap_alloc( sizeof( std::uint32_t ) ) ) ) };
+    *ptrHost = common::ensure_endianness( alloc, std::endian::big );
+    std::uint32_t ptrGuest{ mem->to_guest( ptrHost ) };
+
+    g_lastMemError = ( alloc == 0 ) ? memFullErr : noErr;
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ptrGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write TempNewHandle return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// Size GetHandleSize(Handle h)
+// Returns the size of the allocated memory block referenced by a handle.
+bool GetHandleSize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [handleGuest] = *args;
+
+    std::uint32_t size{ 0 };
+    if (handleGuest != 0)
+    {
+        const std::uint32_t *handleHost{ reinterpret_cast<const std::uint32_t *>( mem->get( handleGuest ) ) };
+        if (handleHost != nullptr)
+        {
+            const std::uint32_t ptrGuest{ common::ensure_endianness( *handleHost, std::endian::big ) };
+            size = static_cast<std::uint32_t>( mem->get_alloc_size( ptrGuest ) );
+        }
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &size ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write GetHandleSize return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// void DisposeHandle(Handle h)
+// Releases the memory occupied by a relocatable block.
+bool DisposeHandle( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [handleGuest] = *args;
+
+    // Simply set error status - no actual freeing happens
+    if (handleGuest == 0)
+    {
+        g_lastMemError = memFullErr;
+    }
+    else
+    {
+        g_lastMemError = noErr;
+    }
+    return true;
+}
+
+// OSErr HandAndHand(Handle hand1, Handle hand2)
+// Concatenates the contents of one relocatable block to the end of another.
+// The Memory Manager expands hand2's size and appends hand1's data to it.
+bool HandAndHand( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::uint32_t, std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [hand1Guest, hand2Guest] = *args;
+
+    std::uint32_t result{ noErr };
+
+    if (hand1Guest == 0 || hand2Guest == 0)
+    {
+        result = memFullErr;
+        g_lastMemError = memFullErr;
+    }
+    else
+    {
+        std::uint32_t *handle1Host{ reinterpret_cast<std::uint32_t *>( mem->get( hand1Guest ) ) };
+        std::uint32_t *handle2Host{ reinterpret_cast<std::uint32_t *>( mem->get( hand2Guest ) ) };
+
+        if (handle1Host == nullptr || handle2Host == nullptr)
+        {
+            result = memFullErr;
+            g_lastMemError = memFullErr;
+        }
+        else
+        {
+            const std::uint32_t ptr1Guest{ common::ensure_endianness( *handle1Host, std::endian::big ) };
+            const std::uint32_t ptr2Guest{ common::ensure_endianness( *handle2Host, std::endian::big ) };
+
+            const std::size_t size1{ mem->get_alloc_size( ptr1Guest ) };
+            const std::size_t size2{ mem->get_alloc_size( ptr2Guest ) };
+
+            const std::size_t newSize{ size2 + size1 };
+
+            const std::uint32_t newAlloc{ mem->heap_alloc( newSize ) };
+            if (newAlloc == 0)
+            {
+                result = memFullErr;
+                g_lastMemError = memFullErr;
+            }
+            else
+            {
+                void *ptr1{ mem->get( ptr1Guest ) };
+                void *ptr2{ mem->get( ptr2Guest ) };
+                void *newPtr{ mem->get( newAlloc ) };
+
+                if (ptr2 && newPtr)
+                {
+                    ::memcpy( newPtr, ptr2, size2 );
+                    if (ptr1)
+                    {
+                        ::memcpy( static_cast<char *>( newPtr ) + size2, ptr1, size1 );
+                    }
+                }
+                *handle2Host = common::ensure_endianness( newAlloc, std::endian::big );
+                result = noErr;
+                g_lastMemError = noErr;
+            }
+        }
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write HandAndHand return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// void HLock(Handle h)
+// Locks a relocatable block so it cannot be moved during heap compaction.
+bool HLock( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [handleGuest] = *args;
+
+    if (handleGuest == 0)
+    {
+        g_lastMemError = memFullErr;
+    }
+    else
+    {
+        g_lastMemError = noErr;
+    }
+    return true;
+}
+
+// void HLockHi(Handle h)
+// Locks a relocatable block at the top of the heap so it cannot be moved.
+bool HLockHi( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [handleGuest] = *args;
+    if (handleGuest == 0)
+    {
+        g_lastMemError = memFullErr;
+    }
+    else
+    {
+        g_lastMemError = noErr;
+    }
+
+    return true;
+}
+
+// void HUnlock(Handle h)
+// Unlocks a relocatable block so it can be moved during heap compaction.
+bool HUnlock( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [handleGuest] = *args;
+
+    if (handleGuest == 0)
+    {
+        g_lastMemError = memFullErr;
+    }
+    else
+    {
+        g_lastMemError = noErr;
+    }
+    return true;
+}
+
+// OSErr MemError(void)
+// Returns the error code from the last Memory Manager operation.
+bool MemError( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    std::uint32_t err{ static_cast<std::uint32_t>( g_lastMemError ) };
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &err ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write MemError return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// Handle NewHandle(Size logicalSize)
+// Allocate a relocatable memory block of a specified size.
+bool NewHandle( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [logicalSize] = *args;
+
+    const std::uint32_t alloc{ mem->heap_alloc( logicalSize ) };
+    std::uint32_t *ptrHost{
+        reinterpret_cast<std::uint32_t *>( mem->to_host( mem->heap_alloc( sizeof( std::uint32_t ) ) ) ) };
+    *ptrHost = common::ensure_endianness( alloc, std::endian::big );
+    std::uint32_t ptrGuest{ mem->to_guest( ptrHost ) };
+
+    // Set memory error status
+    g_lastMemError = ( alloc == 0 ) ? memFullErr : noErr;
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ptrGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write NewHandle return value" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+// Handle NewHandleClear(Size logicalSize)
+// Allocate a relocatable memory block and clear it to zeros.
+bool NewHandleClear( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [logicalSize] = *args;
+
+    const std::uint32_t alloc{ mem->heap_alloc( logicalSize ) };
+
+    // Clear the allocated memory
+    void *allocPtr{ mem->get( alloc ) };
+    if (allocPtr)
+    {
+        ::memset( allocPtr, 0, logicalSize );
+    }
+
+    std::uint32_t *ptrHost{
+        reinterpret_cast<std::uint32_t *>( mem->to_host( mem->heap_alloc( sizeof( std::uint32_t ) ) ) ) };
+    *ptrHost = common::ensure_endianness( alloc, std::endian::big );
+    std::uint32_t ptrGuest{ mem->to_guest( ptrHost ) };
+
+    // Set memory error status
+    g_lastMemError = ( alloc == 0 ) ? memFullErr : noErr;
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ptrGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write NewHandleClear return value" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+// OSErr PtrAndHand(const void *ptr1, Handle hand2, long size)
+// Concatenates part or all of a memory block to the end of a relocatable block.
+bool PtrAndHand( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const void *, std::uint32_t, std::int32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [ptr1, hand2Guest, size] = *args;
+
+    std::int32_t result{ noErr };
+
+    // Validate parameters
+    if (ptr1 == nullptr || hand2Guest == 0 || size < 0)
+    {
+        result = memFullErr;
+        g_lastMemError = memFullErr;
+    }
+    else
+    {
+        // Handle is a pointer to a pointer - get the handle's host address
+        std::uint32_t *handleHost{ reinterpret_cast<std::uint32_t *>( mem->get( hand2Guest ) ) };
+        if (handleHost == nullptr)
+        {
+            result = memFullErr;
+            g_lastMemError = memFullErr;
+        }
+        else
+        {
+            // Read the pointer value (big-endian) that the handle points to
+            const std::uint32_t oldPtrGuest{ common::ensure_endianness( *handleHost, std::endian::big ) };
+            const std::size_t oldSize{ mem->get_alloc_size( oldPtrGuest ) };
+
+            // Calculate new size
+            const std::size_t newSize{ oldSize + static_cast<std::size_t>( size ) };
+
+            // Allocate new memory block
+            const std::uint32_t newAlloc{ mem->heap_alloc( newSize ) };
+
+            if (newAlloc == 0)
+            {
+                result = memFullErr;
+                g_lastMemError = memFullErr;
+            }
+            else
+            {
+                // Copy old data to new location
+                void *oldPtr{ mem->get( oldPtrGuest ) };
+                void *newPtr{ mem->get( newAlloc ) };
+                if (oldPtr && newPtr)
+                {
+                    ::memcpy( newPtr, oldPtr, oldSize );
+
+                    // Concatenate new data from ptr1 to the end
+                    ::memcpy( static_cast<char *>( newPtr ) + oldSize, ptr1, size );
+                }
+
+                // Update the handle to point to the new allocation
+                *handleHost = common::ensure_endianness( newAlloc, std::endian::big );
+                result = noErr;
+                g_lastMemError = noErr;
+            }
+        }
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write PtrAndHand return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// void SetHandleSize(Handle h, Size newSize)
+// Changes the logical size of the relocatable block associated with a handle.
+bool SetHandleSize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<std::uint32_t, std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [handleGuest, newSize] = *args;
+
+    if (handleGuest == 0)
+    {
+        g_lastMemError = memFullErr;
+        return true;
+    }
+
+    // Handle is a pointer to a pointer - get the handle's host address
+    std::uint32_t *handleHost{ reinterpret_cast<std::uint32_t *>( mem->get( handleGuest ) ) };
+    if (handleHost == nullptr)
+    {
+        g_lastMemError = memFullErr;
+        return true;
+    }
+
+    // Read the pointer value (big-endian) that the handle points to
+    const std::uint32_t oldPtrGuest{ common::ensure_endianness( *handleHost, std::endian::big ) };
+    const std::size_t oldSize{ mem->get_alloc_size( oldPtrGuest ) };
+
+    if (newSize <= oldSize)
+    {
+        // Shrinking or same size - just update the tracked size
+        mem->set_alloc_size( oldPtrGuest, newSize );
+        g_lastMemError = noErr;
+    }
+    else
+    {
+        // Growing - need to allocate new memory and copy old data
+        const std::uint32_t newAlloc{ mem->heap_alloc( newSize ) };
+
+        if (newAlloc == 0)
+        {
+            g_lastMemError = memFullErr;
+        }
+        else
+        {
+            // Copy old data to new location
+            void *oldPtr{ mem->get( oldPtrGuest ) };
+            void *newPtr{ mem->get( newAlloc ) };
+            if (oldPtr && newPtr)
+            {
+                ::memcpy( newPtr, oldPtr, oldSize );
+            }
+
+            // Update the handle to point to the new allocation
+            *handleHost = common::ensure_endianness( newAlloc, std::endian::big );
+            g_lastMemError = noErr;
+        }
+    }
+
+    return true;
+}
+
 // int *___error(void);
 // Returns a pointer to the errno variable
 bool ___error( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
@@ -917,6 +1445,46 @@ bool stat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     return true;
 }
 
+// int lstat(const char * restrict path, struct stat * restrict sb);
+// Like stat but doesn't follow symbolic links
+bool lstat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const char *, void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [path, sb] = *args;
+
+    // Call host lstat
+    struct stat hostStat{};
+    int ret{ ::lstat( path, &hostStat ) };
+
+    if (ret == 0 && sb != nullptr)
+    {
+        auto *guestStat{ static_cast<guest::stat *>( sb ) };
+        guestStat->st_dev = common::ensure_endianness( hostStat.st_dev, std::endian::big );
+        guestStat->st_ino = common::ensure_endianness( hostStat.st_ino, std::endian::big );
+        guestStat->st_mode = common::ensure_endianness( hostStat.st_mode, std::endian::big );
+        guestStat->st_nlink = common::ensure_endianness( hostStat.st_nlink, std::endian::big );
+        guestStat->st_uid = common::ensure_endianness( hostStat.st_uid, std::endian::big );
+        guestStat->st_gid = common::ensure_endianness( hostStat.st_gid, std::endian::big );
+        guestStat->st_rdev = common::ensure_endianness( hostStat.st_rdev, std::endian::big );
+        guestStat->st_size = common::ensure_endianness( hostStat.st_size, std::endian::big );
+        guestStat->st_blksize = common::ensure_endianness( hostStat.st_blksize, std::endian::big );
+        guestStat->st_blocks = common::ensure_endianness( hostStat.st_blocks, std::endian::big );
+    }
+    else if (ret == -1)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write lstat return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // char * strcat( char * destination, const char * source );
 bool strcat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
@@ -1034,6 +1602,54 @@ bool strcpy( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strcpy return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// char *strdup( const char *s );
+// Duplicates a string by allocating memory and copying the contents
+bool strdup( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [str] = *args;
+
+    if (!str)
+    {
+        uint32_t ret{ 0 };
+        if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+        {
+            std::cerr << "Could not write strdup return value" << std::endl;
+            return false;
+        }
+        return true;
+    }
+
+    std::size_t len{ ::strlen( str ) };
+    uint32_t guestPtr{ mem->heap_alloc( len + 1 ) };
+
+    if (guestPtr == 0)
+    {
+        set_guest_errno( mem, ENOMEM );
+        if (uc_reg_write( uc, UC_PPC_REG_3, &guestPtr ) != UC_ERR_OK)
+        {
+            std::cerr << "Could not write strdup return value" << std::endl;
+            return false;
+        }
+        return true;
+    }
+
+    char *dest{ static_cast<char *>( mem->get( guestPtr ) ) };
+    if (dest)
+    {
+        ::memcpy( dest, str, len + 1 );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &guestPtr ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write strdup return value" << std::endl;
         return false;
     }
     return true;
@@ -1383,6 +1999,65 @@ bool closedir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader
     if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write closedir return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int unlink(const char *pathname);
+// Deletes a name from the filesystem
+bool unlink( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [pathname] = *args;
+
+    int ret{ ::unlink( pathname ) };
+
+    if (ret == -1)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write unlink return value" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+// int utime(const char *filename, const struct utimbuf *times);
+// Set file access and modification times
+// TODO fix, not working, bad date, why?
+bool utime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const char *, const void *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [filename, times] = *args;
+
+    const guest::utimbuf *timesPtr{ reinterpret_cast<const guest::utimbuf *>( times ) };
+    utimbuf hostTimes{};
+    if (times != nullptr)
+    {
+        hostTimes.actime = common::ensure_endianness( static_cast<std::int32_t>( timesPtr->actime ), std::endian::big );
+        hostTimes.modtime =
+            common::ensure_endianness( static_cast<std::int32_t>( timesPtr->modtime ), std::endian::big );
+    }
+
+    int ret{ ::utime( filename, &hostTimes ) };
+
+    if (ret == -1)
+    {
+        set_guest_errno( mem, errno );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write utime return value" << std::endl;
         return false;
     }
     return true;

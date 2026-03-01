@@ -200,4 +200,9 @@ std::size_t CMemory::get_alloc_size( uint32_t ptr )
     return 0;
 }
 
+void CMemory::set_alloc_size( uint32_t ptr, std::size_t size )
+{
+    m_allocSizes[ptr] = size;
+}
+
 } // namespace memory

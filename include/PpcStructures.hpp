@@ -221,4 +221,10 @@ struct dirent
     char d_name[256];       /* name must be no longer than this */
 };
 
+struct utimbuf
+{
+    std::int32_t actime;
+    std::int32_t modtime;
+};
+
 } // namespace guest

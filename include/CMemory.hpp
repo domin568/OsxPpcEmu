@@ -43,6 +43,7 @@ class CMemory
     void initialize_heap();
     uint32_t heap_alloc( std::size_t size );
     std::size_t get_alloc_size( uint32_t ptr );
+    void set_alloc_size( uint32_t ptr, std::size_t size );
 
   private:
     CMemory( uc_engine *uc, void *memPtr, size_t size, std::size_t pageSize );
