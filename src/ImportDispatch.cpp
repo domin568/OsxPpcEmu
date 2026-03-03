@@ -2665,11 +2665,39 @@ bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
         }
     }
 
-    // Not found - return NULL
     uint32_t result = 0;
     if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
     {
         std::cerr << "Could not write bsearch return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// long strtol(const char *str, char **endptr, int base);
+// Converts string to long integer
+bool strtol( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const char *, std::uint32_t, int>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [str, endptr, base] = *args;
+
+    char *hostEndPtr{ nullptr };
+    long ret{ ::strtol( str, &hostEndPtr, base ) };
+
+    if (endptr != 0 && hostEndPtr != nullptr)
+    {
+        std::uint32_t guestEndPtr{ common::ensure_endianness( mem->to_guest( hostEndPtr ), std::endian::big ) };
+
+        std::uint32_t *endptrHost{ reinterpret_cast<std::uint32_t *>( mem->to_host( endptr ) ) };
+        *endptrHost = guestEndPtr;
+    }
+
+    std::uint32_t retGuest{ common::ensure_endianness( static_cast<std::uint32_t>( ret ), std::endian::big ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write strtol return value" << std::endl;
         return false;
     }
     return true;

@@ -82,6 +82,7 @@ callback( strlen );
 callback( strpbrk );
 callback( strrchr );
 callback( strstr );
+callback( strtol );
 callback( strncpy );
 callback( dyld_stub_binding_helper );
 callback( vsnprintf );
@@ -326,6 +327,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_strpbrk",
     "_strrchr",
     "_strstr",
+    "_strtol",
     "_stub_binding_helper_ptr_in_dyld",
     "_time",
     "_times",
@@ -432,6 +434,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::strpbrk },                  // _strpbrk
     { data::Blr_Opcode, callback::strrchr },                  // _strrchr
     { data::Blr_Opcode, callback::strstr },                   // _strstr
+    { data::Blr_Opcode, callback::strtol },                   // _strtol
     { data::Blr_Opcode, callback::dyld_stub_binding_helper }, // _stub_binding_helper_ptr_in_dyld
     { data::Blr_Opcode, callback::time },                     // _time
     { data::Blr_Opcode, callback::times },                    // _times
@@ -537,6 +540,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     2,  // _strpbrk
     2,  // _strrchr
     2,  // _strstr
+    3,  // _strtol
     0,  // _stub_binding_helper_ptr_in_dyld
     1,  // _time
     1,  // _times

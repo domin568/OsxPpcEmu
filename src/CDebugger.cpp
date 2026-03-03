@@ -42,9 +42,16 @@ void CDebugger::add_breakpoint( uint32_t address )
     // std::cout << "Breakpoint added at 0x" << std::hex << address << std::dec << std::endl;
 }
 
+void CDebugger::add_conditional_breakpoint( uint32_t address, const BreakpointCondition &condition )
+{
+    m_conditional_breakpoints[address] = condition;
+    std::cout << "Conditional breakpoint added at 0x" << std::hex << address << std::dec << std::endl;
+}
+
 void CDebugger::remove_breakpoint( uint32_t address )
 {
-    if (m_breakpoints.erase( address ))
+    bool removed = m_breakpoints.erase( address ) || m_conditional_breakpoints.erase( address );
+    if (removed)
         std::cout << "Breakpoint removed at 0x" << std::hex << address << std::dec << std::endl;
     else
         std::cout << "No breakpoint at 0x" << std::hex << address << std::dec << std::endl;
@@ -52,7 +59,7 @@ void CDebugger::remove_breakpoint( uint32_t address )
 
 void CDebugger::list_breakpoints() const
 {
-    if (m_breakpoints.empty())
+    if (m_breakpoints.empty() && m_conditional_breakpoints.empty())
     {
         std::cout << "No breakpoints set" << std::endl;
         return;
@@ -60,11 +67,62 @@ void CDebugger::list_breakpoints() const
     std::cout << "Breakpoints:" << std::endl;
     for (uint32_t addr : m_breakpoints)
         std::cout << "  0x" << std::hex << addr << std::dec << std::endl;
+
+    if (!m_conditional_breakpoints.empty())
+    {
+        std::cout << "Conditional breakpoints:" << std::endl;
+        for (const auto &[addr, cond] : m_conditional_breakpoints)
+        {
+            std::cout << "  0x" << std::hex << addr << std::dec << " if ";
+            if (cond.type == ConditionType::Register)
+            {
+                std::cout << "reg(" << cond.reg_id << ")";
+            }
+            else if (cond.type == ConditionType::Memory)
+            {
+                std::cout << "mem[0x" << std::hex << cond.mem_address << std::dec << "]";
+            }
+
+            switch (cond.op)
+            {
+            case CompareOp::Equal:
+                std::cout << " == ";
+                break;
+            case CompareOp::NotEqual:
+                std::cout << " != ";
+                break;
+            case CompareOp::Greater:
+                std::cout << " > ";
+                break;
+            case CompareOp::Less:
+                std::cout << " < ";
+                break;
+            case CompareOp::GreaterEqual:
+                std::cout << " >= ";
+                break;
+            case CompareOp::LessEqual:
+                std::cout << " <= ";
+                break;
+            }
+
+            std::cout << "0x" << std::hex << cond.value << std::dec << std::endl;
+        }
+    }
 }
 
 bool CDebugger::is_breakpoint( uint32_t address ) const
 {
-    return m_breakpoints.contains( address );
+    if (m_breakpoints.contains( address ))
+        return true;
+
+    // Check conditional breakpoints
+    auto it = m_conditional_breakpoints.find( address );
+    if (it != m_conditional_breakpoints.end())
+    {
+        return check_condition( it->second );
+    }
+
+    return false;
 }
 
 void CDebugger::add_watchpoint( uint32_t address, size_t size )
@@ -208,10 +266,7 @@ void CDebugger::hexdump( uint32_t address, size_t length ) const
 
     for (size_t i = 0; i < length; i += 16)
     {
-        // Address
         std::cout << std::hex << std::setfill( '0' ) << std::setw( 8 ) << ( address + i ) << "  ";
-
-        // Hex bytes
         for (size_t j = 0; j < 16; j++)
         {
             if (i + j < length)
@@ -225,7 +280,6 @@ void CDebugger::hexdump( uint32_t address, size_t length ) const
 
         std::cout << " |";
 
-        // ASCII
         for (size_t j = 0; j < 16 && i + j < length; j++)
         {
             uint8_t byte = buffer[i + j];
@@ -234,7 +288,6 @@ void CDebugger::hexdump( uint32_t address, size_t length ) const
             else
                 std::cout << ".";
         }
-
         std::cout << "|" << std::dec << std::endl;
     }
 }
@@ -256,7 +309,6 @@ void CDebugger::show_registers() const
     std::cout << "  CR  = 0x" << std::setw( 8 ) << cr << "  ";
     std::cout << "  XER = 0x" << std::setw( 8 ) << xer << "  " << std::dec << std::endl;
 
-    // General purpose registers
     for (int i = 0; i < 32; i++)
     {
         uint32_t reg;
@@ -291,44 +343,34 @@ std::vector<uint32_t> CDebugger::get_callstack_addresses( size_t maxDepth ) cons
     while (addresses.size() < maxDepth)
     {
         uint32_t returnAddr = 0;
-
         if (useLRfirst)
         {
-            // First iteration: use LR register
             returnAddr = lr;
             useLRfirst = false;
         }
         else
         {
-            // Read saved LR from current frame at offset +8
             uint32_t savedLR;
             if (uc_mem_read( m_uc, currentSP + 8, &savedLR, sizeof( savedLR ) ) != UC_ERR_OK)
                 break;
 
             savedLR = common::ensure_endianness( savedLR, std::endian::big );
-
             if (savedLR == 0)
                 break;
-
             returnAddr = savedLR;
         }
 
         addresses.push_back( returnAddr );
-
-        // Read the back chain pointer (saved SP)
         uint32_t savedSP;
         if (uc_mem_read( m_uc, currentSP, &savedSP, sizeof( savedSP ) ) != UC_ERR_OK)
             break;
 
         savedSP = common::ensure_endianness( savedSP, std::endian::big );
 
-        // Check for invalid stack pointer (end of chain)
         if (savedSP == 0 || savedSP <= currentSP)
             break;
-
         currentSP = savedSP;
     }
-
     return addresses;
 }
 
@@ -339,11 +381,9 @@ void CDebugger::show_callstack( size_t maxDepth ) const
     uint32_t pc;
     uc_reg_read( m_uc, UC_PPC_REG_PC, &pc ); // Program counter
 
-    // Frame 0: Current PC
     std::cout << "  #0  0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << pc << std::dec
               << get_symbol_name( pc ) << std::endl;
 
-    // Get callstack addresses and display them
     std::vector<uint32_t> addresses = get_callstack_addresses( maxDepth );
 
     for (size_t i = 0; i < addresses.size(); i++)
@@ -351,7 +391,6 @@ void CDebugger::show_callstack( size_t maxDepth ) const
         std::cout << "  #" << ( i + 1 ) << "  0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << addresses[i]
                   << std::dec << get_symbol_name( addresses[i] ) << std::endl;
     }
-
     if (addresses.size() == maxDepth)
         std::cout << "  ... (max depth reached)" << std::endl;
 }
@@ -370,7 +409,6 @@ bool CDebugger::print_vm_map()
         std::cout << " 0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << r.begin << "  0x" << std::setw( 8 )
                   << r.end - r.begin + 1 << "  ";
 
-        // Print permissions (fixed width of 3 characters + space)
         std::string perms;
         if (r.perms & UC_PROT_READ)
             perms += "R";
@@ -406,6 +444,11 @@ void CDebugger::print_help() const
 {
     std::cout << "Debugger commands:" << std::endl;
     std::cout << "  b <addr>         - Set breakpoint at address (hex)" << std::endl;
+    std::cout << "  bc <addr> <type> <op> <value> - Conditional breakpoint" << std::endl;
+    std::cout << "       type: reg <reg_name> | mem <addr> [size]" << std::endl;
+    std::cout << "       op: == != > < >= <=" << std::endl;
+    std::cout << "       Example: bc 4c4dc reg r3 == 0" << std::endl;
+    std::cout << "       Example: bc 4c4dc mem bffeff40 4 != 0" << std::endl;
     std::cout << "  d <addr>         - Delete breakpoint at address (hex)" << std::endl;
     std::cout << "  l                - List all breakpoints" << std::endl;
     std::cout << "  watch <addr> <size> - Set memory watchpoint (break on write)" << std::endl;
@@ -442,6 +485,113 @@ void CDebugger::handle_command( const std::string &cmd )
             add_breakpoint( addr );
         else
             std::cout << "Usage: b <address>" << std::endl;
+    }
+    else if (command == "bc")
+    {
+        std::uint32_t addr{};
+        std::string type_str{};
+
+        if (!( iss >> std::hex >> addr >> type_str ))
+        {
+            std::cout << "Usage: bc <addr> reg <reg_name> <op> <value>" << std::endl;
+            std::cout << "       bc <addr> mem <addr> <size> <op> <value>" << std::endl;
+            return;
+        }
+
+        BreakpointCondition condition;
+
+        if (type_str == "reg")
+        {
+            std::string reg_name;
+            if (!( iss >> reg_name ))
+            {
+                std::cout << "Missing register name" << std::endl;
+                return;
+            }
+
+            int reg_id = parse_register_name( reg_name );
+            if (reg_id == -1)
+            {
+                std::cout << "Unknown register: " << reg_name << std::endl;
+                return;
+            }
+
+            condition.type = ConditionType::Register;
+            condition.reg_id = reg_id;
+        }
+        else if (type_str == "mem")
+        {
+            uint32_t mem_addr;
+            if (!( iss >> std::hex >> mem_addr ))
+            {
+                std::cout << "Missing memory address" << std::endl;
+                return;
+            }
+
+            condition.type = ConditionType::Memory;
+            condition.mem_address = mem_addr;
+            condition.mem_size = 4; // Default to 4 bytes
+
+            // Try to read optional size
+            std::streampos pos = iss.tellg();
+            uint32_t size;
+            if (iss >> std::dec >> size)
+            {
+                if (size == 1 || size == 2 || size == 4)
+                {
+                    condition.mem_size = size;
+                }
+                else
+                {
+                    std::cout << "Invalid size (must be 1, 2, or 4)" << std::endl;
+                    return;
+                }
+            }
+            else
+            {
+                // Restore position if size wasn't provided
+                iss.clear();
+                iss.seekg( pos );
+            }
+        }
+        else
+        {
+            std::cout << "Unknown type: " << type_str << " (use 'reg' or 'mem')" << std::endl;
+            return;
+        }
+
+        std::string op_str;
+        if (!( iss >> op_str ))
+        {
+            std::cout << "Missing comparison operator" << std::endl;
+            return;
+        }
+
+        if (op_str == "==")
+            condition.op = CompareOp::Equal;
+        else if (op_str == "!=")
+            condition.op = CompareOp::NotEqual;
+        else if (op_str == ">")
+            condition.op = CompareOp::Greater;
+        else if (op_str == "<")
+            condition.op = CompareOp::Less;
+        else if (op_str == ">=")
+            condition.op = CompareOp::GreaterEqual;
+        else if (op_str == "<=")
+            condition.op = CompareOp::LessEqual;
+        else
+        {
+            std::cout << "Unknown operator: " << op_str << std::endl;
+            return;
+        }
+
+        if (!( iss >> std::hex >> condition.value ))
+        {
+            std::cout << "Missing comparison value" << std::endl;
+            return;
+        }
+
+        add_conditional_breakpoint( addr, condition );
     }
     else if (command == "d")
     {
@@ -719,6 +869,88 @@ void CDebugger::interactive_prompt()
 
         handle_command( line );
     }
+}
+
+bool CDebugger::check_condition( const BreakpointCondition &condition ) const
+{
+    uint32_t current_value = 0;
+
+    if (condition.type == ConditionType::Register)
+    {
+        uint64_t reg_val = 0;
+        if (uc_reg_read( m_uc, condition.reg_id, &reg_val ) != UC_ERR_OK)
+            return false;
+        current_value = static_cast<uint32_t>( reg_val );
+    }
+    else if (condition.type == ConditionType::Memory)
+    {
+        void *mem_ptr = m_mem->get( condition.mem_address );
+        if (!mem_ptr)
+            return false;
+
+        switch (condition.mem_size)
+        {
+        case 1:
+            current_value = *static_cast<uint8_t *>( mem_ptr );
+            break;
+        case 2:
+            current_value = common::ensure_endianness( *static_cast<uint16_t *>( mem_ptr ), std::endian::big );
+            break;
+        case 4:
+            current_value = common::ensure_endianness( *static_cast<uint32_t *>( mem_ptr ), std::endian::big );
+            break;
+        default:
+            return false;
+        }
+    }
+    else
+    {
+        return false;
+    }
+
+    switch (condition.op)
+    {
+    case CompareOp::Equal:
+        return current_value == condition.value;
+    case CompareOp::NotEqual:
+        return current_value != condition.value;
+    case CompareOp::Greater:
+        return current_value > condition.value;
+    case CompareOp::Less:
+        return current_value < condition.value;
+    case CompareOp::GreaterEqual:
+        return current_value >= condition.value;
+    case CompareOp::LessEqual:
+        return current_value <= condition.value;
+    }
+    return false;
+}
+
+int CDebugger::parse_register_name( const std::string &reg_name ) const
+{
+    std::string upper_name = reg_name;
+    std::transform( upper_name.begin(), upper_name.end(), upper_name.begin(), ::toupper );
+
+    if (upper_name == "PC")
+        return UC_PPC_REG_PC;
+    if (upper_name == "LR")
+        return UC_PPC_REG_LR;
+    if (upper_name == "CTR")
+        return UC_PPC_REG_CTR;
+    if (upper_name == "CR")
+        return UC_PPC_REG_CR;
+    if (upper_name == "XER")
+        return UC_PPC_REG_XER;
+    if (upper_name == "MSR")
+        return UC_PPC_REG_MSR;
+
+    if (upper_name[0] == 'R' && upper_name.length() >= 2)
+    {
+        int reg_num = std::stoi( upper_name.substr( 1 ) );
+        if (reg_num >= 0 && reg_num <= 31)
+            return UC_PPC_REG_0 + reg_num;
+    }
+    return -1;
 }
 
 } // namespace debug

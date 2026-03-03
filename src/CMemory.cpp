@@ -186,9 +186,12 @@ uint32_t CMemory::heap_alloc( std::size_t size )
     std::size_t alignedSize{ ( size + 15 ) & ~15 };
     ptr += alignedSize;
 
-    // Track allocation size
-    m_allocSizes[tmp] = size;
+    if (ptr + alignedSize > common::Heap_Start + common::Heap_Size)
+    {
+        return 0;
+    }
 
+    m_allocSizes[tmp] = size;
     return tmp;
 }
 

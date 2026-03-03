@@ -9,6 +9,7 @@
 
 #include "CMemory.hpp"
 #include <cstdint>
+#include <map>
 #include <set>
 #include <unicorn/unicorn.h>
 #include <vector>
@@ -30,6 +31,33 @@ enum class StepMode
     Continue // Run until next breakpoint
 };
 
+enum class ConditionType
+{
+    None,
+    Register,
+    Memory
+};
+
+enum class CompareOp
+{
+    Equal,
+    NotEqual,
+    Greater,
+    Less,
+    GreaterEqual,
+    LessEqual
+};
+
+struct BreakpointCondition
+{
+    ConditionType type{ ConditionType::None };
+    CompareOp op{ CompareOp::Equal };
+    int reg_id{ -1 };
+    uint32_t mem_address{ 0 };
+    size_t mem_size{ 4 }; // 1, 2, or 4 bytes
+    uint32_t value{ 0 };
+};
+
 class CDebugger
 {
   public:
@@ -37,6 +65,7 @@ class CDebugger
 
     // Breakpoint management
     void add_breakpoint( uint32_t address );
+    void add_conditional_breakpoint( uint32_t address, const BreakpointCondition &condition );
     void remove_breakpoint( uint32_t address );
     void list_breakpoints() const;
     bool is_breakpoint( uint32_t address ) const;
@@ -51,7 +80,6 @@ class CDebugger
         return m_watchpoint_hook;
     }
 
-    // Stepping control
     void step_in();
     void step_out();
     void continue_execution();
@@ -62,16 +90,13 @@ class CDebugger
         return m_trace_mode;
     }
 
-    // Memory inspection
     void hexdump( uint32_t address, size_t length ) const;
     void show_registers() const;
     void show_callstack( size_t maxDepth = 10 ) const;
     bool print_vm_map();
 
-    // Callstack utility (returns vector of addresses: [LR, saved_LR1, saved_LR2, ...])
     std::vector<uint32_t> get_callstack_addresses( size_t maxDepth = 10 ) const;
 
-    // Interactive prompt
     void interactive_prompt();
 
   private:
@@ -89,6 +114,7 @@ class CDebugger
     memory::CMemory *m_mem;
     loader::CMachoLoader *m_loader;
     std::set<uint32_t> m_breakpoints{};
+    std::map<uint32_t, BreakpointCondition> m_conditional_breakpoints{};
     std::set<Watchpoint> m_watchpoints{};
     uc_hook m_watchpoint_hook{};
     StepMode m_stepMode;
@@ -98,8 +124,10 @@ class CDebugger
     void print_help() const;
     void handle_command( const std::string &cmd );
     std::string get_symbol_name( uint32_t address ) const;
+    bool check_condition( const BreakpointCondition &condition ) const;
+    int parse_register_name( const std::string &reg_name ) const;
 };
 
 } // namespace debug
 
-#endif // DEBUG
+#endif
