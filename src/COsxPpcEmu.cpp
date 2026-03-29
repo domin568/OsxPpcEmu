@@ -1121,9 +1121,11 @@ void hook_debug( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu
                 return;
             }
 
-            std::cout << "[Debug Hook] Breaking at 0x" << std::hex << address << std::dec << std::endl;
+            if (!gdb_active)
+            {
+                std::cout << "[Debug Hook] Breaking at 0x" << std::hex << address << std::dec << std::endl;
+            }
 
-            // Determine if this is a step or breakpoint
             if (emu->m_debugger->is_breakpoint( static_cast<uint32_t>( address ) ))
             {
                 emu->m_gdb_server->notify_breakpoint( static_cast<uint32_t>( address ) );

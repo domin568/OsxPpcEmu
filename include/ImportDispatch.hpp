@@ -50,6 +50,7 @@ callback( cthread_init_routine );
 callback( dyld_make_delayed_module_initializer_calls );
 callback( dyld_func_lookup );
 callback( atexit );
+callback( atoi );
 callback( bsearch );
 callback( chmod );
 callback( exit );
@@ -78,10 +79,12 @@ callback( strcat );
 callback( strchr );
 callback( strcpy );
 callback( strdup );
+callback( strerror );
 callback( strlen );
 callback( strpbrk );
 callback( strrchr );
 callback( strstr );
+callback( strtod );
 callback( strtol );
 callback( strncpy );
 callback( dyld_stub_binding_helper );
@@ -93,6 +96,7 @@ callback( strncmp );
 callback( fprintf );
 callback( getenv );
 callback( ___error );
+callback( ___isctype );
 callback( ___istype );
 callback( ___tolower );
 callback( ___toupper );
@@ -108,6 +112,7 @@ callback( write );
 callback( memcmp );
 callback( time );
 callback( times );
+callback( tmpnam );
 callback( getdtablesize );
 callback( localtime );
 callback( lstat );
@@ -256,6 +261,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_TempNewHandle",
     "__DefaultRuneLocale",
     "___error",
+    "___isctype",
     "___istype",
     "___keymgr_dwarf2_register_sections",
     "___sF",
@@ -264,6 +270,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "__cthread_init_routine",
     "__dyld_make_delayed_module_initializer_calls",
     "_atexit",
+    "_atoi",
     "_bsearch",
     "_calloc",
     "_chmod",
@@ -320,6 +327,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_strcmp",
     "_strcpy",
     "_strdup",
+    "_strerror",
     "_strlen",
     "_strncat",
     "_strncmp",
@@ -327,10 +335,12 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_strpbrk",
     "_strrchr",
     "_strstr",
+    "_strtod",
     "_strtol",
     "_stub_binding_helper_ptr_in_dyld",
     "_time",
     "_times",
+    "_tmpnam",
     "_umask",
     "_ungetc",
     "_unlink",
@@ -362,6 +372,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::TempNewHandle },                   // _TempNewHandle
     { data::Dword_Mem, nullptr },                                    // __DefaultRuneLocale
     { data::Blr_Opcode, callback::___error },                        // ___error
+    { data::Blr_Opcode, callback::___isctype },                      // ___isctype
     { data::Blr_Opcode, callback::___istype },                       // ___istype
     { data::Blr_Opcode, callback::keymgr_dwarf2_register_sections }, // ___keymgr_dwarf2_register_sections
     { data::Dword_Mem, nullptr },                                    // ___sF
@@ -371,6 +382,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode,
       callback::dyld_make_delayed_module_initializer_calls }, // __dyld_make_delayed_module_initializer_calls
     { data::Blr_Opcode, callback::atexit },                   // _atexit
+    { data::Blr_Opcode, callback::atoi },                     // _atoi
     { data::Blr_Opcode, callback::bsearch },                  // _bsearch
     { data::Blr_Opcode, callback::calloc },                   // _calloc
     { data::Blr_Opcode, callback::chmod },                    // _chmod
@@ -427,6 +439,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::strcmp },                   // _strcmp
     { data::Blr_Opcode, callback::strcpy },                   // _strcpy
     { data::Blr_Opcode, callback::strdup },                   // _strdup
+    { data::Blr_Opcode, callback::strerror },                 // _strerror
     { data::Blr_Opcode, callback::strlen },                   // _strlen
     { data::Blr_Opcode, callback::strncat },                  // _strncat
     { data::Blr_Opcode, callback::strncmp },                  // _strncmp
@@ -434,10 +447,12 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::strpbrk },                  // _strpbrk
     { data::Blr_Opcode, callback::strrchr },                  // _strrchr
     { data::Blr_Opcode, callback::strstr },                   // _strstr
+    { data::Blr_Opcode, callback::strtod },                   // _strtod
     { data::Blr_Opcode, callback::strtol },                   // _strtol
     { data::Blr_Opcode, callback::dyld_stub_binding_helper }, // _stub_binding_helper_ptr_in_dyld
     { data::Blr_Opcode, callback::time },                     // _time
     { data::Blr_Opcode, callback::times },                    // _times
+    { data::Blr_Opcode, callback::tmpnam },                   // _tmpnam
     { data::Blr_Opcode, callback::umask },                    // _umask
     { data::Blr_Opcode, callback::ungetc },                   // _ungetc
     { data::Blr_Opcode, callback::unlink },                   // _unlink
@@ -469,6 +484,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     2,  // _TempNewHandle
     0,  // __DefaultRuneLocale
     0,  // ___error
+    2,  // ___isctype
     2,  // ___istype
     0,  // ___keymgr_dwarf2_register_sections
     0,  // ___sF
@@ -477,6 +493,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     0,  // __cthread_init_routine
     0,  // __dyld_make_delayed_module_initializer_calls
     1,  // _atexit
+    1,  // _atoi
     5,  // _bsearch
     2,  // _calloc
     2,  // _chmod
@@ -533,6 +550,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     2,  // _strcmp
     2,  // _strcpy
     1,  // _strdup
+    1,  // _strerror
     1,  // _strlen
     3,  // _strncat
     3,  // _strncmp
@@ -540,10 +558,12 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     2,  // _strpbrk
     2,  // _strrchr
     2,  // _strstr
+    2,  // _strtod
     3,  // _strtol
     0,  // _stub_binding_helper_ptr_in_dyld
     1,  // _time
     1,  // _times
+    1,  // _tmpnam
     1,  // _umask
     2,  // _ungetc
     1,  // _unlink

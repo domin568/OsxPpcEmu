@@ -4,6 +4,7 @@
  * Brief:     memory manager for emu
  **/
 #pragma once
+#include "Common.hpp"
 #include <expected>
 #include <string>
 #include <unicorn/unicorn.h>
@@ -53,7 +54,7 @@ class CMemory
         uintptr_t m_address;
     };
     std::size_t m_memSize{ 0 };
-
+    std::size_t m_heapPtr{ common::Heap_Start };
     static std::size_t get_system_page_size();
 
     std::size_t m_pageSize{};

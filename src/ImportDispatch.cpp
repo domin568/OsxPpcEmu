@@ -566,6 +566,48 @@ bool ___error( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader
     return true;
 }
 
+// int ___isctype(int c, unsigned long mask);
+// Check if character has certain properties based on bitmask (same as ___istype)
+// This is an alias for ___istype on macOS
+bool ___isctype( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<int, uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [c, mask] = *args;
+
+    uint32_t chartype = 0;
+
+    if (c >= 'A' && c <= 'Z')
+        chartype |= _CTYPE_U | _CTYPE_X;
+    if (c >= 'a' && c <= 'z')
+        chartype |= _CTYPE_L | _CTYPE_X;
+    if (c >= '0' && c <= '9')
+        chartype |= _CTYPE_D | _CTYPE_X;
+    if (c >= 'A' && c <= 'F')
+        chartype |= _CTYPE_X;
+    if (c >= 'a' && c <= 'f')
+        chartype |= _CTYPE_X;
+    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v')
+        chartype |= _CTYPE_S;
+    if (c == ' ' || c == '\t')
+        chartype |= _CTYPE_B;
+    if (( c >= 0 && c <= 31 ) || c == 127)
+        chartype |= _CTYPE_C;
+    if (( c >= 33 && c <= 47 ) || ( c >= 58 && c <= 64 ) || ( c >= 91 && c <= 96 ) || ( c >= 123 && c <= 126 ))
+        chartype |= _CTYPE_P;
+
+    // Check if any of the requested mask bits are set
+    uint32_t result = ( chartype & mask ) != 0 ? 1 : 0;
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write ___isctype return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // int __istype(int c, unsigned long mask);
 // Check if character has certain properties based on bitmask
 bool ___istype( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
@@ -910,6 +952,26 @@ bool atexit( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     return true;
 }
 
+// int atoi(const char *str);
+// Converts string to integer
+bool atoi( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [str] = *args;
+
+    // Use standard C library atoi
+    int result = ::atoi( str );
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write atoi return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 bool exit( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     uc_emu_stop( uc );
@@ -950,7 +1012,7 @@ bool fflush( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
     if (!f)
-        return false;
+        f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
 
     int ret{ ::fflush( f ) };
 
@@ -1052,7 +1114,7 @@ bool fwrite( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
     if (!f)
-        return false;
+        f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
 
     std::size_t ret{ ::fwrite( buffer, size, count, f ) };
 
@@ -1655,6 +1717,34 @@ bool strdup( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     return true;
 }
 
+// char *strerror(int errnum);
+// Returns a pointer to the textual representation of the current errno value
+bool strerror( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<int>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [errnum] = *args;
+
+    const char *ret{ ::strerror( errnum ) };
+    uint32_t retGuest{ 0 };
+
+    if (ret != nullptr)
+    {
+        std::size_t len{ ::strlen( ret ) + 1 };
+        char *heap_ptr{ reinterpret_cast<char *>( mem->to_host( mem->heap_alloc( len ) ) ) };
+        ::memcpy( heap_ptr, ret, len );
+        retGuest = mem->to_guest( heap_ptr );
+    }
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write strerror return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // char * strncpy ( char * destination, const char * source, size_t num );
 bool strncpy( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
@@ -1772,7 +1862,7 @@ bool fprintf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
 
     FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
     if (!f)
-        return false;
+        f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
 
     std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5, false ) };
 
@@ -2222,6 +2312,25 @@ bool times( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     return true;
 }
 
+// char *tmpnam(char *s);
+bool tmpnam( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<char *>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [s] = *args;
+
+    char *ret{ ::tmpnam( s ) };
+
+    std::uint32_t guestRet{ ret ? mem->to_guest( ret ) : 0 };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &guestRet ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write tmpnam return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // int getdtablesize(void);
 bool getdtablesize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
@@ -2645,7 +2754,6 @@ bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
 
         if (cmp == 0)
         {
-            assert( false );
             // Found exact match - return pointer to array element
             uint32_t result = mem->to_guest( const_cast<void *>( midElem ) );
             if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
@@ -2674,6 +2782,35 @@ bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     return true;
 }
 
+// double strtod(const char *str, char **endptr);
+// Converts string to double
+bool strtod( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<const char *, std::uint32_t>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [str, endptr] = *args;
+
+    char *hostEndPtr{ nullptr };
+    double ret{ ::strtod( str, &hostEndPtr ) };
+
+    if (endptr != 0 && hostEndPtr != nullptr)
+    {
+        std::uint32_t guestEndPtr{ common::ensure_endianness( mem->to_guest( hostEndPtr ), std::endian::big ) };
+
+        std::uint32_t *endptrHost{ reinterpret_cast<std::uint32_t *>( mem->to_host( endptr ) ) };
+        *endptrHost = guestEndPtr;
+    }
+
+    // Return double in FPR1 (PPC calling convention for floating point return values)
+    if (uc_reg_write( uc, UC_PPC_REG_FPR1, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write strtod return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // long strtol(const char *str, char **endptr, int base);
 // Converts string to long integer
 bool strtol( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
@@ -2693,9 +2830,7 @@ bool strtol( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         std::uint32_t *endptrHost{ reinterpret_cast<std::uint32_t *>( mem->to_host( endptr ) ) };
         *endptrHost = guestEndPtr;
     }
-
-    std::uint32_t retGuest{ common::ensure_endianness( static_cast<std::uint32_t>( ret ), std::endian::big ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strtol return value" << std::endl;
         return false;

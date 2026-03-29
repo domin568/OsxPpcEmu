@@ -5,7 +5,6 @@
  **/
 #include <exception> // LIEF fix
 #pragma once
-#include "CMemory.hpp"
 #include <LIEF/MachO.hpp>
 #include <bit>
 #include <optional>
@@ -14,6 +13,12 @@
 #include <unicorn/unicorn.h>
 
 class CMachoLoader;
+
+// Forward declarations to avoid circular dependencies
+namespace memory
+{
+class CMemory;
+}
 
 namespace common
 {

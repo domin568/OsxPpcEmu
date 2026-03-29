@@ -180,13 +180,12 @@ void CMemory::initialize_heap()
 
 uint32_t CMemory::heap_alloc( std::size_t size )
 {
-    static std::size_t ptr{ common::Heap_Start };
-    const uint32_t tmp{ static_cast<uint32_t>( ptr ) };
+    const uint32_t tmp{ static_cast<uint32_t>( m_heapPtr ) };
     // Round up to 16-byte alignment for PowerPC (required for proper alignment of all data types)
     std::size_t alignedSize{ ( size + 15 ) & ~15 };
-    ptr += alignedSize;
+    m_heapPtr += alignedSize;
 
-    if (ptr + alignedSize > common::Heap_Start + common::Heap_Size)
+    if (m_heapPtr + alignedSize > common::Heap_Start + common::Heap_Size)
     {
         return 0;
     }
