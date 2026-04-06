@@ -241,6 +241,24 @@ std::optional<LIEF::MachO::SegmentCommand> CMachoLoader::get_text_segment( LIEF:
     return *textSegIt;
 }
 
+const std::map<uint32_t, std::string> &CMachoLoader::get_or_build_symbol_map( LIEF::MachO::Symbol::TYPE type,
+                                                                               SymbolSection section )
+{
+    SymbolCacheKey key{ type, section };
+    auto it{ m_symbolCache.find( key ) };
+    if (it != m_symbolCache.end())
+        return it->second;
+
+    std::map<uint32_t, std::string> &symbolMap{ m_symbolCache[key] };
+    for (const auto &s : m_executable->symbols())
+    {
+        if (s.type() != type)
+            continue;
+        symbolMap[static_cast<uint32_t>( s.value() )] = s.name();
+    }
+    return symbolMap;
+}
+
 std::optional<std::string> CMachoLoader::get_symbol_name_for_va( const uint32_t va, LIEF::MachO::Symbol::TYPE type,
                                                                  SymbolSection section )
 {
@@ -256,15 +274,9 @@ std::optional<std::string> CMachoLoader::get_symbol_name_for_va( const uint32_t 
     if (va >= sectIt->virtual_address() + sectIt->size())
         return std::nullopt;
 
-    std::map<uint32_t, std::string> symbolsByType{};
-    for (const auto &s : m_executable->symbols())
-    {
-        if (s.type() != type)
-            continue;
-        symbolsByType[static_cast<uint32_t>( s.value() )] = s.name();
-    }
-    auto it{ symbolsByType.upper_bound( va ) };
-    if (it == symbolsByType.begin())
+    const std::map<uint32_t, std::string> &symbolMap{ get_or_build_symbol_map( type, section ) };
+    auto it{ symbolMap.upper_bound( va ) };
+    if (it == symbolMap.begin())
         return std::nullopt;
     --it;
     return it->second;

@@ -24,6 +24,7 @@ namespace common
 {
 
 inline constexpr uint32_t Import_Dispatch_Table_Address{ 0xF0'00'00'00 };
+inline constexpr uint32_t Inner_Emulation_Sentinel{ Import_Dispatch_Table_Address };
 static constexpr uint64_t Guest_Virtual_Memory_Size{ 0x1'00'00'00'00 }; // 32 bit virtual address space size
 static constexpr uint32_t Stack_Max_Address{ 0xC0'00'00'00 };
 static constexpr uint32_t Stack_Size{ 2u * 0x1000 * 0x1000 }; // 2MB

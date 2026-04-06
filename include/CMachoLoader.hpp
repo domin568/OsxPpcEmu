@@ -67,6 +67,18 @@ class CMachoLoader
     uint32_t m_ep{};
     std::unique_ptr<LIEF::MachO::Binary> m_executable;
 
+    // Cached symbol maps for fast lookup (built lazily on first use)
+    using SymbolCacheKey = std::pair<LIEF::MachO::Symbol::TYPE, SymbolSection>;
+    struct SymbolCacheKeyHash
+    {
+        std::size_t operator()( const SymbolCacheKey &k ) const noexcept
+        {
+            return std::hash<int>{}( static_cast<int>( k.first ) ) ^ ( std::hash<int>{}( static_cast<int>( k.second ) ) << 16 );
+        }
+    };
+    std::unordered_map<SymbolCacheKey, std::map<uint32_t, std::string>, SymbolCacheKeyHash> m_symbolCache;
+    const std::map<uint32_t, std::string> &get_or_build_symbol_map( LIEF::MachO::Symbol::TYPE type, SymbolSection section );
+
     // initialize functions
     static std::optional<LIEF::MachO::SegmentCommand> get_text_segment( LIEF::MachO::Binary &executable );
 };

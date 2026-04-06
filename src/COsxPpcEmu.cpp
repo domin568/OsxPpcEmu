@@ -15,7 +15,6 @@
 #include <filesystem>
 #include <iostream>
 #include <ranges>
-#include <sstream>
 
 std::atomic<uint32_t> g_lastAddr{ 0 };
 
@@ -31,10 +30,7 @@ COsxPpcEmu::COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader, memory::CM
 #ifdef DEBUG
 void COsxPpcEmu::init_debugger()
 {
-    m_debugger = std::make_unique<debug::CDebugger>( m_uc, &m_mem, &m_loader );
-
-    // Open trace file
-    m_trace_file.open( "trace.txt", std::ios::out | std::ios::trunc );
+    m_debugger = std::make_unique<debug::CDebugger>( m_uc, &m_mem, &m_loader, &m_trace_file );
 
     // Check if GDB server mode is enabled via environment variable
     const char *gdb_mode = std::getenv( "GDB_SERVER" );
@@ -899,10 +895,9 @@ void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int si
 }
 
 #ifdef DEBUG
-static std::string format_arg_value( uc_engine *uc, uint32_t argValue )
+static void write_arg_value( std::FILE *out, uc_engine *uc, uint32_t argValue )
 {
-    std::ostringstream oss;
-    oss << "0x" << std::hex << argValue;
+    std::fprintf( out, "0x%x", argValue );
 
     // Try to read as string if it looks like a pointer
     if (argValue >= 0x1000 && argValue < 0xF0000000)
@@ -926,113 +921,98 @@ static std::string format_arg_value( uc_engine *uc, uint32_t argValue )
             }
             if (isAscii && len > 0 && len <= maxCheck)
             {
-                oss << " (\"";
-                oss.write( buffer, len );
-                oss << "\")";
+                std::fputs( " (\"", out );
+                std::fwrite( buffer, 1, len, out );
+                std::fputs( "\")", out );
             }
         }
     }
-    return oss.str();
+}
+
+static void write_callstack( std::FILE *out, COsxPpcEmu *emu )
+{
+    if (emu->m_debugger)
+    {
+        std::vector<uint32_t> addresses = emu->m_debugger->get_callstack_addresses( 10 );
+        for (uint32_t addr : addresses)
+        {
+            const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
+                addr, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
+            if (funcName.has_value())
+                std::fprintf( out, " <- %s[0x%x]", funcName->c_str(), addr );
+            else
+                std::fprintf( out, " <- 0x%x", addr );
+        }
+    }
+    std::fputc( '\n', out );
 }
 
 static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu )
 {
-    // Determine if this is an unknown API
     const bool isUnknown = ( idx == import::Unknown_Import_Index );
 
-    if (!isUnknown && !emu->m_trace_file.is_open())
+    if (!isUnknown && !emu->m_trace_file)
         return;
 
-    // Build callstack string (API <- caller <- caller's caller <- ...)
-    std::ostringstream callstack;
-
-    // Add API name
-    if (idx == import::Unknown_Import_Index)
+    if (isUnknown)
     {
-        callstack << "0x" << std::hex << address << " (unknown)";
+        // Unknown API: output to stdout
+        std::printf( "\xe2\x94\x8c\xe2\x94\x80 0x%llx (unknown)", address );
+        // Callstack to stdout via FILE*
+        write_callstack( stdout, emu );
+        if (emu->m_trace_file)
+        {
+            std::fprintf( emu->m_trace_file, "\xe2\x94\x8c\xe2\x94\x80 0x%llx (unknown)", address );
+            write_callstack( emu->m_trace_file, emu );
+        }
     }
     else if (idx - import::Unknown_Import_Shift < import::Known_Import_Names.size())
     {
         const size_t apiIdx = idx - import::Unknown_Import_Shift;
-        callstack << import::Known_Import_Names[apiIdx];
-    }
-    else
-    {
-        std::cout << "Could not read API name." << std::endl;
-        if (emu->m_trace_file.is_open())
-            emu->m_trace_file << "Could not read API name." << std::endl;
-        return;
-    }
+        std::FILE *tf = emu->m_trace_file;
 
-    // Get callstack addresses using debugger utility
-    if (emu->m_debugger)
-    {
-        std::vector<uint32_t> addresses = emu->m_debugger->get_callstack_addresses( 10 );
-
-        for (uint32_t addr : addresses)
-        {
-            callstack << " <- ";
-            const std::optional<std::string> funcName{ emu->m_loader.get_symbol_name_for_va(
-                addr, LIEF::MachO::Symbol::TYPE::SECTION, loader::CMachoLoader::SymbolSection::TEXT ) };
-            if (funcName.has_value())
-                callstack << *funcName << "[0x" << std::hex << addr << "]";
-            else
-                callstack << "0x" << std::hex << addr;
-        }
-    }
-
-    // Print header with callstack
-    const std::string header = "┌─ " + callstack.str();
-    if (isUnknown)
-    {
-        // Unknown API: output to both stdout and file
-        std::cout << header << std::dec << std::endl;
-        if (emu->m_trace_file.is_open())
-            emu->m_trace_file << header << std::dec << std::endl;
-    }
-    else
-    {
         // Known API: output to file only
-        emu->m_trace_file << header << std::dec << std::endl;
-    }
+        std::fprintf( tf, "\xe2\x94\x8c\xe2\x94\x80 %.*s",
+                      static_cast<int>( import::Known_Import_Names[apiIdx].size() ),
+                      import::Known_Import_Names[apiIdx].data() );
+        write_callstack( tf, emu );
 
-    // Print arguments
-    if (idx != import::Unknown_Import_Index && idx - import::Unknown_Import_Shift < import::Known_Import_Names.size())
-    {
-        const size_t apiIdx = idx - import::Unknown_Import_Shift;
+        // Write arguments directly to file
         const int argCount = import::Import_Arg_Counts[apiIdx];
         const int regsToRead = ( argCount == -1 ) ? 8 : argCount;
-
         for (int i = 0; i < regsToRead; i++)
         {
             uint32_t argValue;
             if (uc_reg_read( uc, UC_PPC_REG_3 + i, &argValue ) == UC_ERR_OK)
             {
-                const std::string argLine = "│  arg" + std::to_string( i ) + ": " + format_arg_value( uc, argValue );
-                emu->m_trace_file << argLine << std::endl;
+                std::fprintf( tf, "\xe2\x94\x82  arg%d: ", i );
+                write_arg_value( tf, uc, argValue );
+                std::fputc( '\n', tf );
             }
         }
     }
-    emu->m_trace_file.flush();
+    else
+    {
+        std::puts( "Could not read API name." );
+        if (emu->m_trace_file)
+            std::fputs( "Could not read API name.\n", emu->m_trace_file );
+    }
 }
 
 static void print_api_return( uc_engine *uc, size_t idx, COsxPpcEmu *emu )
 {
     if (idx == import::Unknown_Import_Index || idx - import::Unknown_Import_Shift >= import::Known_Import_Names.size())
-    {
         return;
-    }
 
-    if (!emu->m_trace_file.is_open())
+    if (!emu->m_trace_file)
         return;
 
     uint32_t retValue;
     if (uc_reg_read( uc, UC_PPC_REG_3, &retValue ) == UC_ERR_OK)
     {
-        const std::string retLine = "└─ return: " + format_arg_value( uc, retValue );
-        // Known API: output to file only
-        emu->m_trace_file << retLine << std::endl;
-        emu->m_trace_file.flush();
+        std::fputs( "\xe2\x94\x94\xe2\x94\x80 return: ", emu->m_trace_file );
+        write_arg_value( emu->m_trace_file, uc, retValue );
+        std::fputc( '\n', emu->m_trace_file );
     }
 }
 

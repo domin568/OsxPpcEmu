@@ -11,6 +11,7 @@
 #include "../include/Common.hpp"
 #include <LIEF/MachO.hpp>
 #include <algorithm>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -18,8 +19,8 @@
 namespace debug
 {
 
-CDebugger::CDebugger( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
-    : m_uc( uc ), m_mem( mem ), m_loader( loader ), m_stepMode( StepMode::None ), m_stepOutLR( 0 )
+CDebugger::CDebugger( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader, std::FILE **trace_file )
+    : m_uc( uc ), m_mem( mem ), m_loader( loader ), m_stepMode( StepMode::None ), m_stepOutLR( 0 ), m_trace_file( trace_file )
 {
 }
 
@@ -816,7 +817,24 @@ void CDebugger::handle_command( const std::string &cmd )
     else if (command == "trace")
     {
         m_trace_mode = !m_trace_mode;
-        std::cout << "Tracing API calls: " << ( m_trace_mode ? "ON" : "OFF" ) << std::endl;
+        if (m_trace_mode && m_trace_file)
+        {
+            // Close previous file if open, then open fresh (truncate)
+            if (*m_trace_file)
+                std::fclose( *m_trace_file );
+            *m_trace_file = std::fopen( "trace.txt", "w" );
+            if (*m_trace_file)
+                std::setvbuf( *m_trace_file, nullptr, _IOFBF, 256 * 1024 );
+        }
+        else if (!m_trace_mode && m_trace_file && *m_trace_file)
+        {
+            std::fclose( *m_trace_file );
+            *m_trace_file = nullptr;
+        }
+        std::cout << "Tracing API calls: " << ( m_trace_mode ? "ON" : "OFF" );
+        if (m_trace_mode)
+            std::cout << " -> " << std::filesystem::absolute( "trace.txt" ).string();
+        std::cout << std::endl;
     }
     else if (command == "h" || command == "?")
     {

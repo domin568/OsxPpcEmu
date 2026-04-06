@@ -30,9 +30,13 @@ set(HEADER_FILES
         include/PpcStructures.hpp
 )
 
+set(ENABLE_DEBUGGER OFF CACHE BOOL "Enable built-in PPC debugger and GDB server" FORCE)
+
 add_library(OsxPpcEmuLib STATIC ${SOURCE_FILES} ${HEADER_FILES})
 target_include_directories(OsxPpcEmuLib PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_compile_definitions(OsxPpcEmuLib PRIVATE $<$<CONFIG:Debug>:DEBUG>)
+if (ENABLE_DEBUGGER)
+    target_compile_definitions(OsxPpcEmuLib PRIVATE DEBUG)
+endif ()
 
 find_package(Unicorn CONFIG QUIET)
 if (Unicorn_FOUND)
@@ -66,6 +70,8 @@ target_link_libraries(OsxPpcEmuLib PUBLIC Threads::Threads LIEF::LIEF)
 
 add_executable(${EXECUTABLE_NAME} src/main.cpp)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE OsxPpcEmuLib)
-target_compile_definitions(${EXECUTABLE_NAME} PRIVATE $<$<CONFIG:Debug>:DEBUG>)
+if (ENABLE_DEBUGGER)
+    target_compile_definitions(${EXECUTABLE_NAME} PRIVATE DEBUG)
+endif ()
 
 add_subdirectory(test)

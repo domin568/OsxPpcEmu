@@ -9,6 +9,7 @@
 
 #include "CMemory.hpp"
 #include <cstdint>
+#include <cstdio>
 #include <map>
 #include <set>
 #include <unicorn/unicorn.h>
@@ -61,7 +62,7 @@ struct BreakpointCondition
 class CDebugger
 {
   public:
-    CDebugger( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader );
+    CDebugger( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader, std::FILE **trace_file );
 
     // Breakpoint management
     void add_breakpoint( uint32_t address );
@@ -120,6 +121,7 @@ class CDebugger
     StepMode m_stepMode;
     uint32_t m_stepOutLR{};
     bool m_trace_mode{ false };
+    std::FILE **m_trace_file{};
 
     void print_help() const;
     void handle_command( const std::string &cmd );

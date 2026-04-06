@@ -8,8 +8,12 @@
 #include "../include/COsxPpcEmu.hpp"
 #include "../include/PpcStructures.hpp"
 
+#include <array>
 #include <dirent.h>
 #include <netdb.h>
+#include <numeric>
+#include <span>
+#include <string_view>
 #include <sys/fcntl.h>
 #include <sys/stat.h>
 #include <sys/times.h>
@@ -947,6 +951,25 @@ bool dyld_func_lookup( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader
     return true;
 }
 
+// int abs(int n);
+bool abs( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+{
+    const auto args{ get_arguments<int>( uc, mem ) };
+    if (!args.has_value())
+        return false;
+    const auto [n] = *args;
+
+    int ret{ ::abs( n ) };
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write abs return value" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// int atexit(void (*func)(void));
 bool atexit( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     return true;
@@ -986,7 +1009,9 @@ bool fclose( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         return false;
     const auto [stream] = *args;
 
-    FILE *f{ static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) ) };
+    FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
+    if (!f)
+        f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
     int ret{ ::fclose( f ) };
 
     if (ret == EOF)
@@ -1336,7 +1361,8 @@ bool memcpy( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         return false;
     const auto [dest, source, count] = *args;
     ::memcpy( dest, source, count );
-    if (uc_reg_write( uc, UC_PPC_REG_3, &dest ) != UC_ERR_OK)
+    uint32_t retGuest{ mem->to_guest( dest ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write memcpy return" << std::endl;
         return false;
@@ -1352,6 +1378,12 @@ bool memmove( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
         return false;
     const auto [dest, source, count] = *args;
     ::memmove( dest, source, count );
+    uint32_t retGuest{ mem->to_guest( dest ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write memmove return" << std::endl;
+        return false;
+    }
     return true;
 }
 
@@ -1363,7 +1395,8 @@ bool memset( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         return false;
     const auto [str, c, n] = *args;
     ::memset( str, c, n * sizeof( char ) );
-    if (uc_reg_write( uc, UC_PPC_REG_3, &str ) != UC_ERR_OK)
+    uint32_t retGuest{ mem->to_guest( str ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write memset return" << std::endl;
         return false;
@@ -1378,7 +1411,12 @@ bool puts( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     if (!args.has_value())
         return false;
     const auto [str] = *args;
-    ::puts( str );
+    int ret{ ::puts( str ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write puts return value" << std::endl;
+        return false;
+    }
     return true;
 }
 
@@ -1891,7 +1929,8 @@ bool readlink( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader
         set_guest_errno( mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    std::int32_t retVal{ static_cast<std::int32_t>( ret ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retVal ) != UC_ERR_OK)
     {
         std::cerr << "Could not write readlink return value" << std::endl;
         return false;
@@ -1944,7 +1983,7 @@ bool getenv( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     }
     else if (ret != nullptr)
     {
-        char *heap_ptr{ reinterpret_cast<char *>( mem->to_host( mem->heap_alloc( ::strlen( ret ) ) ) ) };
+        char *heap_ptr{ reinterpret_cast<char *>( mem->to_host( mem->heap_alloc( ::strlen( ret ) + 1 ) ) ) };
         ::memcpy( heap_ptr, ret, ::strlen( ret ) + 1 );
         retGuest = mem->to_guest( heap_ptr );
     }
@@ -1989,8 +2028,6 @@ bool opendir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     const auto [path] = *args;
 
     DIR *hostDir{ ::opendir( path ) };
-    DIR *hostDirDst{ reinterpret_cast<DIR *>( mem->to_host( mem->heap_alloc( sizeof( DIR ) ) ) ) };
-    ::memcpy( hostDirDst, hostDir, sizeof( DIR ) );
 
     std::uint32_t retPtr{ 0 };
     if (hostDir == nullptr)
@@ -1999,6 +2036,8 @@ bool opendir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     }
     else
     {
+        DIR *hostDirDst{ reinterpret_cast<DIR *>( mem->to_host( mem->heap_alloc( sizeof( DIR ) ) ) ) };
+        ::memcpy( hostDirDst, hostDir, sizeof( DIR ) );
         retPtr = mem->to_guest( hostDirDst );
     }
 
@@ -2038,13 +2077,13 @@ bool readdir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
         {
             std::uint32_t guestEntryVa{ mem->heap_alloc( sizeof( guest::dirent ) ) };
             guest::dirent *guestEntry{ reinterpret_cast<guest::dirent *>( mem->to_host( guestEntryVa ) ) };
-            std::memset( guestEntry, 0, sizeof( guest::dirent ) );
             if (!guestEntry)
             {
                 set_guest_errno( mem, ENOMEM );
             }
             else
             {
+                std::memset( guestEntry, 0, sizeof( guest::dirent ) );
                 guestEntry->d_ino =
                     common::ensure_endianness( static_cast<uint32_t>( hostEntry->d_ino ), std::endian::big );
                 guestEntry->d_reclen =
@@ -2214,7 +2253,8 @@ bool read( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         set_guest_errno( mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    std::int32_t retVal{ static_cast<std::int32_t>( ret ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retVal ) != UC_ERR_OK)
     {
         std::cerr << "Could not write read return value" << std::endl;
         return false;
@@ -2278,7 +2318,8 @@ bool time( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         ::memcpy( tloc, &guestTime, sizeof( guestTime ) );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &guestTime ) != UC_ERR_OK)
+    std::uint32_t retNative{ static_cast<std::uint32_t>( ret ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retNative ) != UC_ERR_OK)
     {
         std::cerr << "Could not write time return value" << std::endl;
         return false;
@@ -2335,7 +2376,7 @@ bool tmpnam( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 bool getdtablesize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     int ret{ ::getdtablesize() };
-    std::uint32_t retGuest{ common::ensure_endianness( static_cast<std::uint32_t>( ret ), std::endian::big ) };
+    std::uint32_t retGuest{ static_cast<std::uint32_t>( ret ) };
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write getdtablesize return value" << std::endl;
@@ -2399,7 +2440,8 @@ bool localtime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loade
                        .tm_wday = common::ensure_endianness( ret->tm_wday, std::endian::big ),
                        .tm_yday = common::ensure_endianness( ret->tm_yday, std::endian::big ),
                        .tm_isdst = common::ensure_endianness( ret->tm_isdst, std::endian::big ),
-                       .tm_gmtoff = common::ensure_endianness( ret->tm_isdst, std::endian::big ),
+                       .tm_gmtoff =
+                           common::ensure_endianness( static_cast<std::int32_t>( ret->tm_gmtoff ), std::endian::big ),
                        .tm_zone = mem->to_guest( zone_ptr ) };
     void *retPtrHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( sizeof( guest::tm ) ) ) ) };
     ::memcpy( retPtrHost, &tmGuest, sizeof( guest::tm ) );
@@ -2535,7 +2577,9 @@ bool ungetc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         return false;
     const auto [character, stream] = *args;
 
-    FILE *f{ static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) ) };
+    FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
+    if (!f)
+        f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
     int ret{ ::ungetc( character, f ) };
 
     if (ret == EOF)
@@ -2604,7 +2648,7 @@ bool mktime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     tmHost.tm_isdst = common::ensure_endianness( tmGuest->tm_isdst, std::endian::big );
 
     time_t result{ ::mktime( &tmHost ) };
-    uint32_t resultGuest{ common::ensure_endianness( static_cast<uint32_t>( result ), std::endian::big ) };
+    uint32_t resultGuest{ static_cast<uint32_t>( result ) };
 
     if (uc_reg_write( uc, UC_PPC_REG_3, &resultGuest ) != UC_ERR_OK)
     {
@@ -2622,9 +2666,61 @@ bool qsort( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         return false;
     const auto [base, nmemb, size, comparGuestPtr] = *args;
 
-    if (!base || nmemb == 0 || size == 0)
+    if (!base || nmemb <= 1 || size == 0)
         return true;
-    // TODO implement if needed
+
+    const uint32_t baseGuest{ mem->to_guest( base ) };
+    auto *baseBytes{ static_cast<uint8_t *>( base ) };
+
+    uc_context *ctx{};
+    if (uc_context_alloc( uc, &ctx ) != UC_ERR_OK)
+    {
+        std::cerr << "qsort: uc_context_alloc failed" << std::endl;
+        return false;
+    }
+    if (uc_context_save( uc, ctx ) != UC_ERR_OK)
+    {
+        std::cerr << "qsort: uc_context_save failed" << std::endl;
+        uc_context_free( ctx );
+        return false;
+    }
+    // Read SP from the saved context for comparator calls
+    uint32_t sp{};
+    uc_context_reg_read( ctx, UC_PPC_REG_1, &sp );
+
+    // Sentinel: uc_emu_start stops when PC reaches this address (before executing / firing hooks)
+    const uint32_t sentinel{ common::Inner_Emulation_Sentinel };
+
+    std::vector<size_t> indices( nmemb );
+    std::iota( indices.begin(), indices.end(), 0 );
+
+    auto pred{ [&]( size_t i, size_t j ) {
+        uint32_t ptrA{ baseGuest + static_cast<uint32_t>( i * size ) };
+        uint32_t ptrB{ baseGuest + static_cast<uint32_t>( j * size ) };
+
+        // Set up PPC state for comparator call
+        uc_reg_write( uc, UC_PPC_REG_3, &ptrA ); // arg1 = pointer to element a
+        uc_reg_write( uc, UC_PPC_REG_4, &ptrB ); // arg2 = pointer to element b
+        uc_reg_write( uc, UC_PPC_REG_1, &sp );   // restore stack pointer
+        uc_reg_write( uc, UC_PPC_REG_LR, &sentinel );
+
+        uc_emu_start( uc, comparGuestPtr, sentinel, 0, 0 );
+
+        uint32_t result{};
+        uc_reg_read( uc, UC_PPC_REG_3, &result );
+        return static_cast<int32_t>( result ) < 0;
+    } };
+
+    std::sort( indices.begin(), indices.end(), pred );
+
+    std::vector<uint8_t> sorted( nmemb * size );
+    for (std::size_t i{ 0 }; i < nmemb; i++)
+        std::memcpy( sorted.data() + i * size, baseBytes + indices[i] * size, size );
+    std::memcpy( baseBytes, sorted.data(), nmemb * size );
+
+    uc_context_restore( uc, ctx );
+    uc_context_free( ctx );
+
     return true;
 }
 
@@ -2632,7 +2728,7 @@ bool qsort( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 bool clock( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
     clock_t ret{ ::clock() };
-    uint32_t retGuest{ common::ensure_endianness( static_cast<uint32_t>( ret ), std::endian::big ) };
+    uint32_t retGuest{ static_cast<uint32_t>( ret ) };
 
     if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
     {
@@ -2709,20 +2805,18 @@ bool strncat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     return true;
 }
 
-// void *bsearch(const void *key, const void *base, size_t num, size_t width, int (*compare)(const void *, const
-// void
-// *)); Binary search implementation using strcmp for comparison (host code only)
-// TODO change
+// void *bsearch(const void *key, const void *base, size_t num, size_t width, int (*compare)(const void *, const void
+// *))
 bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 {
-    const auto args{ get_arguments<const void *, const void *, std::size_t, std::size_t, void *>( uc, mem ) };
+    const auto args{ get_arguments<void *, void *, std::size_t, std::size_t, uint32_t>( uc, mem ) };
     if (!args.has_value())
         return false;
-    const auto [key, base, num, width, compare] = *args;
+    const auto [key, base, num, width, comparGuestPtr] = *args;
 
     if (!key || !base || num == 0 || width == 0)
     {
-        uint32_t result = 0;
+        uint32_t result{ 0 };
         if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
         {
             std::cerr << "Could not write bsearch return value" << std::endl;
@@ -2731,37 +2825,52 @@ bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
         return true;
     }
 
-    // Binary search using strcmp: key is const char*, base points to array of const char*
-    const auto *keyStr = static_cast<const char *>( key );
-    const auto *baseBytes = static_cast<const char *>( base );
+    const uint32_t keyGuest{ mem->to_guest( const_cast<void *>( key ) ) };
+    const uint32_t baseGuest{ mem->to_guest( const_cast<void *>( base ) ) };
 
-    size_t left = 0;
-    size_t right = num;
+    uc_context *ctx{};
+    if (uc_context_alloc( uc, &ctx ) != UC_ERR_OK)
+    {
+        std::cerr << "bsearch: uc_context_alloc failed" << std::endl;
+        return false;
+    }
+    if (uc_context_save( uc, ctx ) != UC_ERR_OK)
+    {
+        std::cerr << "bsearch: uc_context_save failed" << std::endl;
+        uc_context_free( ctx );
+        return false;
+    }
+
+    uint32_t sp{};
+    uc_context_reg_read( ctx, UC_PPC_REG_1, &sp );
+
+    const uint32_t sentinel{ common::Inner_Emulation_Sentinel };
+
+    size_t left{ 0 };
+    size_t right{ num };
+    uint32_t resultGuest{ 0 }; // NULL — not found
 
     while (left < right)
     {
-        size_t mid = left + ( right - left ) / 2;
-        const void *midElem = baseBytes + mid * width;
-        const std::uint32_t ptr{ *reinterpret_cast<const std::uint32_t *>( midElem ) };
-        const std::uint32_t ptrBe{ common::ensure_endianness( ptr, std::endian::big ) };
-        const void *ptrHost{ reinterpret_cast<const void *>( mem->to_host( ptrBe ) ) };
+        size_t mid{ left + ( right - left ) / 2 };
+        uint32_t midElemGuest{ baseGuest + static_cast<uint32_t>( mid * width ) };
 
-        const std::uint32_t ptr2{ *reinterpret_cast<const std::uint32_t *>( ptrHost ) };
-        const std::uint32_t ptr2Be{ common::ensure_endianness( ptr2, std::endian::big ) };
-        const char *ptr2Host{ reinterpret_cast<const char *>( mem->to_host( ptr2Be ) ) };
+        // Call guest comparator(key, &array[mid])
+        uc_reg_write( uc, UC_PPC_REG_3, &keyGuest );
+        uc_reg_write( uc, UC_PPC_REG_4, &midElemGuest );
+        uc_reg_write( uc, UC_PPC_REG_1, &sp );
+        uc_reg_write( uc, UC_PPC_REG_LR, &sentinel );
 
-        int cmp = ::strcmp( keyStr, ptr2Host );
+        uc_emu_start( uc, comparGuestPtr, sentinel, 0, 0 );
+
+        uint32_t cmpRaw{};
+        uc_reg_read( uc, UC_PPC_REG_3, &cmpRaw );
+        const int32_t cmp{ static_cast<int32_t>( cmpRaw ) };
 
         if (cmp == 0)
         {
-            // Found exact match - return pointer to array element
-            uint32_t result = mem->to_guest( const_cast<void *>( midElem ) );
-            if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
-            {
-                std::cerr << "Could not write bsearch return value" << std::endl;
-                return false;
-            }
-            return true;
+            resultGuest = midElemGuest;
+            break;
         }
         else if (cmp < 0)
         {
@@ -2773,8 +2882,10 @@ bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
         }
     }
 
-    uint32_t result = 0;
-    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+    uc_context_restore( uc, ctx );
+    uc_context_free( ctx );
+
+    if (uc_reg_write( uc, UC_PPC_REG_3, &resultGuest ) != UC_ERR_OK)
     {
         std::cerr << "Could not write bsearch return value" << std::endl;
         return false;
@@ -2830,7 +2941,8 @@ bool strtol( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         std::uint32_t *endptrHost{ reinterpret_cast<std::uint32_t *>( mem->to_host( endptr ) ) };
         *endptrHost = guestEndPtr;
     }
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+    std::uint32_t retVal{ static_cast<std::uint32_t>( ret ) };
+    if (uc_reg_write( uc, UC_PPC_REG_3, &retVal ) != UC_ERR_OK)
     {
         std::cerr << "Could not write strtol return value" << std::endl;
         return false;

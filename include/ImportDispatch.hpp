@@ -9,6 +9,7 @@
 #include "Common.hpp"
 #include <algorithm>
 #include <iostream>
+#include <string_view>
 #include <unicorn/unicorn.h>
 
 namespace import
@@ -49,6 +50,7 @@ callback( keymgr_dwarf2_register_sections );
 callback( cthread_init_routine );
 callback( dyld_make_delayed_module_initializer_calls );
 callback( dyld_func_lookup );
+callback( abs );
 callback( atexit );
 callback( atoi );
 callback( bsearch );
@@ -217,6 +219,11 @@ inline constexpr std::array<uint8_t, 4> Trap_Opcode{ 0x7F, 0xE0, 0x00, 0x08 };
 // inline constexpr std::array<uint8_t, 3 * sizeof( FILE )> Stdio_File_Std_Descriptors{};
 } // namespace data
 
+namespace helpers
+{
+std::string_view DereferenceCString( void * );
+}
+
 struct Known_Import_Entry
 {
     std::span<const uint8_t> data{}; // code for functions, memory for variables
@@ -269,6 +276,7 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "___toupper",
     "__cthread_init_routine",
     "__dyld_make_delayed_module_initializer_calls",
+    "_abs",
     "_atexit",
     "_atoi",
     "_bsearch",
@@ -381,6 +389,7 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::cthread_init_routine },            // __cthread_init_routine
     { data::Blr_Opcode,
       callback::dyld_make_delayed_module_initializer_calls }, // __dyld_make_delayed_module_initializer_calls
+    { data::Blr_Opcode, callback::abs },                      // _abs
     { data::Blr_Opcode, callback::atexit },                   // _atexit
     { data::Blr_Opcode, callback::atoi },                     // _atoi
     { data::Blr_Opcode, callback::bsearch },                  // _bsearch
@@ -492,6 +501,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     1,  // ___toupper
     0,  // __cthread_init_routine
     0,  // __dyld_make_delayed_module_initializer_calls
+    1,  // _abs
     1,  // _atexit
     1,  // _atoi
     5,  // _bsearch

@@ -11,8 +11,8 @@
 #include "../include/CDebugger.hpp"
 #include "../include/CGdbServer.hpp"
 #endif
+#include <cstdio>
 #include <expected>
-#include <fstream>
 #include <unicorn/unicorn.h>
 
 namespace emu
@@ -48,7 +48,7 @@ class COsxPpcEmu
 #ifdef DEBUG
     std::unique_ptr<debug::CDebugger> m_debugger{};
     std::unique_ptr<gdb::CGdbServer> m_gdb_server{};
-    std::ofstream m_trace_file;
+    std::FILE *m_trace_file{};
 #endif
 
   private:

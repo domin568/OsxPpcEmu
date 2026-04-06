@@ -14,7 +14,7 @@ add_library(GTest::GTest INTERFACE IMPORTED)
 target_link_libraries(GTest::GTest INTERFACE gtest_main)
 
 find_library(OsxPpcEmuLib OsxPpcEmu)
-add_executable(OsxPpcEmuTest src/test.cpp)
+add_executable(OsxPpcEmuTest src/test.cpp src/test_qsort.cpp src/test_bsearch.cpp)
 
 target_link_libraries(OsxPpcEmuTest
         PRIVATE
