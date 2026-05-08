@@ -30,7 +30,7 @@ set(HEADER_FILES
         include/PpcStructures.hpp
 )
 
-set(ENABLE_DEBUGGER OFF CACHE BOOL "Enable built-in PPC debugger and GDB server" FORCE)
+set(ENABLE_DEBUGGER ON CACHE BOOL "Enable built-in PPC debugger and GDB server" FORCE)
 
 add_library(OsxPpcEmuLib STATIC ${SOURCE_FILES} ${HEADER_FILES})
 target_include_directories(OsxPpcEmuLib PUBLIC ${CMAKE_SOURCE_DIR}/include)

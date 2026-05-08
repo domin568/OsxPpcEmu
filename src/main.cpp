@@ -16,6 +16,7 @@ int main( int argc, const char *argv[] )
         std::cerr << "Usage: " << argv[0] << " <executable> [args]" << std::endl;
         return -1;
     }
+    std::cout << "[OsxPpcEmu] Emulating " << argv[1] << std::endl;
     const std::array<std::string, 1> guestEnv{ "EXAMPLE=1" };
 
     std::chrono::high_resolution_clock::time_point start{ std::chrono::high_resolution_clock::now() };

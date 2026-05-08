@@ -39,12 +39,12 @@ void COsxPpcEmu::init_debugger()
     if (enable_gdb)
     {
         m_gdb_server = std::make_unique<gdb::CGdbServer>( m_uc, &m_mem, &m_loader, m_debugger.get() );
-
+        m_gdb_server->set_packet_logging( true );
         // Start GDB server
         if (m_gdb_server->start())
         {
             std::cout << "GDB server started successfully" << std::endl;
-            std::cout << "Connect from IDA Pro: Debugger -> Attach -> Remote GDB debugger -> localhost:23946"
+            std::cout << "Connect from IDA Pro: Debugger -> Attach -> Remote GDB debugger -> localhost:23947"
                       << std::endl;
         }
         else

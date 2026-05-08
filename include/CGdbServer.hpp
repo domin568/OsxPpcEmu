@@ -53,13 +53,14 @@ class CGdbServer
 {
   public:
     CGdbServer( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader, debug::CDebugger *debugger,
-                uint16_t port = 23946 );
+                uint16_t port = 23947 );
     ~CGdbServer();
 
     // Server control
     bool start();
     void stop();
     bool is_running() const;
+    void set_packet_logging( bool enable ); // enable/disable GDB packet tracing to stderr
 
     // Debugger integration - called by emulator hooks
     void notify_breakpoint( uint32_t address );
@@ -88,6 +89,7 @@ class CGdbServer
     std::atomic<StopReason> m_stop_reason;
     std::atomic<uint32_t> m_stop_address;
     std::atomic<bool> m_step_mode;
+    std::atomic<bool> m_log_packets{ false }; // GDB packet tracing flag
 
     // Server thread
     void server_loop();
@@ -112,6 +114,7 @@ class CGdbServer
     std::string handle_insert_breakpoint( uint32_t address );
     std::string handle_remove_breakpoint( uint32_t address );
     std::string handle_stop_reason();
+    std::string handle_monitor_command( const std::string &hex_cmd );
 
     // Utility functions
     static uint8_t calculate_checksum( const std::string &data );

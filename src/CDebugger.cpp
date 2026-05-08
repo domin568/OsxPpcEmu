@@ -11,6 +11,7 @@
 #include "../include/Common.hpp"
 #include <LIEF/MachO.hpp>
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -60,7 +61,7 @@ void CDebugger::remove_breakpoint( uint32_t address )
 
 void CDebugger::list_breakpoints() const
 {
-    if (m_breakpoints.empty() && m_conditional_breakpoints.empty())
+    if (m_breakpoints.empty() && m_conditional_breakpoints.empty() && m_log_breakpoints.empty())
     {
         std::cout << "No breakpoints set" << std::endl;
         return;
@@ -75,6 +76,28 @@ void CDebugger::list_breakpoints() const
         for (const auto &[addr, cond] : m_conditional_breakpoints)
         {
             std::cout << "  0x" << std::hex << addr << std::dec << " if ";
+
+            if (cond.type == ConditionType::StringMatch)
+            {
+                std::cout << "str(";
+                if (cond.str_reg_id != -1)
+                {
+                    if (cond.str_reg_id >= UC_PPC_REG_0 && cond.str_reg_id <= UC_PPC_REG_0 + 31)
+                        std::cout << "r" << ( cond.str_reg_id - UC_PPC_REG_0 );
+                    else
+                        std::cout << "reg(" << cond.str_reg_id << ")";
+                    if (cond.str_offset > 0)
+                        std::cout << "+0x" << std::hex << cond.str_offset << std::dec;
+                    else if (cond.str_offset < 0)
+                        std::cout << "-0x" << std::hex << ( -cond.str_offset ) << std::dec;
+                }
+                else
+                    std::cout << "0x" << std::hex << cond.str_abs_address << std::dec;
+                std::cout << ") " << ( cond.op == CompareOp::Equal ? "==" : "!=" ) << " \"" << cond.str_value << "\""
+                          << std::endl;
+                continue;
+            }
+
             if (cond.type == ConditionType::Register)
             {
                 std::cout << "reg(" << cond.reg_id << ")";
@@ -109,19 +132,263 @@ void CDebugger::list_breakpoints() const
             std::cout << "0x" << std::hex << cond.value << std::dec << std::endl;
         }
     }
+
+    if (!m_log_breakpoints.empty())
+    {
+        size_t total = 0;
+        for (const auto &[addr, entries] : m_log_breakpoints)
+            total += entries.size();
+        std::cout << "Log breakpoints: " << total << " (use 'llog' to list)" << std::endl;
+    }
+}
+
+// ─── Log breakpoints (non-breaking tracepoints) ──────────────────────────────
+
+void CDebugger::add_log_breakpoint( uint32_t address, const LogBreakpoint &lb )
+{
+    m_log_breakpoints[address].push_back( lb );
+    std::cout << "Log breakpoint added at 0x" << std::hex << address << std::dec << " [" << lb.prefix << "]"
+              << std::endl;
+}
+
+void CDebugger::remove_log_breakpoints( uint32_t address )
+{
+    if (m_log_breakpoints.erase( address ))
+        std::cout << "Log breakpoints removed at 0x" << std::hex << address << std::dec << std::endl;
+    else
+        std::cout << "No log breakpoints at 0x" << std::hex << address << std::dec << std::endl;
+}
+
+void CDebugger::list_log_breakpoints() const
+{
+    if (m_log_breakpoints.empty())
+    {
+        std::cout << "No log breakpoints set" << std::endl;
+        return;
+    }
+
+    static const char *action_names[] = { "str", "i8", "i16", "i32", "hex", "reg" };
+
+    std::cout << "Log breakpoints:" << std::endl;
+    for (const auto &[addr, entries] : m_log_breakpoints)
+    {
+        for (const auto &lb : entries)
+        {
+            std::cout << "  0x" << std::hex << addr << std::dec << "  [" << lb.prefix << "]  "
+                      << action_names[static_cast<int>( lb.action )] << "  ";
+
+            if (lb.action == LogAction::RegValue)
+            {
+                // Just show register name
+                if (lb.reg_id >= UC_PPC_REG_0 && lb.reg_id <= UC_PPC_REG_0 + 31)
+                    std::cout << "r" << ( lb.reg_id - UC_PPC_REG_0 );
+                else
+                    std::cout << "reg(" << lb.reg_id << ")";
+            }
+            else if (lb.reg_id != -1)
+            {
+                if (lb.reg_id >= UC_PPC_REG_0 && lb.reg_id <= UC_PPC_REG_0 + 31)
+                    std::cout << "r" << ( lb.reg_id - UC_PPC_REG_0 );
+                else
+                    std::cout << "reg(" << lb.reg_id << ")";
+
+                if (lb.offset > 0)
+                    std::cout << "+0x" << std::hex << lb.offset << std::dec;
+                else if (lb.offset < 0)
+                    std::cout << "-0x" << std::hex << ( -lb.offset ) << std::dec;
+            }
+            else
+            {
+                std::cout << "0x" << std::hex << lb.abs_address << std::dec;
+            }
+
+            if (lb.action == LogAction::Hex)
+                std::cout << " len=" << lb.hex_len;
+
+            std::cout << std::endl;
+        }
+    }
+}
+
+uint32_t CDebugger::resolve_log_address( const LogBreakpoint &lb ) const
+{
+    if (lb.reg_id == -1)
+        return lb.abs_address;
+
+    uint32_t reg_val = 0;
+    uc_reg_read( m_uc, lb.reg_id, &reg_val );
+    return static_cast<uint32_t>( static_cast<int64_t>( reg_val ) + lb.offset );
+}
+
+bool CDebugger::parse_log_expression( const std::string &expr, int &reg_id, int32_t &offset,
+                                      uint32_t &abs_addr ) const
+{
+    reg_id = -1;
+    offset = 0;
+    abs_addr = 0;
+
+    // Find '+' or '-' that separates register from offset (skip leading chars)
+    std::string::size_type sep = std::string::npos;
+    for (std::string::size_type i = 1; i < expr.size(); ++i)
+    {
+        if (expr[i] == '+' || expr[i] == '-')
+        {
+            sep = i;
+            break;
+        }
+    }
+
+    if (sep != std::string::npos)
+    {
+        // Register + offset  (e.g. r3+0xb  or  lr-4)
+        std::string reg_part = expr.substr( 0, sep );
+        std::string off_part = expr.substr( sep ); // includes the sign
+
+        reg_id = parse_register_name( reg_part );
+        if (reg_id == -1)
+            return false;
+
+        // Parse offset (may start with + or -)
+        char *end = nullptr;
+        long off_val = std::strtol( off_part.c_str(), &end, 0 ); // handles 0x prefix
+        if (end == off_part.c_str())
+            return false;
+        offset = static_cast<int32_t>( off_val );
+        return true;
+    }
+
+    // Try as register name alone (e.g. r3)
+    reg_id = parse_register_name( expr );
+    if (reg_id != -1)
+    {
+        offset = 0;
+        return true;
+    }
+
+    // Try as absolute hex address (e.g. 0x1234 or 1234)
+    char *end = nullptr;
+    unsigned long addr = std::strtoul( expr.c_str(), &end, 16 );
+    if (end != expr.c_str() && *end == '\0')
+    {
+        abs_addr = static_cast<uint32_t>( addr );
+        return true;
+    }
+
+    return false;
+}
+
+void CDebugger::check_log_breakpoints( uint32_t address )
+{
+    auto it = m_log_breakpoints.find( address );
+    if (it == m_log_breakpoints.end())
+        return;
+
+    for (const auto &lb : it->second)
+    {
+        // Print prefix
+        std::cout << "\033[33m[" << lb.prefix << "]\033[0m ";
+
+        // Handle RegValue action separately (no memory read)
+        if (lb.action == LogAction::RegValue)
+        {
+            uint32_t reg_val = 0;
+            uc_reg_read( m_uc, lb.reg_id, &reg_val );
+            std::cout << "0x" << std::hex << reg_val << " (" << std::dec << reg_val << ")" << std::endl;
+            continue;
+        }
+
+        uint32_t addr = resolve_log_address( lb );
+
+        switch (lb.action)
+        {
+        case LogAction::String: {
+            auto str = common::read_string_at_va( m_uc, addr );
+            if (str.has_value())
+                std::cout << "\"" << *str << "\"" << std::endl;
+            else
+                std::cout << "(failed to read string at 0x" << std::hex << addr << ")" << std::dec << std::endl;
+            break;
+        }
+        case LogAction::Int8: {
+            uint8_t val = 0;
+            if (uc_mem_read( m_uc, addr, &val, sizeof( val ) ) == UC_ERR_OK)
+                std::cout << "0x" << std::hex << static_cast<uint32_t>( val ) << " (" << std::dec
+                          << static_cast<uint32_t>( val ) << ")" << std::endl;
+            else
+                std::cout << "(failed to read at 0x" << std::hex << addr << ")" << std::dec << std::endl;
+            break;
+        }
+        case LogAction::Int16: {
+            uint16_t val = 0;
+            if (uc_mem_read( m_uc, addr, &val, sizeof( val ) ) == UC_ERR_OK)
+            {
+                val = common::ensure_endianness( val, std::endian::big );
+                std::cout << "0x" << std::hex << val << " (" << std::dec << val << ")" << std::endl;
+            }
+            else
+                std::cout << "(failed to read at 0x" << std::hex << addr << ")" << std::dec << std::endl;
+            break;
+        }
+        case LogAction::Int32: {
+            uint32_t val = 0;
+            if (uc_mem_read( m_uc, addr, &val, sizeof( val ) ) == UC_ERR_OK)
+            {
+                val = common::ensure_endianness( val, std::endian::big );
+                std::cout << "0x" << std::hex << val << " (" << std::dec << val << ")" << std::endl;
+            }
+            else
+                std::cout << "(failed to read at 0x" << std::hex << addr << ")" << std::dec << std::endl;
+            break;
+        }
+        case LogAction::Hex: {
+            std::vector<uint8_t> buf( lb.hex_len );
+            if (uc_mem_read( m_uc, addr, buf.data(), lb.hex_len ) == UC_ERR_OK)
+            {
+                std::cout << "hexdump at 0x" << std::hex << addr << ":" << std::dec << std::endl;
+                for (size_t i = 0; i < lb.hex_len; i += 16)
+                {
+                    std::cout << "  " << std::hex << std::setfill( '0' ) << std::setw( 8 ) << ( addr + i ) << "  ";
+                    for (size_t j = 0; j < 16; ++j)
+                    {
+                        if (i + j < lb.hex_len)
+                            std::cout << std::setw( 2 ) << static_cast<int>( buf[i + j] ) << " ";
+                        else
+                            std::cout << "   ";
+                        if (j == 7)
+                            std::cout << " ";
+                    }
+                    std::cout << " |";
+                    for (size_t j = 0; j < 16 && i + j < lb.hex_len; ++j)
+                    {
+                        uint8_t b = buf[i + j];
+                        std::cout << ( ( b >= 0x20 && b <= 0x7E ) ? static_cast<char>( b ) : '.' );
+                    }
+                    std::cout << "|" << std::dec << std::endl;
+                }
+            }
+            else
+                std::cout << "(failed to read at 0x" << std::hex << addr << ")" << std::dec << std::endl;
+            break;
+        }
+        default:
+            break;
+        }
+    }
 }
 
 bool CDebugger::is_breakpoint( uint32_t address ) const
 {
-    if (m_breakpoints.contains( address ))
-        return true;
-
-    // Check conditional breakpoints
+    // Check conditional breakpoints first — they take priority over unconditional ones.
+    // This allows IDA to set a Z0 breakpoint at the same address (so it recognises the
+    // stop) while the server-side condition still gates whether we actually break.
     auto it = m_conditional_breakpoints.find( address );
     if (it != m_conditional_breakpoints.end())
     {
         return check_condition( it->second );
     }
+
+    if (m_breakpoints.contains( address ))
+        return true;
 
     return false;
 }
@@ -215,11 +482,15 @@ void CDebugger::continue_execution()
 
 bool CDebugger::is_active() const
 {
-    return m_stepMode != StepMode::None || !m_breakpoints.empty();
+    return m_stepMode != StepMode::None || !m_breakpoints.empty() || !m_conditional_breakpoints.empty() ||
+           !m_log_breakpoints.empty();
 }
 
 bool CDebugger::should_break( uint32_t address )
 {
+    // Always process log breakpoints (non-breaking)
+    check_log_breakpoints( address );
+
     switch (m_stepMode)
     {
     case StepMode::StepIn:
@@ -444,17 +715,29 @@ bool CDebugger::print_vm_map()
 void CDebugger::print_help() const
 {
     std::cout << "Debugger commands:" << std::endl;
+    std::cout << "  <enter>          - Step in (same as 's')" << std::endl;
     std::cout << "  b <addr>         - Set breakpoint at address (hex)" << std::endl;
     std::cout << "  bc <addr> <type> <op> <value> - Conditional breakpoint" << std::endl;
-    std::cout << "       type: reg <reg_name> | mem <addr> [size]" << std::endl;
-    std::cout << "       op: == != > < >= <=" << std::endl;
+    std::cout << "       type: reg <reg_name> | mem <addr> [size] | str <expr>" << std::endl;
+    std::cout << "       op: == != > < >= <= (str only supports == !=)" << std::endl;
     std::cout << "       Example: bc 4c4dc reg r3 == 0" << std::endl;
     std::cout << "       Example: bc 4c4dc mem bffeff40 4 != 0" << std::endl;
+    std::cout << "       Example: bc 803e0 str r9+0xa == GetMenuItemHierarchicalID" << std::endl;
     std::cout << "  d <addr>         - Delete breakpoint at address (hex)" << std::endl;
     std::cout << "  l                - List all breakpoints" << std::endl;
     std::cout << "  watch <addr> <size> - Set memory watchpoint (break on write)" << std::endl;
     std::cout << "  unwatch <addr>   - Remove memory watchpoint" << std::endl;
     std::cout << "  lw               - List all watchpoints" << std::endl;
+    std::cout << "  log <addr> <action> <expr> [len]" << std::endl;
+    std::cout << "       Non-breaking breakpoint that reads state and prints it." << std::endl;
+    std::cout << "       action: str | i8 | i16 | i32 | hex | reg" << std::endl;
+    std::cout << "       expr:   r3 | r3+0xb | r3-4 | lr | 0x1234" << std::endl;
+    std::cout << "       Examples: log 82c04 str r3+0xb" << std::endl;
+    std::cout << "                 log 82c04 i32 r3" << std::endl;
+    std::cout << "                 log 82c04 reg r3" << std::endl;
+    std::cout << "                 log 82c04 hex r5+0x10 40" << std::endl;
+    std::cout << "  dlog <addr>      - Delete all log breakpoints at address" << std::endl;
+    std::cout << "  llog             - List all log breakpoints" << std::endl;
     std::cout << "  s / si           - Step in (execute one instruction)" << std::endl;
     std::cout << "  so               - Step out (run until return)" << std::endl;
     std::cout << "  c                - Continue execution" << std::endl;
@@ -462,7 +745,7 @@ void CDebugger::print_help() const
     std::cout << "  wr <reg> <val>   - Write value to register (e.g., wr r3 1234)" << std::endl;
     std::cout << "  bt               - Show call stack (backtrace)" << std::endl;
     std::cout << "  x <addr> <len>   - Hexdump memory (addr and len in hex)" << std::endl;
-    std::cout << "  w <addr> <bytes> - Write hex bytes to memory (e.g., w 1000 deadbeef)" << std::endl;
+    std::cout << "  w/wm <addr> <bytes> - Write hex bytes to memory (e.g., w 1000 deadbeef)" << std::endl;
     std::cout << "  vmmap            - Show virtual memory regions" << std::endl;
     std::cout << "  trace            - Toggle tracing API calls" << std::endl;
     std::cout << "  h / ?            - Show this help" << std::endl;
@@ -496,12 +779,55 @@ void CDebugger::handle_command( const std::string &cmd )
         {
             std::cout << "Usage: bc <addr> reg <reg_name> <op> <value>" << std::endl;
             std::cout << "       bc <addr> mem <addr> <size> <op> <value>" << std::endl;
+            std::cout << "       bc <addr> str <expr> == <string>" << std::endl;
             return;
         }
 
         BreakpointCondition condition;
 
-        if (type_str == "reg")
+        if (type_str == "str")
+        {
+            // bc <addr> str <expr> ==/!= <string>
+            std::string expr_str;
+            std::string op_str;
+            std::string str_val;
+
+            if (!( iss >> expr_str >> op_str ))
+            {
+                std::cout << "Usage: bc <addr> str <expr> == <string>" << std::endl;
+                std::cout << "  expr: r9+0xa | r3 | 0x1234" << std::endl;
+                return;
+            }
+
+            // Read the rest of the line as the string value (supports spaces)
+            std::getline( iss >> std::ws, str_val );
+            if (str_val.empty())
+            {
+                std::cout << "Missing string value" << std::endl;
+                return;
+            }
+
+            if (op_str != "==" && op_str != "!=")
+            {
+                std::cout << "String conditions only support == and != operators" << std::endl;
+                return;
+            }
+
+            condition.type = ConditionType::StringMatch;
+            condition.op = ( op_str == "==" ) ? CompareOp::Equal : CompareOp::NotEqual;
+            condition.str_value = str_val;
+
+            if (!parse_log_expression( expr_str, condition.str_reg_id, condition.str_offset,
+                                       condition.str_abs_address ))
+            {
+                std::cout << "Invalid expression: " << expr_str << std::endl;
+                return;
+            }
+
+            add_conditional_breakpoint( addr, condition );
+            return;
+        }
+        else if (type_str == "reg")
         {
             std::string reg_name;
             if (!( iss >> reg_name ))
@@ -557,7 +883,7 @@ void CDebugger::handle_command( const std::string &cmd )
         }
         else
         {
-            std::cout << "Unknown type: " << type_str << " (use 'reg' or 'mem')" << std::endl;
+            std::cout << "Unknown type: " << type_str << " (use 'reg', 'mem', or 'str')" << std::endl;
             return;
         }
 
@@ -638,6 +964,86 @@ void CDebugger::handle_command( const std::string &cmd )
     else if (command == "lw")
     {
         list_watchpoints();
+    }
+    else if (command == "log")
+    {
+        // log <addr> <action> <expr> [len]
+        uint32_t addr{};
+        std::string action_str{};
+        std::string expr_str{};
+
+        if (!( iss >> std::hex >> addr >> action_str >> expr_str ))
+        {
+            std::cout << "Usage: log <addr> <action> <expr> [len]" << std::endl;
+            std::cout << "  action: str | i8 | i16 | i32 | hex | reg" << std::endl;
+            std::cout << "  expr:   r3 | r3+0xb | r3-4 | 0x1234" << std::endl;
+            return;
+        }
+
+        LogBreakpoint lb{};
+
+        // Parse action
+        if (action_str == "str")
+            lb.action = LogAction::String;
+        else if (action_str == "i8")
+            lb.action = LogAction::Int8;
+        else if (action_str == "i16")
+            lb.action = LogAction::Int16;
+        else if (action_str == "i32")
+            lb.action = LogAction::Int32;
+        else if (action_str == "hex")
+            lb.action = LogAction::Hex;
+        else if (action_str == "reg")
+            lb.action = LogAction::RegValue;
+        else
+        {
+            std::cout << "Unknown action: " << action_str << " (use str/i8/i16/i32/hex/reg)" << std::endl;
+            return;
+        }
+
+        // Parse expression
+        if (!parse_log_expression( expr_str, lb.reg_id, lb.offset, lb.abs_address ))
+        {
+            std::cout << "Invalid expression: " << expr_str << std::endl;
+            std::cout << "  Expected: r3 | r3+0xb | r3-4 | lr | 0x1234" << std::endl;
+            return;
+        }
+
+        // For RegValue action, we need a register
+        if (lb.action == LogAction::RegValue && lb.reg_id == -1)
+        {
+            std::cout << "reg action requires a register expression (e.g. r3, lr)" << std::endl;
+            return;
+        }
+
+        // Optional length for hex action
+        if (lb.action == LogAction::Hex)
+        {
+            size_t len = 16;
+            if (iss >> std::hex >> len)
+                lb.hex_len = len;
+        }
+
+        // Auto-generate prefix: hex address e.g. "82C04"
+        {
+            std::ostringstream pfx;
+            pfx << std::hex << std::uppercase << addr;
+            lb.prefix = pfx.str();
+        }
+
+        add_log_breakpoint( addr, lb );
+    }
+    else if (command == "dlog")
+    {
+        uint32_t addr{};
+        if (iss >> std::hex >> addr)
+            remove_log_breakpoints( addr );
+        else
+            std::cout << "Usage: dlog <address>" << std::endl;
+    }
+    else if (command == "llog")
+    {
+        list_log_breakpoints();
     }
     else if (command == "s" || command == "si")
     {
@@ -891,6 +1297,28 @@ void CDebugger::interactive_prompt()
 
 bool CDebugger::check_condition( const BreakpointCondition &condition ) const
 {
+    // Handle string match separately
+    if (condition.type == ConditionType::StringMatch)
+    {
+        uint32_t addr = condition.str_abs_address;
+        if (condition.str_reg_id != -1)
+        {
+            uint32_t reg_val = 0;
+            uc_reg_read( m_uc, condition.str_reg_id, &reg_val );
+            addr = static_cast<uint32_t>( static_cast<int64_t>( reg_val ) + condition.str_offset );
+        }
+
+        auto str = common::read_string_at_va( m_uc, addr );
+        if (!str.has_value())
+            return false;
+
+        if (condition.op == CompareOp::Equal)
+            return *str == condition.str_value;
+        if (condition.op == CompareOp::NotEqual)
+            return *str != condition.str_value;
+        return false;
+    }
+
     uint32_t current_value = 0;
 
     if (condition.type == ConditionType::Register)

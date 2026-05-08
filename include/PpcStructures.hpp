@@ -227,4 +227,14 @@ struct utimbuf
     std::int32_t modtime;
 };
 
+struct FSRef
+{                           // hidden[80]
+    uint16_t volFlags;      // +0  : copied from VolumeInfo+0xA (volume signature/attrs)
+    uint16_t encodingFlags; // +2  : low byte = TextEncoding; bit14 = case flag; bit15 = invalid
+    uint32_t parentDirID;   // +4  : parent catalog node ID
+    uint32_t cnid;          // +8  : item catalog node ID (file or dir)
+    uint32_t reserved;      // +12 : unused / alignment padding
+    char name[64];          // +16 : UTF-8 name, max 63 chars + NUL terminator
+};
+
 } // namespace guest

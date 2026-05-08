@@ -36,7 +36,28 @@ enum class ConditionType
 {
     None,
     Register,
-    Memory
+    Memory,
+    StringMatch // Compare string at reg+offset with a target string
+};
+
+enum class LogAction
+{
+    String,   // Read null-terminated string from computed address
+    Int8,     // Read 8-bit value from computed address
+    Int16,    // Read 16-bit big-endian value from computed address
+    Int32,    // Read 32-bit big-endian value from computed address
+    Hex,      // Hexdump N bytes from computed address
+    RegValue  // Just print the register value (no memory dereference)
+};
+
+struct LogBreakpoint
+{
+    std::string prefix;          // Prefix printed when hit
+    LogAction action;            // What to read
+    int reg_id{ -1 };            // Source register (-1 means absolute address)
+    int32_t offset{ 0 };         // Offset added to register value
+    uint32_t abs_address{ 0 };   // Used when reg_id == -1
+    size_t hex_len{ 16 };        // Byte count for Hex action
 };
 
 enum class CompareOp
@@ -57,6 +78,12 @@ struct BreakpointCondition
     uint32_t mem_address{ 0 };
     size_t mem_size{ 4 }; // 1, 2, or 4 bytes
     uint32_t value{ 0 };
+
+    // StringMatch fields: read string at str_reg + str_offset and compare with str_value
+    int str_reg_id{ -1 };          // register for address (-1 = absolute)
+    int32_t str_offset{ 0 };       // offset from register
+    uint32_t str_abs_address{ 0 }; // absolute address (when str_reg_id == -1)
+    std::string str_value{};       // target string to compare against
 };
 
 class CDebugger
@@ -70,6 +97,12 @@ class CDebugger
     void remove_breakpoint( uint32_t address );
     void list_breakpoints() const;
     bool is_breakpoint( uint32_t address ) const;
+
+    // Log breakpoint management (non-breaking, reads state and prints)
+    void add_log_breakpoint( uint32_t address, const LogBreakpoint &lb );
+    void remove_log_breakpoints( uint32_t address );
+    void list_log_breakpoints() const;
+    void check_log_breakpoints( uint32_t address );
 
     // Watchpoint management
     void add_watchpoint( uint32_t address, size_t size );
@@ -116,6 +149,7 @@ class CDebugger
     loader::CMachoLoader *m_loader;
     std::set<uint32_t> m_breakpoints{};
     std::map<uint32_t, BreakpointCondition> m_conditional_breakpoints{};
+    std::map<uint32_t, std::vector<LogBreakpoint>> m_log_breakpoints{};
     std::set<Watchpoint> m_watchpoints{};
     uc_hook m_watchpoint_hook{};
     StepMode m_stepMode;
@@ -128,6 +162,8 @@ class CDebugger
     std::string get_symbol_name( uint32_t address ) const;
     bool check_condition( const BreakpointCondition &condition ) const;
     int parse_register_name( const std::string &reg_name ) const;
+    uint32_t resolve_log_address( const LogBreakpoint &lb ) const;
+    bool parse_log_expression( const std::string &expr, int &reg_id, int32_t &offset, uint32_t &abs_addr ) const;
 };
 
 } // namespace debug

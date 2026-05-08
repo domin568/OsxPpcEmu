@@ -123,6 +123,12 @@ bool CGdbServer::is_running() const
     return m_running.load();
 }
 
+void CGdbServer::set_packet_logging( bool enable )
+{
+    m_log_packets.store( enable );
+    std::cerr << "[GDB] Packet logging " << ( enable ? "enabled" : "disabled" ) << std::endl;
+}
+
 void CGdbServer::notify_breakpoint( uint32_t address )
 {
     m_stop_reason.store( StopReason::Breakpoint );
@@ -316,6 +322,8 @@ std::string CGdbServer::receive_packet()
         {
             m_state.store( DebugState::Stopped );
             m_stop_reason.store( StopReason::Interrupt );
+            if (m_log_packets.load())
+                std::cerr << "[GDB] RX: <interrupt 0x03>" << std::endl;
             send_packet( "S02" ); // SIGINT
             return "";
         }
@@ -346,11 +354,15 @@ std::string CGdbServer::receive_packet()
     if (expected == received)
     {
         send_ack();
+        if (m_log_packets.load())
+            std::cerr << "[GDB] RX: " << packet << std::endl;
         return packet;
     }
     else
     {
         send_nak();
+        if (m_log_packets.load())
+            std::cerr << "[GDB] RX: <bad checksum, packet dropped>" << std::endl;
         return "";
     }
 }
@@ -366,6 +378,10 @@ void CGdbServer::send_packet( const std::string &data )
     oss << checksum_str;
 
     std::string packet = oss.str();
+
+    if (m_log_packets.load())
+        std::cerr << "[GDB] TX: " << data << std::endl;
+
     send( m_client_socket, packet.c_str(), packet.length(), 0 );
 
     // Wait for ack
@@ -661,7 +677,7 @@ std::string CGdbServer::handle_query( const std::string &query )
     }
     else if (query.find( "Rcmd," ) == 0)
     {
-        return ""; // No monitor commands
+        return handle_monitor_command( query.substr( 5 ) );
     }
     else if (query.find( "ThreadExtraInfo," ) == 0)
     {
@@ -1050,6 +1066,183 @@ std::string CGdbServer::handle_remove_breakpoint( uint32_t address )
     return "E01";
 }
 
+std::string CGdbServer::handle_monitor_command( const std::string &hex_cmd )
+{
+    // Decode hex-encoded command string
+    std::vector<uint8_t> raw = decode_hex( hex_cmd );
+    std::string cmd( raw.begin(), raw.end() );
+
+    // Helper: encode an ASCII response as hex (qRcmd protocol)
+    auto make_response = []( const std::string &msg ) -> std::string {
+        std::string hex;
+        for (char c : msg)
+        {
+            char buf[3];
+            snprintf( buf, sizeof( buf ), "%02x", static_cast<uint8_t>( c ) );
+            hex += buf;
+        }
+        return hex;
+    };
+
+    // ── cond_bp <addr> str <reg+off> == <string> ──────────────────────────
+    // Example: cond_bp 803e0 str r9+0xa == GetMenuItemHierarchicalID
+    if (cmd.find( "cond_bp " ) == 0)
+    {
+        if (!m_debugger)
+            return make_response( "Error: debugger not available\n" );
+
+        std::istringstream iss( cmd.substr( 8 ) ); // skip "cond_bp "
+        std::string addr_str, type_str;
+        iss >> addr_str >> type_str;
+
+        uint32_t bp_addr = static_cast<uint32_t>( strtoul( addr_str.c_str(), nullptr, 16 ) );
+
+        if (type_str == "str")
+        {
+            // Parse: <expr> == <string>  or  <expr> != <string>
+            std::string expr, op_str, target;
+            iss >> expr >> op_str;
+            std::getline( iss, target );
+            // Trim leading/trailing whitespace from target
+            size_t start = target.find_first_not_of( " \t" );
+            size_t end = target.find_last_not_of( " \t\r\n" );
+            if (start != std::string::npos && end != std::string::npos)
+                target = target.substr( start, end - start + 1 );
+
+            debug::CompareOp op = debug::CompareOp::Equal;
+            if (op_str == "!=")
+                op = debug::CompareOp::NotEqual;
+            else if (op_str != "==")
+                return make_response( "Error: unsupported operator '" + op_str + "' (use == or !=)\n" );
+
+            // Parse register+offset expression (e.g. r9+0xa, r3, lr-4)
+            int reg_id = -1;
+            int32_t offset = 0;
+            uint32_t abs_addr = 0;
+
+            // Find '+' or '-' separator (skip first char)
+            std::string::size_type sep = std::string::npos;
+            for (std::string::size_type i = 1; i < expr.size(); ++i)
+            {
+                if (expr[i] == '+' || expr[i] == '-')
+                {
+                    sep = i;
+                    break;
+                }
+            }
+
+            if (sep != std::string::npos)
+            {
+                std::string reg_part = expr.substr( 0, sep );
+                std::string off_part = expr.substr( sep );
+
+                // Parse register name using uppercase
+                std::string upper_reg = reg_part;
+                std::transform( upper_reg.begin(), upper_reg.end(), upper_reg.begin(), ::toupper );
+
+                if (upper_reg == "PC")
+                    reg_id = UC_PPC_REG_PC;
+                else if (upper_reg == "LR")
+                    reg_id = UC_PPC_REG_LR;
+                else if (upper_reg == "CTR")
+                    reg_id = UC_PPC_REG_CTR;
+                else if (upper_reg == "CR")
+                    reg_id = UC_PPC_REG_CR;
+                else if (upper_reg[0] == 'R' && upper_reg.length() >= 2)
+                {
+                    int rn = std::stoi( upper_reg.substr( 1 ) );
+                    if (rn >= 0 && rn <= 31)
+                        reg_id = UC_PPC_REG_0 + rn;
+                }
+
+                if (reg_id == -1)
+                    return make_response( "Error: unknown register '" + reg_part + "'\n" );
+
+                char *endp = nullptr;
+                long off_val = std::strtol( off_part.c_str(), &endp, 0 );
+                offset = static_cast<int32_t>( off_val );
+            }
+            else
+            {
+                // Try as register alone
+                std::string upper_reg = expr;
+                std::transform( upper_reg.begin(), upper_reg.end(), upper_reg.begin(), ::toupper );
+
+                if (upper_reg == "PC")
+                    reg_id = UC_PPC_REG_PC;
+                else if (upper_reg == "LR")
+                    reg_id = UC_PPC_REG_LR;
+                else if (upper_reg[0] == 'R' && upper_reg.length() >= 2)
+                {
+                    int rn = std::stoi( upper_reg.substr( 1 ) );
+                    if (rn >= 0 && rn <= 31)
+                        reg_id = UC_PPC_REG_0 + rn;
+                }
+
+                if (reg_id == -1)
+                {
+                    // Try as absolute address
+                    char *endp = nullptr;
+                    unsigned long a = std::strtoul( expr.c_str(), &endp, 16 );
+                    if (endp != expr.c_str() && *endp == '\0')
+                        abs_addr = static_cast<uint32_t>( a );
+                    else
+                        return make_response( "Error: cannot parse expression '" + expr + "'\n" );
+                }
+            }
+
+            debug::BreakpointCondition cond{};
+            cond.type = debug::ConditionType::StringMatch;
+            cond.op = op;
+            cond.str_reg_id = reg_id;
+            cond.str_offset = offset;
+            cond.str_abs_address = abs_addr;
+            cond.str_value = target;
+
+            m_debugger->add_conditional_breakpoint( bp_addr, cond );
+
+            std::ostringstream msg;
+            msg << "OK: conditional breakpoint at 0x" << std::hex << bp_addr << " if str(";
+            if (reg_id != -1)
+            {
+                msg << expr;
+            }
+            else
+            {
+                msg << "0x" << std::hex << abs_addr;
+            }
+            msg << ") " << op_str << " \"" << target << "\"\n";
+            return make_response( msg.str() );
+        }
+
+        return make_response( "Error: unsupported condition type '" + type_str + "' (use 'str')\n" );
+    }
+    // ── remove_cond_bp <addr> ──────────────────────────────────────────────
+    else if (cmd.find( "remove_cond_bp " ) == 0)
+    {
+        if (!m_debugger)
+            return make_response( "Error: debugger not available\n" );
+
+        std::string addr_str = cmd.substr( 15 );
+        uint32_t bp_addr = static_cast<uint32_t>( strtoul( addr_str.c_str(), nullptr, 16 ) );
+        m_debugger->remove_breakpoint( bp_addr );
+        return make_response( "OK: removed breakpoint at 0x" + addr_str + "\n" );
+    }
+    // ── help ───────────────────────────────────────────────────────────────
+    else if (cmd == "help" || cmd.empty())
+    {
+        return make_response(
+            "Monitor commands:\n"
+            "  cond_bp <addr> str <reg+off> == <string>  - conditional breakpoint on string match\n"
+            "  cond_bp <addr> str <reg+off> != <string>  - conditional breakpoint on string mismatch\n"
+            "  remove_cond_bp <addr>                     - remove conditional breakpoint\n"
+            "  help                                      - show this help\n"
+            "Example: cond_bp 803e0 str r9+0xa == GetMenuItemHierarchicalID\n" );
+    }
+
+    return make_response( "Error: unknown command '" + cmd + "'. Type 'help' for usage.\n" );
+}
+
 std::string CGdbServer::handle_stop_reason()
 {
     // Return signal/stop reason
@@ -1080,6 +1273,11 @@ std::string CGdbServer::handle_stop_reason()
     uc_reg_read( m_uc, UC_PPC_REG_1, &sp );  // r1 (stack pointer)
     uc_reg_read( m_uc, UC_PPC_REG_LR, &lr ); // link register
     uc_reg_read( m_uc, UC_PPC_REG_PC, &pc ); // program counter
+
+    // Include swbreak/hwbreak stop reason so IDA Pro recognises it as a
+    // breakpoint hit rather than showing a generic SIGTRAP dialog.
+    if (reason == StopReason::Breakpoint)
+        oss << "swbreak:;";
 
     // Format: regnum:value; (regnum in hex, values in target byte order - big endian for PPC)
     oss << "1:" << encode_hex_u32( sp ) << ";";   // r1 (sp)

@@ -23,11 +23,18 @@ using CallbackPtr = bool ( * )( uc_engine *, memory::CMemory *mem, loader::CMach
 // some Carbon functions
 
 callback( BlockMoveData );
+callback( CloseResFile );
+callback( DetachResource );
 callback( DisposeHandle );
 callback( FSClose );
+callback( FSGetCatalogInfo );
 callback( FSpOpenRF );
+callback( FSpOpenResFile );
+callback( FSpGetFInfo );
+callback( FSpSetFInfo );
 callback( FSPathMakeRef );
 callback( FSWrite );
+callback( Get1Resource );
 callback( GetHandleSize );
 callback( HandAndHand );
 callback( HLock );
@@ -55,12 +62,15 @@ callback( atexit );
 callback( atoi );
 callback( bsearch );
 callback( chmod );
+callback( execve );
 callback( exit );
 callback( fclose );
 callback( fwrite );
 callback( fflush );
 callback( fgetc );
 callback( fopen );
+callback( fork );
+callback( fprintf );
 callback( fstat );
 callback( ioctl );
 callback( mach_init_routine );
@@ -249,11 +259,18 @@ inline constexpr size_t Unknown_Import_Index{ 0 };
 inline constexpr size_t Unknown_Import_Shift{ 1 };
 inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_BlockMoveData",
+    "_CloseResFile",
+    "_DetachResource",
     "_DisposeHandle",
     "_FSClose",
+    "_FSGetCatalogInfo",
     "_FSPathMakeRef",
     "_FSWrite",
+    "_FSpGetFInfo",
     "_FSpOpenRF",
+    "_FSpOpenResFile",
+    "_FSpSetFInfo",
+    "_Get1Resource",
     "_GetHandleSize",
     "_HLock",
     "_HLockHi",
@@ -287,11 +304,13 @@ inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_closedir",
     "_dyld_func_lookup_ptr_in_dyld",
     "_errno",
+    "_execve",
     "_exit",
     "_fclose",
     "_fflush",
     "_fgetc",
     "_fopen",
+    "_fork",
     "_fprintf",
     "_free",
     "_fstat",
@@ -361,11 +380,18 @@ static_assert( std::ranges::is_sorted( ( Known_Import_Names ) ) );
 
 inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Import_Items{ {
     { data::Blr_Opcode, callback::BlockMoveData },                   // _BlockMoveData
+    { data::Blr_Opcode, callback::CloseResFile },                    // _CloseResFile
+    { data::Blr_Opcode, callback::DetachResource },                  // _DetachResource
     { data::Blr_Opcode, callback::DisposeHandle },                   // _DisposeHandle
     { data::Blr_Opcode, callback::FSClose },                         // _FSClose
+    { data::Blr_Opcode, callback::FSGetCatalogInfo },                // _FSGetCatalogInfo
     { data::Blr_Opcode, callback::FSPathMakeRef },                   // _FSPathMakeRef
     { data::Blr_Opcode, callback::FSWrite },                         // _FSWrite
+    { data::Blr_Opcode, callback::FSpGetFInfo },                     // _FSpGetFInfo
     { data::Blr_Opcode, callback::FSpOpenRF },                       // _FSpOpenRF
+    { data::Blr_Opcode, callback::FSpOpenResFile },                  // _FSpOpenResFile
+    { data::Blr_Opcode, callback::FSpSetFInfo },                     // _FSpSetFInfo
+    { data::Blr_Opcode, callback::Get1Resource },                    // _Get1Resource
     { data::Blr_Opcode, callback::GetHandleSize },                   // _GetHandleSize
     { data::Blr_Opcode, callback::HLock },                           // _HLock
     { data::Blr_Opcode, callback::HLockHi },                         // _HLockHi
@@ -400,11 +426,13 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::closedir },                 // _closedir
     { data::Blr_Opcode, callback::dyld_func_lookup },         // _dyld_func_lookup_ptr_in_dyld
     { data::Dword_Mem, nullptr },                             // _errno
-    { data::Trap_Opcode, callback::exit },                    // _exit
+    { data::Blr_Opcode, callback::execve },                    // _execve
+    { data::Trap_Opcode, callback::exit },                     // _exit
     { data::Blr_Opcode, callback::fclose },                   // _fclose
     { data::Blr_Opcode, callback::fflush },                   // _fflush
     { data::Blr_Opcode, callback::fgetc },                    // _fgetc
     { data::Blr_Opcode, callback::fopen },                    // _fopen
+    { data::Blr_Opcode, callback::fork },                     // _fork
     { data::Blr_Opcode, callback::fprintf },                  // _fprintf
     { data::Blr_Opcode, callback::free },                     // _free
     { data::Blr_Opcode, callback::fstat },                    // _fstat
@@ -474,11 +502,18 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
 // Argument counts for each API (-1 for variadic functions)
 inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     3,  // _BlockMoveData
+    1,  // _CloseResFile
+    1,  // _DetachResource
     1,  // _DisposeHandle
     1,  // _FSClose
+    6,  // _FSGetCatalogInfo
     3,  // _FSPathMakeRef
     4,  // _FSWrite
+    2,  // _FSpGetFInfo
     2,  // _FSpOpenRF
+    2,  // _FSpOpenResFile
+    2,  // _FSpSetFInfo
+    2,  // _Get1Resource
     1,  // _GetHandleSize
     1,  // _HLock
     1,  // _HLockHi
@@ -512,11 +547,13 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
     1,  // _closedir
     2,  // _dyld_func_lookup_ptr_in_dyld
     0,  // _errno
+    3,  // _execve
     1,  // _exit
     1,  // _fclose
     1,  // _fflush
     1,  // _fgetc
     2,  // _fopen
+    0,  // _fork
     -1, // _fprintf (variadic)
     1,  // _free
     2,  // _fstat
