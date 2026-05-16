@@ -8,6 +8,9 @@
 #include "CMachoLoader.hpp"
 #include "Common.hpp"
 #include "shims/ShimContext.hpp"
+#include "shims/carbon/CarbonShims.hpp"
+#include "shims/dyld/DyldShims.hpp"
+#include "shims/libc/LibcShims.hpp"
 #include <algorithm>
 #include <iostream>
 #include <string_view>
@@ -18,128 +21,6 @@ namespace import
 
 namespace callback
 {
-using CallbackPtr = bool ( * )( ShimContext &ctx );
-#define callback( name ) bool name( ShimContext &ctx );
-
-// some Carbon functions
-
-callback( BlockMoveData );
-callback( CloseResFile );
-callback( DetachResource );
-callback( DisposeHandle );
-callback( FSClose );
-callback( FSGetCatalogInfo );
-callback( FSpOpenRF );
-callback( FSpOpenResFile );
-callback( FSpGetFInfo );
-callback( FSpSetFInfo );
-callback( FSPathMakeRef );
-callback( FSWrite );
-callback( Get1Resource );
-callback( GetHandleSize );
-callback( HandAndHand );
-callback( HLock );
-callback( HLockHi );
-callback( HUnlock );
-callback( MemError );
-callback( NewHandle );
-callback( NewHandleClear );
-callback( PBGetCatInfoSync );
-callback( PtrAndHand );
-callback( SetHandleSize );
-callback( TempNewHandle );
-
-// C library
-callback( clock );
-callback( setlocale );
-callback( snprintf );
-callback( strncat );
-callback( keymgr_dwarf2_register_sections );
-callback( cthread_init_routine );
-callback( dyld_make_delayed_module_initializer_calls );
-callback( dyld_func_lookup );
-callback( abs );
-callback( atexit );
-callback( atoi );
-callback( bsearch );
-callback( chmod );
-callback( execve );
-callback( exit );
-callback( fclose );
-callback( fwrite );
-callback( fflush );
-callback( fgetc );
-callback( fopen );
-callback( fork );
-callback( fprintf );
-callback( fstat );
-callback( ioctl );
-callback( mach_init_routine );
-callback( malloc );
-callback( calloc );
-callback( memcpy );
-callback( memmove );
-callback( memset );
-callback( printf );
-callback( puts );
-callback( qsort );
-callback( setvbuf );
-callback( signal );
-callback( sprintf );
-callback( vsprintf );
-callback( stat );
-callback( strcat );
-callback( strchr );
-callback( strcpy );
-callback( strdup );
-callback( strerror );
-callback( strlen );
-callback( strpbrk );
-callback( strrchr );
-callback( strstr );
-callback( strtod );
-callback( strtol );
-callback( strncpy );
-callback( dyld_stub_binding_helper );
-callback( vsnprintf );
-callback( getcwd );
-callback( free );
-callback( strcmp );
-callback( strncmp );
-callback( fprintf );
-callback( getenv );
-callback( ___error );
-callback( ___isctype );
-callback( ___istype );
-callback( ___tolower );
-callback( ___toupper );
-callback( _setjmp );
-callback( _longjmp );
-callback( realloc );
-callback( readlink );
-callback( lseek );
-callback( open );
-callback( close );
-callback( read );
-callback( write );
-callback( memcmp );
-callback( time );
-callback( times );
-callback( tmpnam );
-callback( getdtablesize );
-callback( localtime );
-callback( lstat );
-callback( umask );
-callback( gethostbyname );
-callback( gethostname );
-callback( sscanf );
-callback( ungetc );
-callback( mktime );
-callback( opendir );
-callback( readdir );
-callback( closedir );
-callback( unlink );
-callback( utime );
 
 // Helper function to set errno in guest memory
 inline void set_guest_errno( memory::CMemory *mem, int errnoValue )

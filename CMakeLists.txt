@@ -13,11 +13,13 @@ set(EXECUTABLE_NAME ${PROJECT_NAME})
 set(SOURCE_FILES
         src/CMachoLoader.cpp
         src/COsxPpcEmu.cpp
-        src/ImportDispatch.cpp
         src/Common.cpp
         src/CMemory.cpp
         src/CDebugger.cpp
         src/CGdbServer.cpp
+	src/shims/carbon/CarbonShims.cpp
+	src/shims/dyld/DyldShims.cpp
+	src/shims/libc/LibcShims.cpp
 )
 set(HEADER_FILES
         include/CMachoLoader.hpp
@@ -28,6 +30,9 @@ set(HEADER_FILES
         include/CDebugger.hpp
         include/CGdbServer.hpp
         include/PpcStructures.hpp
+	include/shims/carbon/CarbonShims.hpp
+	include/shims/dyld/DyldShims.hpp
+	include/shims/libc/LibcShims.hpp
 )
 
 set(ENABLE_DEBUGGER ON CACHE BOOL "Enable built-in PPC debugger and GDB server" FORCE)
