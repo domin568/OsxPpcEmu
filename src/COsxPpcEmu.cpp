@@ -373,10 +373,9 @@ bool COsxPpcEmu::redirect_imports(
         const auto [address, type] = addressAndType;
         auto importNameMatches{
             []( const std::pair<std::string_view, import::Known_Import_Entry> &p ) { return p.first; } };
-        const auto importIt{
-            std::ranges::lower_bound( import::Name_To_Import_Item_Flat, name, std::less<>{}, importNameMatches ) };
-        const bool knownImport{ importIt != import::Name_To_Import_Item_Flat.end() && importIt->first == name };
-        const ptrdiff_t idx{ std::distance( import::Name_To_Import_Item_Flat.begin(), importIt ) };
+        const auto importIt{ std::ranges::lower_bound( import::All_Imports, name, std::less<>{}, importNameMatches ) };
+        const bool knownImport{ importIt != import::All_Imports.end() && importIt->first == name };
+        const ptrdiff_t idx{ std::distance( import::All_Imports.begin(), importIt ) };
 
         const uint32_t currentImportEntryOffset{
             knownImport ? common::Import_Dispatch_Table_Address + import::Import_Entry_Size +
@@ -444,16 +443,15 @@ bool COsxPpcEmu::write_dynamic_import_entries( uc_engine *uc,
     {
         auto importNameMatches{
             []( const std::pair<std::string_view, import::Known_Import_Entry> &p ) { return p.first; } };
-        const auto importIt{
-            std::ranges::lower_bound( import::Name_To_Import_Item_Flat, s, std::less<>{}, importNameMatches ) };
-        const bool knownImport{ importIt != import::Name_To_Import_Item_Flat.end() && importIt->first == s };
+        const auto importIt{ std::ranges::lower_bound( import::All_Imports, s, std::less<>{}, importNameMatches ) };
+        const bool knownImport{ importIt != import::All_Imports.end() && importIt->first == s };
         if (!knownImport)
         {
             std::cerr << "Missing dynamic import entry for " << s << std::endl;
             return false;
         }
 
-        const ptrdiff_t idx{ std::distance( import::Name_To_Import_Item_Flat.begin(), importIt ) };
+        const ptrdiff_t idx{ std::distance( import::All_Imports.begin(), importIt ) };
         const uint32_t currentImportEntryOffset{ common::Import_Dispatch_Table_Address + import::Import_Entry_Size +
                                                  static_cast<uint32_t>( idx ) * import::Import_Entry_Size };
 

@@ -57,12 +57,11 @@ std::optional<uint32_t> get_import_entry_va_by_name( const std::string &name )
 {
     auto importNameMatches{
         []( const std::pair<std::string_view, import::Known_Import_Entry> &p ) { return p.first; } };
-    const auto importIt{
-        std::ranges::lower_bound( import::Name_To_Import_Item_Flat, name, std::less<>{}, importNameMatches ) };
-    const bool found{ importIt != import::Name_To_Import_Item_Flat.end() && importIt->first == name };
+    const auto importIt{ std::ranges::lower_bound( import::All_Imports, name, std::less<>{}, importNameMatches ) };
+    const bool found{ importIt != import::All_Imports.end() && importIt->first == name };
     if (!found)
         return std::nullopt;
-    const ptrdiff_t idx{ std::distance( import::Name_To_Import_Item_Flat.begin(), importIt ) };
+    const ptrdiff_t idx{ std::distance( import::All_Imports.begin(), importIt ) };
     return static_cast<uint32_t>( common::Import_Dispatch_Table_Address +
                                   ( idx + import::Unknown_Import_Shift ) * import::Import_Entry_Size );
 }
