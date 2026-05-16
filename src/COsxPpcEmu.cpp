@@ -710,9 +710,9 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
     if (idx == 0 || emu->m_debugger->is_trace_mode())
         print_api_call_source( uc, address, idx, emu );
 #endif
+    ShimContext ctx{ uc, &emu->m_mem, &emu->m_loader };
     if (idx > 0)
-        import::Import_Items[idx - import::Unknown_Import_Shift].hook( uc, &emu->m_mem,
-                                                                       &emu->m_loader ); // call API dispatch function
+        import::Import_Items[idx - import::Unknown_Import_Shift].hook( ctx ); // call API dispatch function
 #ifdef DEBUG
     if (idx == 0 || emu->m_debugger->is_trace_mode())
         print_api_return( uc, idx, emu );

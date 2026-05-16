@@ -8,6 +8,7 @@
 #include "../include/COsxPpcEmu.hpp"
 #include "../include/PpcStructures.hpp"
 
+#include "shims/ShimContext.hpp"
 #include <array>
 #include <climits>
 #include <dirent.h>
@@ -76,39 +77,26 @@ inline std::uint64_t unix_to_mac_seconds( std::int64_t unixSeconds )
 
 // OSErr PBGetCatInfoSync(CInfoPBPtr paramBlock)
 // Gets catalog information about a file or directory synchronously
-bool PBGetCatInfoSync( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool PBGetCatInfoSync( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *>() };
     if (!args.has_value())
         return false;
     const auto [paramBlock] = *args;
 
-    std::int32_t result{ -1 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write PBGetCatInfoSync return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( -1 );
 }
 
 // OSErr FSpOpenRF(const FSSpec *spec, SInt8 permission, SInt16 *refNum)
 // Opens the resource fork of a file
-bool FSpOpenRF( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool FSpOpenRF( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const void *, std::int8_t, std::int16_t *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const void *, std::int8_t, std::int16_t *>() };
     if (!args.has_value())
         return false;
     const auto [spec, permission, refNumPtr] = *args;
 
-    std::uint32_t result{ 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write FSpOpenRF return value" << std::endl;
-        return false;
-    }
-
-    return true;
+    return ctx.ret( 0 );
 }
 
 // ---------------------------------------------------------------------------
@@ -137,16 +125,16 @@ static thread_local std::int16_t g_resError{ 0 };
 //   +2 s32 parID
 //   +6 u8  nameLen
 //   +7 ... up to 63 bytes of leaf name
-bool FSpOpenResFile( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool FSpOpenResFile( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const std::uint8_t *, std::int8_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const std::uint8_t *, std::int8_t>() };
     if (!args.has_value())
         return false;
     const auto [specPtr, permission] = *args;
 
-    auto write_short_result{ [uc]( std::int32_t r ) -> bool {
+    auto write_short_result{ [ctx]( std::int32_t r ) -> bool {
         std::int32_t v{ r };
-        if (uc_reg_write( uc, UC_PPC_REG_3, &v ) != UC_ERR_OK)
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &v ) != UC_ERR_OK)
         {
             std::cerr << "Could not write FSpOpenResFile return value" << std::endl;
             return false;
@@ -203,7 +191,8 @@ bool FSpOpenResFile( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *
 
     // Open the macOS resource fork via the named-fork interface.
     // (`/..namedfork/rsrc` is the documented path for HFS+ resource forks.)
-    const std::string rsrcPath{ fullPath + "_rsrc" }; // you need to extract resource forks for app to make it cross platform
+    const std::string rsrcPath{ fullPath +
+                                "_rsrc" }; // you need to extract resource forks for app to make it cross platform
 
     // Translate Mac File Manager permissions to POSIX open() flags.
     constexpr std::int8_t fsCurPerm{ 0 };
@@ -277,9 +266,8 @@ constexpr std::int16_t kRfNumErr{ -38 };
 static std::uint32_t load_one_resource( memory::CMemory *mem, int fd, std::uint32_t resType, std::int16_t resID,
                                         std::uint32_t &outDataVa, std::uint32_t &outSize )
 {
-    const auto rd16{ []( const std::uint8_t *p ) -> std::uint16_t {
-        return static_cast<std::uint16_t>( ( p[0] << 8 ) | p[1] );
-    } };
+    const auto rd16{
+        []( const std::uint8_t *p ) -> std::uint16_t { return static_cast<std::uint16_t>( ( p[0] << 8 ) | p[1] ); } };
     const auto rd32{ []( const std::uint8_t *p ) -> std::uint32_t {
         return ( static_cast<std::uint32_t>( p[0] ) << 24 ) | ( static_cast<std::uint32_t>( p[1] ) << 16 ) |
                ( static_cast<std::uint32_t>( p[2] ) << 8 ) | static_cast<std::uint32_t>( p[3] );
@@ -407,16 +395,16 @@ static std::uint32_t load_one_resource( memory::CMemory *mem, int fd, std::uint3
 // Handle Get1Resource(ResType theType, short theID)
 // Loads resource (type,id) from the *current* resource file only (no chain
 // search; that is GetResource's job).  Returns NULL on failure.
-bool Get1Resource( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool Get1Resource( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t, std::int16_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t, std::int16_t>() };
     if (!args.has_value())
         return false;
     const auto [resType, resID] = *args;
 
-    auto write_handle{ [uc]( std::uint32_t h ) -> bool {
+    auto write_handle{ [ctx]( std::uint32_t h ) -> bool {
         std::uint32_t v{ h };
-        if (uc_reg_write( uc, UC_PPC_REG_3, &v ) != UC_ERR_OK)
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &v ) != UC_ERR_OK)
         {
             std::cerr << "Could not write Get1Resource return value" << std::endl;
             return false;
@@ -438,12 +426,11 @@ bool Get1Resource( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *lo
 
     std::uint32_t dataVa{ 0 };
     std::uint32_t size{ 0 };
-    const std::uint32_t handle{ load_one_resource( mem, fdIt->second, resType, resID, dataVa, size ) };
+    const std::uint32_t handle{ load_one_resource( ctx.mem, fdIt->second, resType, resID, dataVa, size ) };
     if (handle == 0)
         return write_handle( 0 );
 
-    g_loadedResources[handle] =
-        LoadedResource{ g_currentResFile, handle, dataVa, size, resType, resID, false };
+    g_loadedResources[handle] = LoadedResource{ g_currentResFile, handle, dataVa, size, resType, resID, false };
 
     return write_handle( handle );
 }
@@ -452,9 +439,9 @@ bool Get1Resource( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *lo
 // Disconnects `theResource` from the Resource Manager so the caller becomes
 // responsible for disposing of the handle.  After this call, CloseResFile
 // will not free the handle's storage.
-bool DetachResource( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool DetachResource( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [handle] = *args;
@@ -475,9 +462,9 @@ bool DetachResource( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *
 // Closes the resource file identified by `refNum`, releases all resources
 // that were loaded from it (except detached ones), and clears the current
 // resource file if it was this one.
-bool CloseResFile( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool CloseResFile( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::int16_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::int16_t>() };
     if (!args.has_value())
         return false;
     const auto [refNum] = *args;
@@ -524,8 +511,8 @@ static bool fsspec_to_host_path( const std::uint8_t *specPtr, std::string &out )
 {
     if (specPtr == nullptr)
         return false;
-    const std::uint32_t parID{ common::ensure_endianness(
-        *reinterpret_cast<const std::uint32_t *>( specPtr + 2 ), std::endian::big ) };
+    const std::uint32_t parID{
+        common::ensure_endianness( *reinterpret_cast<const std::uint32_t *>( specPtr + 2 ), std::endian::big ) };
     const std::uint8_t nameLen{ specPtr[6] };
     const std::size_t copy{ std::min<std::size_t>( nameLen, 63 ) };
     const std::string leaf( reinterpret_cast<const char *>( specPtr + 7 ), copy );
@@ -552,16 +539,16 @@ static bool fsspec_to_host_path( const std::uint8_t *specPtr, std::string &out )
 //   +10 s16 fdLocation.v
 //   +12 s16 fdLocation.h
 //   +14 s16 fdFldr (reserved)
-bool FSpGetFInfo( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool FSpGetFInfo( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const std::uint8_t *, std::uint8_t *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const std::uint8_t *, std::uint8_t *>() };
     if (!args.has_value())
         return false;
     const auto [specPtr, fndrInfoPtr] = *args;
 
-    auto write_result{ [uc]( std::int32_t r ) -> bool {
+    auto write_result{ [ctx]( std::int32_t r ) -> bool {
         std::int32_t v{ r };
-        if (uc_reg_write( uc, UC_PPC_REG_3, &v ) != UC_ERR_OK)
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &v ) != UC_ERR_OK)
         {
             std::cerr << "Could not write FSpGetFInfo return value" << std::endl;
             return false;
@@ -593,20 +580,20 @@ bool FSpGetFInfo( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loa
     // (big-endian, exactly what the guest expects), so just copy 16 bytes.
     std::memcpy( fndrInfoPtr, finderInfo, 16 );
 
-    return write_result( 0 );
+    return ctx.ret( 0 );
 }
 
 // OSErr FSpSetFInfo(const FSSpec *spec, const FInfo *fndrInfo)
-bool FSpSetFInfo( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool FSpSetFInfo( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const std::uint8_t *, const std::uint8_t *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const std::uint8_t *, const std::uint8_t *>() };
     if (!args.has_value())
         return false;
     const auto [specPtr, fndrInfoPtr] = *args;
 
-    auto write_result{ [uc]( std::int32_t r ) -> bool {
+    auto write_result{ [ctx]( std::int32_t r ) -> bool {
         std::int32_t v{ r };
-        if (uc_reg_write( uc, UC_PPC_REG_3, &v ) != UC_ERR_OK)
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &v ) != UC_ERR_OK)
         {
             std::cerr << "Could not write FSpSetFInfo return value" << std::endl;
             return false;
@@ -638,39 +625,32 @@ bool FSpSetFInfo( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loa
     std::memcpy( finderInfo, fndrInfoPtr, 16 );
 
 #ifdef __APPLE__
-    if (::setxattr( hostPath.c_str(), "com.apple.FinderInfo", finderInfo, sizeof( finderInfo ), 0,
-                    XATTR_NOFOLLOW ) != 0)
+    if (::setxattr( hostPath.c_str(), "com.apple.FinderInfo", finderInfo, sizeof( finderInfo ), 0, XATTR_NOFOLLOW ) !=
+        0)
         return write_result( errno == EACCES || errno == EPERM ? wrPermErr : ioErr );
 #endif
 
-    return write_result( 0 );
+    return ctx.ret( 0 );
 }
 
 // OSErr FSWrite(SInt16 refNum, SInt32 *count, const void *buffPtr)
 // Writes data to an open file
-bool FSWrite( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool FSWrite( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::int16_t, std::int32_t *, const void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::int16_t, std::int32_t *, const void *>() };
     if (!args.has_value())
         return false;
     const auto [refNum, countPtr, buffPtr] = *args;
 
-    std::uint32_t result{ 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write FSWrite return value" << std::endl;
-        return false;
-    }
-
-    return true;
+    return ctx.ret( 0 );
 }
 
 // OSErr FSClose(SInt16 refNum)
 // Closes an open file. If `refNum` was issued by FSpOpenResFile / FSpOpenRF
 // we forward the close() to the underlying host fd.
-bool FSClose( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool FSClose( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::int16_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::int16_t>() };
     if (!args.has_value())
         return false;
     const auto [refNum] = *args;
@@ -685,20 +665,14 @@ bool FSClose( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
         g_resForkFds.erase( it );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write FSClose return value" << std::endl;
-        return false;
-    }
-
-    return true;
+    return ctx.ret( 0 );
 }
 
 // void BlockMoveData(const void *srcPtr, void *destPtr, Size byteCount)
 // CoreServices.framework/Frameworks/CarbonCore.framework/Headers/MacMemory.h
-bool BlockMoveData( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool BlockMoveData( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *, void *, std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *, void *, std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [srcPtr, destPtr, byteCount] = *args;
@@ -729,9 +703,9 @@ bool BlockMoveData( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
 // For the emulator we have no real HFS catalog, so we synthesise plausible CNIDs from
 // host inode numbers and stash the UTF-8 leaf name verbatim, which is more than enough
 // for round-tripping through FSGetCatalogInfo / FSRefMakePath stubs.
-bool FSPathMakeRef( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool FSPathMakeRef( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, void *, std::uint8_t *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, void *, std::uint8_t *>() };
     if (!args.has_value())
         return false;
     const auto [path, refPtr, isDirectoryPtr] = *args;
@@ -742,9 +716,9 @@ bool FSPathMakeRef( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
     constexpr std::int32_t bdNamErr{ -37 };
     constexpr std::int32_t fnfErr{ -43 };
 
-    auto write_result{ [uc]( std::int32_t status ) -> bool {
+    auto write_result{ [ctx]( std::int32_t status ) -> bool {
         std::int32_t r{ status };
-        if (uc_reg_write( uc, UC_PPC_REG_3, &r ) != UC_ERR_OK)
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &r ) != UC_ERR_OK)
         {
             std::cerr << "Could not write FSPathMakeRef return value" << std::endl;
             return false;
@@ -839,7 +813,7 @@ bool FSPathMakeRef( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
     if (isDirectoryPtr != nullptr)
         *isDirectoryPtr = isDir ? 1u : 0u;
 
-    return write_result( noErr );
+    return ctx.ret( noErr );
 }
 
 // OSStatus FSGetCatalogInfo(const FSRef *ref, FSCatalogInfoBitmap whichInfo,
@@ -875,10 +849,10 @@ bool FSPathMakeRef( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
 //   HFSUniStr255 (514 bytes): u16 length + UniChar[255]
 //   FSSpec       (70  bytes): s16 vRefNum + s32 parID + Str63 name
 //   parentRef    (80  bytes FSRef of the leaf's parent directory)
-bool FSGetCatalogInfo( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool FSGetCatalogInfo( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const std::uint8_t *, std::uint32_t, std::uint8_t *, std::uint8_t *, std::uint8_t *,
-                                   std::uint8_t *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const std::uint8_t *, std::uint32_t, std::uint8_t *, std::uint8_t *,
+                                       std::uint8_t *, std::uint8_t *>() };
     if (!args.has_value())
         return false;
     const auto [refPtr, whichInfo, catInfoPtr, outNamePtr, fsSpecPtr, parentRefPtr] = *args;
@@ -888,9 +862,9 @@ bool FSGetCatalogInfo( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader
     constexpr std::int32_t fnfErr{ -43 };
     constexpr std::int32_t nsvErr{ -35 };
 
-    auto write_result{ [uc]( std::int32_t status ) -> bool {
+    auto write_result{ [ctx]( std::int32_t status ) -> bool {
         std::int32_t r{ status };
-        if (uc_reg_write( uc, UC_PPC_REG_3, &r ) != UC_ERR_OK)
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &r ) != UC_ERR_OK)
         {
             std::cerr << "Could not write FSGetCatalogInfo return value" << std::endl;
             return false;
@@ -1178,38 +1152,33 @@ bool FSGetCatalogInfo( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader
         std::memcpy( parentRefPtr, pref.data(), pref.size() );
     }
 
-    return write_result( noErr );
+    return ctx.ret( noErr );
 }
 // Handle TempNewHandle(Size logicalSize, OSErr* resultCode)
 // Allocate a relocatable memory block of a specified size.
-bool TempNewHandle( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool TempNewHandle( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [logicalSize] = *args;
 
-    const std::uint32_t alloc{ mem->heap_alloc( logicalSize ) };
+    const std::uint32_t alloc{ ctx.mem->heap_alloc( logicalSize ) };
     std::uint32_t *ptrHost{
-        reinterpret_cast<std::uint32_t *>( mem->to_host( mem->heap_alloc( sizeof( std::uint32_t ) ) ) ) };
+        reinterpret_cast<std::uint32_t *>( ctx.mem->to_host( ctx.mem->heap_alloc( sizeof( std::uint32_t ) ) ) ) };
     *ptrHost = common::ensure_endianness( alloc, std::endian::big );
-    std::uint32_t ptrGuest{ mem->to_guest( ptrHost ) };
+    std::uint32_t ptrGuest{ ctx.mem->to_guest( ptrHost ) };
 
     g_lastMemError = ( alloc == 0 ) ? memFullErr : noErr;
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ptrGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write TempNewHandle return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ptrGuest );
 }
 
 // Size GetHandleSize(Handle h)
 // Returns the size of the allocated memory block referenced by a handle.
-bool GetHandleSize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool GetHandleSize( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [handleGuest] = *args;
@@ -1217,27 +1186,22 @@ bool GetHandleSize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
     std::uint32_t size{ 0 };
     if (handleGuest != 0)
     {
-        const std::uint32_t *handleHost{ reinterpret_cast<const std::uint32_t *>( mem->get( handleGuest ) ) };
+        const std::uint32_t *handleHost{ reinterpret_cast<const std::uint32_t *>( ctx.mem->get( handleGuest ) ) };
         if (handleHost != nullptr)
         {
             const std::uint32_t ptrGuest{ common::ensure_endianness( *handleHost, std::endian::big ) };
-            size = static_cast<std::uint32_t>( mem->get_alloc_size( ptrGuest ) );
+            size = static_cast<std::uint32_t>( ctx.mem->get_alloc_size( ptrGuest ) );
         }
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &size ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write GetHandleSize return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( size );
 }
 
 // void DisposeHandle(Handle h)
 // Releases the memory occupied by a relocatable block.
-bool DisposeHandle( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool DisposeHandle( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [handleGuest] = *args;
@@ -1257,9 +1221,9 @@ bool DisposeHandle( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
 // OSErr HandAndHand(Handle hand1, Handle hand2)
 // Concatenates the contents of one relocatable block to the end of another.
 // The Memory Manager expands hand2's size and appends hand1's data to it.
-bool HandAndHand( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool HandAndHand( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t, std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t, std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [hand1Guest, hand2Guest] = *args;
@@ -1273,8 +1237,8 @@ bool HandAndHand( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loa
     }
     else
     {
-        std::uint32_t *handle1Host{ reinterpret_cast<std::uint32_t *>( mem->get( hand1Guest ) ) };
-        std::uint32_t *handle2Host{ reinterpret_cast<std::uint32_t *>( mem->get( hand2Guest ) ) };
+        std::uint32_t *handle1Host{ reinterpret_cast<std::uint32_t *>( ctx.mem->get( hand1Guest ) ) };
+        std::uint32_t *handle2Host{ reinterpret_cast<std::uint32_t *>( ctx.mem->get( hand2Guest ) ) };
 
         if (handle1Host == nullptr || handle2Host == nullptr)
         {
@@ -1286,12 +1250,12 @@ bool HandAndHand( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loa
             const std::uint32_t ptr1Guest{ common::ensure_endianness( *handle1Host, std::endian::big ) };
             const std::uint32_t ptr2Guest{ common::ensure_endianness( *handle2Host, std::endian::big ) };
 
-            const std::size_t size1{ mem->get_alloc_size( ptr1Guest ) };
-            const std::size_t size2{ mem->get_alloc_size( ptr2Guest ) };
+            const std::size_t size1{ ctx.mem->get_alloc_size( ptr1Guest ) };
+            const std::size_t size2{ ctx.mem->get_alloc_size( ptr2Guest ) };
 
             const std::size_t newSize{ size2 + size1 };
 
-            const std::uint32_t newAlloc{ mem->heap_alloc( newSize ) };
+            const std::uint32_t newAlloc{ ctx.mem->heap_alloc( newSize ) };
             if (newAlloc == 0)
             {
                 result = memFullErr;
@@ -1299,9 +1263,9 @@ bool HandAndHand( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loa
             }
             else
             {
-                void *ptr1{ mem->get( ptr1Guest ) };
-                void *ptr2{ mem->get( ptr2Guest ) };
-                void *newPtr{ mem->get( newAlloc ) };
+                void *ptr1{ ctx.mem->get( ptr1Guest ) };
+                void *ptr2{ ctx.mem->get( ptr2Guest ) };
+                void *newPtr{ ctx.mem->get( newAlloc ) };
 
                 if (ptr2 && newPtr)
                 {
@@ -1318,19 +1282,14 @@ bool HandAndHand( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loa
         }
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write HandAndHand return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( result );
 }
 
 // void HLock(Handle h)
 // Locks a relocatable block so it cannot be moved during heap compaction.
-bool HLock( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool HLock( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [handleGuest] = *args;
@@ -1348,9 +1307,9 @@ bool HLock( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
 // void HLockHi(Handle h)
 // Locks a relocatable block at the top of the heap so it cannot be moved.
-bool HLockHi( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool HLockHi( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [handleGuest] = *args;
@@ -1368,9 +1327,9 @@ bool HLockHi( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
 
 // void HUnlock(Handle h)
 // Unlocks a relocatable block so it can be moved during heap compaction.
-bool HUnlock( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool HUnlock( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [handleGuest] = *args;
@@ -1388,85 +1347,68 @@ bool HUnlock( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
 
 // OSErr MemError(void)
 // Returns the error code from the last Memory Manager operation.
-bool MemError( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool MemError( ShimContext &ctx )
 {
     std::uint32_t err{ static_cast<std::uint32_t>( g_lastMemError ) };
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &err ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write MemError return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( err );
 }
 
 // Handle NewHandle(Size logicalSize)
 // Allocate a relocatable memory block of a specified size.
-bool NewHandle( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool NewHandle( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [logicalSize] = *args;
 
-    const std::uint32_t alloc{ mem->heap_alloc( logicalSize ) };
+    const std::uint32_t alloc{ ctx.mem->heap_alloc( logicalSize ) };
     std::uint32_t *ptrHost{
-        reinterpret_cast<std::uint32_t *>( mem->to_host( mem->heap_alloc( sizeof( std::uint32_t ) ) ) ) };
+        reinterpret_cast<std::uint32_t *>( ctx.mem->to_host( ctx.mem->heap_alloc( sizeof( std::uint32_t ) ) ) ) };
     *ptrHost = common::ensure_endianness( alloc, std::endian::big );
-    std::uint32_t ptrGuest{ mem->to_guest( ptrHost ) };
+    std::uint32_t ptrGuest{ ctx.mem->to_guest( ptrHost ) };
 
     // Set memory error status
     g_lastMemError = ( alloc == 0 ) ? memFullErr : noErr;
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ptrGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write NewHandle return value" << std::endl;
-        return false;
-    }
-
-    return true;
+    return ctx.ret( ptrGuest );
 }
 
 // Handle NewHandleClear(Size logicalSize)
 // Allocate a relocatable memory block and clear it to zeros.
-bool NewHandleClear( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool NewHandleClear( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [logicalSize] = *args;
 
-    const std::uint32_t alloc{ mem->heap_alloc( logicalSize ) };
+    const std::uint32_t alloc{ ctx.mem->heap_alloc( logicalSize ) };
 
     // Clear the allocated memory
-    void *allocPtr{ mem->get( alloc ) };
+    void *allocPtr{ ctx.mem->get( alloc ) };
     if (allocPtr)
     {
         ::memset( allocPtr, 0, logicalSize );
     }
 
     std::uint32_t *ptrHost{
-        reinterpret_cast<std::uint32_t *>( mem->to_host( mem->heap_alloc( sizeof( std::uint32_t ) ) ) ) };
+        reinterpret_cast<std::uint32_t *>( ctx.mem->to_host( ctx.mem->heap_alloc( sizeof( std::uint32_t ) ) ) ) };
     *ptrHost = common::ensure_endianness( alloc, std::endian::big );
-    std::uint32_t ptrGuest{ mem->to_guest( ptrHost ) };
+    std::uint32_t ptrGuest{ ctx.mem->to_guest( ptrHost ) };
 
     // Set memory error status
     g_lastMemError = ( alloc == 0 ) ? memFullErr : noErr;
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ptrGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write NewHandleClear return value" << std::endl;
-        return false;
-    }
-
-    return true;
+    return ctx.ret( ptrGuest );
 }
 
 // OSErr PtrAndHand(const void *ptr1, Handle hand2, long size)
 // Concatenates part or all of a memory block to the end of a relocatable block.
-bool PtrAndHand( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool PtrAndHand( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const void *, std::uint32_t, std::int32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const void *, std::uint32_t, std::int32_t>() };
     if (!args.has_value())
         return false;
     const auto [ptr1, hand2Guest, size] = *args;
@@ -1482,7 +1424,7 @@ bool PtrAndHand( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *load
     else
     {
         // Handle is a pointer to a pointer - get the handle's host address
-        std::uint32_t *handleHost{ reinterpret_cast<std::uint32_t *>( mem->get( hand2Guest ) ) };
+        std::uint32_t *handleHost{ reinterpret_cast<std::uint32_t *>( ctx.mem->get( hand2Guest ) ) };
         if (handleHost == nullptr)
         {
             result = memFullErr;
@@ -1492,13 +1434,13 @@ bool PtrAndHand( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *load
         {
             // Read the pointer value (big-endian) that the handle points to
             const std::uint32_t oldPtrGuest{ common::ensure_endianness( *handleHost, std::endian::big ) };
-            const std::size_t oldSize{ mem->get_alloc_size( oldPtrGuest ) };
+            const std::size_t oldSize{ ctx.mem->get_alloc_size( oldPtrGuest ) };
 
             // Calculate new size
             const std::size_t newSize{ oldSize + static_cast<std::size_t>( size ) };
 
             // Allocate new memory block
-            const std::uint32_t newAlloc{ mem->heap_alloc( newSize ) };
+            const std::uint32_t newAlloc{ ctx.mem->heap_alloc( newSize ) };
 
             if (newAlloc == 0)
             {
@@ -1508,8 +1450,8 @@ bool PtrAndHand( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *load
             else
             {
                 // Copy old data to new location
-                void *oldPtr{ mem->get( oldPtrGuest ) };
-                void *newPtr{ mem->get( newAlloc ) };
+                void *oldPtr{ ctx.mem->get( oldPtrGuest ) };
+                void *newPtr{ ctx.mem->get( newAlloc ) };
                 if (oldPtr && newPtr)
                 {
                     ::memcpy( newPtr, oldPtr, oldSize );
@@ -1526,19 +1468,14 @@ bool PtrAndHand( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *load
         }
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write PtrAndHand return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( result );
 }
 
 // void SetHandleSize(Handle h, Size newSize)
 // Changes the logical size of the relocatable block associated with a handle.
-bool SetHandleSize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool SetHandleSize( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t, std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t, std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [handleGuest, newSize] = *args;
@@ -1550,7 +1487,7 @@ bool SetHandleSize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
     }
 
     // Handle is a pointer to a pointer - get the handle's host address
-    std::uint32_t *handleHost{ reinterpret_cast<std::uint32_t *>( mem->get( handleGuest ) ) };
+    std::uint32_t *handleHost{ reinterpret_cast<std::uint32_t *>( ctx.mem->get( handleGuest ) ) };
     if (handleHost == nullptr)
     {
         g_lastMemError = memFullErr;
@@ -1559,18 +1496,18 @@ bool SetHandleSize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
 
     // Read the pointer value (big-endian) that the handle points to
     const std::uint32_t oldPtrGuest{ common::ensure_endianness( *handleHost, std::endian::big ) };
-    const std::size_t oldSize{ mem->get_alloc_size( oldPtrGuest ) };
+    const std::size_t oldSize{ ctx.mem->get_alloc_size( oldPtrGuest ) };
 
     if (newSize <= oldSize)
     {
         // Shrinking or same size - just update the tracked size
-        mem->set_alloc_size( oldPtrGuest, newSize );
+        ctx.mem->set_alloc_size( oldPtrGuest, newSize );
         g_lastMemError = noErr;
     }
     else
     {
         // Growing - need to allocate new memory and copy old data
-        const std::uint32_t newAlloc{ mem->heap_alloc( newSize ) };
+        const std::uint32_t newAlloc{ ctx.mem->heap_alloc( newSize ) };
 
         if (newAlloc == 0)
         {
@@ -1579,8 +1516,8 @@ bool SetHandleSize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
         else
         {
             // Copy old data to new location
-            void *oldPtr{ mem->get( oldPtrGuest ) };
-            void *newPtr{ mem->get( newAlloc ) };
+            void *oldPtr{ ctx.mem->get( oldPtrGuest ) };
+            void *newPtr{ ctx.mem->get( newAlloc ) };
             if (oldPtr && newPtr)
             {
                 ::memcpy( newPtr, oldPtr, oldSize );
@@ -1597,7 +1534,7 @@ bool SetHandleSize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
 
 // int *___error(void);
 // Returns a pointer to the errno variable
-bool ___error( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool ___error( ShimContext &ctx )
 {
     // Get the address of the _errno import entry
     std::optional<uint32_t> errnoVa{ common::get_import_entry_va_by_name( "_errno" ) };
@@ -1607,22 +1544,15 @@ bool ___error( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader
         return false;
     }
 
-    // Return pointer to the errno location in r3
-    uint32_t errnoAddr = *errnoVa;
-    if (uc_reg_write( uc, UC_PPC_REG_3, &errnoAddr ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write ___error return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( *errnoVa );
 }
 
 // int ___isctype(int c, unsigned long mask);
 // Check if character has certain properties based on bitmask (same as ___istype)
 // This is an alias for ___istype on macOS
-bool ___isctype( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool ___isctype( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int, uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int, uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [c, mask] = *args;
@@ -1651,19 +1581,14 @@ bool ___isctype( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *load
     // Check if any of the requested mask bits are set
     uint32_t result = ( chartype & mask ) != 0 ? 1 : 0;
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write ___isctype return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( result );
 }
 
 // int __istype(int c, unsigned long mask);
 // Check if character has certain properties based on bitmask
-bool ___istype( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool ___istype( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int, uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int, uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [c, mask] = *args;
@@ -1691,20 +1616,14 @@ bool ___istype( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loade
 
     // Check if any of the requested mask bits are set
     uint32_t result = ( chartype & mask ) != 0 ? 1 : 0;
-
-    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write ___istype return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( result );
 }
 
 // int ___tolower(int c);
 // Converts uppercase letter to lowercase
-bool ___tolower( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool ___tolower( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int>() };
     if (!args.has_value())
         return false;
     const auto [c] = *args;
@@ -1712,19 +1631,14 @@ bool ___tolower( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *load
     // Convert to lowercase if uppercase letter
     uint32_t result = ( c >= 'A' && c <= 'Z' ) ? ( c + 32 ) : c;
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write ___tolower return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( result );
 }
 
 // int ___toupper(int c);
 // Converts lowercase letter to uppercase
-bool ___toupper( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool ___toupper( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int>() };
     if (!args.has_value())
         return false;
     const auto [c] = *args;
@@ -1732,19 +1646,14 @@ bool ___toupper( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *load
     // Convert to uppercase if lowercase letter
     uint32_t result = ( c >= 'a' && c <= 'z' ) ? ( c - 32 ) : c;
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write ___toupper return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( result );
 }
 
 // int _setjmp(jmp_buf env);
 // Save calling environment for later use by longjmp
-bool _setjmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool _setjmp( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *>() };
     if (!args.has_value())
         return false;
     const auto [envPtr] = *args;
@@ -1762,31 +1671,31 @@ bool _setjmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     uint32_t r22, r23, r24, r25, r26, r27, r28, r29, r30, r31;
     uint32_t cr, lr, ctr, xer;
 
-    uc_reg_read( uc, UC_PPC_REG_1, &r1 );
-    uc_reg_read( uc, UC_PPC_REG_2, &r2 );
-    uc_reg_read( uc, UC_PPC_REG_13, &r13 );
-    uc_reg_read( uc, UC_PPC_REG_14, &r14 );
-    uc_reg_read( uc, UC_PPC_REG_15, &r15 );
-    uc_reg_read( uc, UC_PPC_REG_16, &r16 );
-    uc_reg_read( uc, UC_PPC_REG_17, &r17 );
-    uc_reg_read( uc, UC_PPC_REG_18, &r18 );
-    uc_reg_read( uc, UC_PPC_REG_19, &r19 );
-    uc_reg_read( uc, UC_PPC_REG_20, &r20 );
-    uc_reg_read( uc, UC_PPC_REG_21, &r21 );
-    uc_reg_read( uc, UC_PPC_REG_22, &r22 );
-    uc_reg_read( uc, UC_PPC_REG_23, &r23 );
-    uc_reg_read( uc, UC_PPC_REG_24, &r24 );
-    uc_reg_read( uc, UC_PPC_REG_25, &r25 );
-    uc_reg_read( uc, UC_PPC_REG_26, &r26 );
-    uc_reg_read( uc, UC_PPC_REG_27, &r27 );
-    uc_reg_read( uc, UC_PPC_REG_28, &r28 );
-    uc_reg_read( uc, UC_PPC_REG_29, &r29 );
-    uc_reg_read( uc, UC_PPC_REG_30, &r30 );
-    uc_reg_read( uc, UC_PPC_REG_31, &r31 );
-    uc_reg_read( uc, UC_PPC_REG_CR, &cr );
-    uc_reg_read( uc, UC_PPC_REG_LR, &lr );
-    uc_reg_read( uc, UC_PPC_REG_CTR, &ctr );
-    uc_reg_read( uc, UC_PPC_REG_XER, &xer );
+    uc_reg_read( ctx.uc, UC_PPC_REG_1, &r1 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_2, &r2 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_13, &r13 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_14, &r14 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_15, &r15 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_16, &r16 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_17, &r17 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_18, &r18 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_19, &r19 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_20, &r20 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_21, &r21 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_22, &r22 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_23, &r23 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_24, &r24 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_25, &r25 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_26, &r26 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_27, &r27 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_28, &r28 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_29, &r29 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_30, &r30 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_31, &r31 );
+    uc_reg_read( ctx.uc, UC_PPC_REG_CR, &cr );
+    uc_reg_read( ctx.uc, UC_PPC_REG_LR, &lr );
+    uc_reg_read( ctx.uc, UC_PPC_REG_CTR, &ctr );
+    uc_reg_read( ctx.uc, UC_PPC_REG_XER, &xer );
 
     // Store in big-endian format
     jmpBuf->r1 = common::ensure_endianness( r1, std::endian::big );
@@ -1817,20 +1726,14 @@ bool _setjmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
 
     // Return 0 for setjmp
     uint32_t ret = 0;
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write _setjmp return value" << std::endl;
-        return false;
-    }
-
-    return true;
+    return ctx.ret( ret );
 }
 
 // void _longjmp(jmp_buf env, int val);
 // Restore environment saved by setjmp and return to that point
-bool _longjmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool _longjmp( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *, int>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *, int>() };
     if (!args.has_value())
         return false;
     const auto [envPtr, val] = *args;
@@ -1871,57 +1774,51 @@ bool _longjmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader
     uint32_t xer = common::ensure_endianness( jmpBuf->xer, std::endian::big );
 
     // Restore all registers
-    uc_reg_write( uc, UC_PPC_REG_1, &r1 );
-    uc_reg_write( uc, UC_PPC_REG_2, &r2 );
-    uc_reg_write( uc, UC_PPC_REG_13, &r13 );
-    uc_reg_write( uc, UC_PPC_REG_14, &r14 );
-    uc_reg_write( uc, UC_PPC_REG_15, &r15 );
-    uc_reg_write( uc, UC_PPC_REG_16, &r16 );
-    uc_reg_write( uc, UC_PPC_REG_17, &r17 );
-    uc_reg_write( uc, UC_PPC_REG_18, &r18 );
-    uc_reg_write( uc, UC_PPC_REG_19, &r19 );
-    uc_reg_write( uc, UC_PPC_REG_20, &r20 );
-    uc_reg_write( uc, UC_PPC_REG_21, &r21 );
-    uc_reg_write( uc, UC_PPC_REG_22, &r22 );
-    uc_reg_write( uc, UC_PPC_REG_23, &r23 );
-    uc_reg_write( uc, UC_PPC_REG_24, &r24 );
-    uc_reg_write( uc, UC_PPC_REG_25, &r25 );
-    uc_reg_write( uc, UC_PPC_REG_26, &r26 );
-    uc_reg_write( uc, UC_PPC_REG_27, &r27 );
-    uc_reg_write( uc, UC_PPC_REG_28, &r28 );
-    uc_reg_write( uc, UC_PPC_REG_29, &r29 );
-    uc_reg_write( uc, UC_PPC_REG_30, &r30 );
-    uc_reg_write( uc, UC_PPC_REG_31, &r31 );
-    uc_reg_write( uc, UC_PPC_REG_CR, &cr );
-    uc_reg_write( uc, UC_PPC_REG_LR, &lr );
-    uc_reg_write( uc, UC_PPC_REG_CTR, &ctr );
-    uc_reg_write( uc, UC_PPC_REG_XER, &xer );
+    uc_reg_write( ctx.uc, UC_PPC_REG_1, &r1 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_2, &r2 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_13, &r13 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_14, &r14 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_15, &r15 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_16, &r16 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_17, &r17 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_18, &r18 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_19, &r19 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_20, &r20 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_21, &r21 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_22, &r22 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_23, &r23 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_24, &r24 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_25, &r25 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_26, &r26 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_27, &r27 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_28, &r28 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_29, &r29 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_30, &r30 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_31, &r31 );
+    uc_reg_write( ctx.uc, UC_PPC_REG_CR, &cr );
+    uc_reg_write( ctx.uc, UC_PPC_REG_LR, &lr );
+    uc_reg_write( ctx.uc, UC_PPC_REG_CTR, &ctr );
+    uc_reg_write( ctx.uc, UC_PPC_REG_XER, &xer );
 
     // Set PC to the return address (LR from setjmp)
-    uc_reg_write( uc, UC_PPC_REG_PC, &lr );
+    uc_reg_write( ctx.uc, UC_PPC_REG_PC, &lr );
 
     // Return val (or 1 if val is 0)
     uint32_t retVal = ( val == 0 ) ? 1 : val;
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retVal ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write _longjmp return value" << std::endl;
-        return false;
-    }
-
-    return true;
+    return ctx.ret( retVal );
 }
 
-bool keymgr_dwarf2_register_sections( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool keymgr_dwarf2_register_sections( ShimContext &ctx )
 {
     return true;
 }
 
-bool cthread_init_routine( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool cthread_init_routine( ShimContext &ctx )
 {
     return true;
 }
 
-bool dyld_make_delayed_module_initializer_calls( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool dyld_make_delayed_module_initializer_calls( ShimContext &ctx )
 {
     static constexpr std::uint8_t Stack_Frame_Size{ 0x20 };
     static constexpr std::array<std::uint8_t, 12> prolog{
@@ -1945,7 +1842,7 @@ bool dyld_make_delayed_module_initializer_calls( uc_engine *uc, memory::CMemory 
     std::vector<std::uint8_t> trampoline_mem{};
     std::copy( prolog.begin(), prolog.end(), std::back_inserter( trampoline_mem ) );
 
-    std::vector<std::uint32_t> static_constructor_arr{ loader->get_static_constructors() };
+    std::vector<std::uint32_t> static_constructor_arr{ ctx.loader->get_static_constructors() };
     for (const std::uint32_t constructor_va : static_constructor_arr)
     {
         std::array<uint8_t, 16> current_constructor_call{ constructor_call };
@@ -1960,23 +1857,18 @@ bool dyld_make_delayed_module_initializer_calls( uc_engine *uc, memory::CMemory 
     }
     std::copy( epilog.begin(), epilog.end(), std::back_inserter( trampoline_mem ) );
 
-    std::uint32_t trampoline_guest_addr{ mem->heap_alloc( trampoline_mem.size() ) };
-    void *trampoline_host_addr{ reinterpret_cast<void *>( mem->to_host( trampoline_guest_addr ) ) };
+    std::uint32_t trampoline_guest_addr{ ctx.mem->heap_alloc( trampoline_mem.size() ) };
+    void *trampoline_host_addr{ reinterpret_cast<void *>( ctx.mem->to_host( trampoline_guest_addr ) ) };
 
     std::memcpy( trampoline_host_addr, trampoline_mem.data(), trampoline_mem.size() );
 
-    if (uc_reg_write( uc, UC_PPC_REG_PC, &trampoline_guest_addr ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write trampoline return address" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( trampoline_guest_addr );
 }
 
 // int _dyld_func_lookup(const char *dyld_func_name, void **address);
-bool dyld_func_lookup( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool dyld_func_lookup( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, uint64_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, uint64_t>() };
     if (!args.has_value())
         return false;
     const auto [namePtr, callbackAddress] = *args;
@@ -1990,7 +1882,7 @@ bool dyld_func_lookup( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader
         *importEntryVa += sizeof( uint32_t ); // + sizeof(uint32_t) as it is direct import
 
     uint32_t callbackAddressBe{ common::ensure_endianness( *importEntryVa, std::endian::big ) };
-    if (uc_mem_write( uc, callbackAddress, &callbackAddressBe, sizeof( callbackAddressBe ) ) != UC_ERR_OK)
+    if (uc_mem_write( ctx.uc, callbackAddress, &callbackAddressBe, sizeof( callbackAddressBe ) ) != UC_ERR_OK)
     {
         std::cerr << "Could not write dyld_func_lookup resolved address to memory" << std::endl;
         return false;
@@ -1999,74 +1891,56 @@ bool dyld_func_lookup( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader
 }
 
 // int abs(int n);
-bool abs( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool abs( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int>() };
     if (!args.has_value())
         return false;
     const auto [n] = *args;
 
     int ret{ ::abs( n ) };
-
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write abs return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int atexit(void (*func)(void));
-bool atexit( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool atexit( ShimContext &ctx )
 {
     return true;
 }
 
 // int atoi(const char *str);
 // Converts string to integer
-bool atoi( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool atoi( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *>() };
     if (!args.has_value())
         return false;
     const auto [str] = *args;
 
     // Use standard C library atoi
     int result = ::atoi( str );
-
-    if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write atoi return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( result );
 }
 
-bool exit( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool exit( ShimContext &ctx )
 {
-    uc_emu_stop( uc );
+    uc_emu_stop( ctx.uc );
     return true;
 }
 
 // pid_t fork(void);
 // Shim: always returns 0 (pretend to be the child process)
-bool fork( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool fork( ShimContext &ctx )
 {
     std::cout << "[OsxPpcEmu] fork() shim called, returning 0 (child)" << std::endl;
-    std::uint32_t ret{ 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write fork return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( 0 );
 }
 
 // int execve(const char *path, char *const argv[], char *const envp[]);
 // Redirects execution of PPC binaries through the emulator
-bool execve( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool execve( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, std::uint32_t, std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, std::uint32_t, std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [path, guestArgvAddr, guestEnvpAddr] = *args;
@@ -2085,9 +1959,9 @@ bool execve( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     if (!resolved)
     {
         std::cerr << "[OsxPpcEmu] execve: could not resolve emulator path" << std::endl;
-        set_guest_errno( mem, ENOENT );
+        set_guest_errno( ctx.mem, ENOENT );
         std::int32_t ret{ -1 };
-        uc_reg_write( uc, UC_PPC_REG_3, &ret );
+        uc_reg_write( ctx.uc, UC_PPC_REG_3, &ret );
         return true;
     }
 
@@ -2096,11 +1970,11 @@ bool execve( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     for (std::uint32_t cur{ guestArgvAddr }; cur != 0;)
     {
         std::uint32_t ptrBe{};
-        ::memcpy( &ptrBe, mem->get( cur ), sizeof( ptrBe ) );
+        ::memcpy( &ptrBe, ctx.mem->get( cur ), sizeof( ptrBe ) );
         std::uint32_t ptr{ common::ensure_endianness( ptrBe, std::endian::big ) };
         if (ptr == 0)
             break;
-        guestArgv.push_back( reinterpret_cast<const char *>( mem->get( ptr ) ) );
+        guestArgv.push_back( reinterpret_cast<const char *>( ctx.mem->get( ptr ) ) );
         cur += 4;
     }
 
@@ -2116,51 +1990,40 @@ bool execve( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     // Only reached on failure
     std::cerr << "[OsxPpcEmu] execve failed: " << ::strerror( errno ) << std::endl;
-    set_guest_errno( mem, errno );
-    std::int32_t ret{ -1 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write execve return value" << std::endl;
-        return false;
-    }
-    return true;
+    set_guest_errno( ctx.mem, errno );
+    return ctx.ret( -1 );
 }
 
 // int fclose(FILE *stream);
-bool fclose( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool fclose( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *>() };
     if (!args.has_value())
         return false;
     const auto [stream] = *args;
 
-    FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
+    FILE *f{ common::resolve_file_stream( ctx.mem->to_guest( stream ) ) };
     if (!f)
         f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
     int ret{ ::fclose( f ) };
 
     if (ret == EOF)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write fgetc return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int fflush(FILE *stream);
-bool fflush( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool fflush( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *>() };
     if (!args.has_value())
         return false;
     const auto [stream] = *args;
 
-    FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
+    FILE *f{ common::resolve_file_stream( ctx.mem->to_guest( stream ) ) };
     if (!f)
         f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
 
@@ -2168,26 +2031,21 @@ bool fflush( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (ret == EOF)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write fflush return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int fgetc(FILE *stream);
-bool fgetc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool fgetc( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *>() };
     if (!args.has_value())
         return false;
     const auto [stream] = *args;
 
-    FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
+    FILE *f{ common::resolve_file_stream( ctx.mem->to_guest( stream ) ) };
     if (!f)
         f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
 
@@ -2195,21 +2053,16 @@ bool fgetc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (ret == EOF)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write fgetc return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // FILE *fopen(const char *filename, const char *mode);
-bool fopen( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool fopen( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, const char *>() };
     if (!args.has_value())
         return false;
     const auto [filename, mode] = *args;
@@ -2218,7 +2071,7 @@ bool fopen( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (ret == nullptr)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
     // Store the FILE* in guest memory and return pointer to it
@@ -2226,10 +2079,10 @@ bool fopen( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     if (ret != nullptr)
     {
         // Allocate space for the FILE* on the heap
-        retGuest = mem->heap_alloc( sizeof( FILE * ) );
+        retGuest = ctx.mem->heap_alloc( sizeof( FILE * ) );
         if (retGuest != 0)
         {
-            FILE **filePtr{ static_cast<FILE **>( mem->get( retGuest ) ) };
+            FILE **filePtr{ static_cast<FILE **>( ctx.mem->get( retGuest ) ) };
             if (filePtr)
             {
                 *filePtr = ret;
@@ -2246,23 +2099,18 @@ bool fopen( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         }
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write fopen return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retGuest );
 }
 
 // size_t fwrite( const void * buffer, size_t size, size_t count, FILE * stream );
-bool fwrite( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool fwrite( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const void *, std::size_t, std::size_t, void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const void *, std::size_t, std::size_t, void *>() };
     if (!args.has_value())
         return false;
     const auto [buffer, size, count, stream] = *args;
 
-    FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
+    FILE *f{ common::resolve_file_stream( ctx.mem->to_guest( stream ) ) };
     if (!f)
         f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
 
@@ -2271,21 +2119,16 @@ bool fwrite( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     // fwrite returns less than count on error
     if (ret < count)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write fwrite return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int fstat(int fd, struct stat *buf);
-bool fstat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool fstat( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int, void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int, void *>() };
     if (!args.has_value())
         return false;
     const auto [fd, buf] = *args;
@@ -2310,21 +2153,16 @@ bool fstat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     }
     else if (ret == -1)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write fstat return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int ioctl(int fd, unsigned long op, ...);
-bool ioctl( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool ioctl( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int, uint32_t, void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int, uint32_t, void *>() };
     if (!args.has_value())
         return false;
 
@@ -2352,73 +2190,58 @@ bool ioctl( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         ret = -1;
         assert( "Missing implementation for ioctl" );
     }
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write malloc return" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
-bool mach_init_routine( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool mach_init_routine( ShimContext &ctx )
 {
     return true;
 }
 
 // void* malloc(std::size_t size);
-bool malloc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool malloc( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::size_t>() };
     if (!args.has_value())
         return false;
     const auto [size]{ *args };
 
-    uint32_t ret{ mem->heap_alloc( size ) };
+    uint32_t ret{ ctx.mem->heap_alloc( size ) };
 
     // Set errno if allocation failed
     if (ret == 0)
     {
-        set_guest_errno( mem, ENOMEM );
+        set_guest_errno( ctx.mem, ENOMEM );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write malloc return" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // void* calloc(std::size_t num, std::size_t size);
-bool calloc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool calloc( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::size_t, std::size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::size_t, std::size_t>() };
     if (!args.has_value())
         return false;
     const auto [num, size]{ *args };
 
-    uint32_t ret{ mem->heap_alloc( num * size ) };
+    uint32_t ret{ ctx.mem->heap_alloc( num * size ) };
     // calloc zeros the memory
-    void *ptr{ mem->get( ret ) };
+    void *ptr{ ctx.mem->get( ret ) };
     if (ptr)
         ::memset( ptr, 0, num * size );
     else if (ret == 0)
     {
-        set_guest_errno( mem, ENOMEM );
+        set_guest_errno( ctx.mem, ENOMEM );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write calloc return" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // void* realloc(void* ptr, std::size_t size);
-bool realloc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool realloc( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *, std::size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *, std::size_t>() };
     if (!args.has_value())
         return false;
     const auto [ptr, size]{ *args };
@@ -2426,12 +2249,12 @@ bool realloc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     // If ptr is NULL, realloc behaves like malloc
     if (!ptr)
     {
-        uint32_t ret{ mem->heap_alloc( size ) };
+        uint32_t ret{ ctx.mem->heap_alloc( size ) };
         if (ret == 0)
         {
-            set_guest_errno( mem, ENOMEM );
+            set_guest_errno( ctx.mem, ENOMEM );
         }
-        if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
         {
             std::cerr << "Could not write realloc return" << std::endl;
             return false;
@@ -2443,7 +2266,7 @@ bool realloc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     if (size == 0)
     {
         uint32_t ret{ 0 };
-        if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
         {
             std::cerr << "Could not write realloc return" << std::endl;
             return false;
@@ -2452,11 +2275,11 @@ bool realloc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     }
 
     // Allocate new memory and copy old data
-    uint32_t oldGuestPtr{ mem->to_guest( ptr ) };
-    std::size_t oldSize{ mem->get_alloc_size( oldGuestPtr ) };
+    uint32_t oldGuestPtr{ ctx.mem->to_guest( ptr ) };
+    std::size_t oldSize{ ctx.mem->get_alloc_size( oldGuestPtr ) };
 
-    uint32_t newPtr{ mem->heap_alloc( size ) };
-    void *newHostPtr{ mem->get( newPtr ) };
+    uint32_t newPtr{ ctx.mem->heap_alloc( size ) };
+    void *newHostPtr{ ctx.mem->get( newPtr ) };
 
     if (newHostPtr && ptr)
     {
@@ -2467,104 +2290,73 @@ bool realloc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     }
     else if (newPtr == 0)
     {
-        set_guest_errno( mem, ENOMEM );
+        set_guest_errno( ctx.mem, ENOMEM );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &newPtr ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write realloc return" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( newPtr );
 }
 
 // void* memcpy(void * destination, const void * source, size_t num);
-bool memcpy( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool memcpy( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *, const void *, std::size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *, const void *, std::size_t>() };
     if (!args.has_value())
         return false;
     const auto [dest, source, count] = *args;
     ::memcpy( dest, source, count );
-    uint32_t retGuest{ mem->to_guest( dest ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write memcpy return" << std::endl;
-        return false;
-    }
-    return true;
+    uint32_t retGuest{ ctx.mem->to_guest( dest ) };
+    return ctx.ret( retGuest );
 }
 
 // void* memmove( void* dest, const void* src, std::size_t count );
-bool memmove( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool memmove( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *, const void *, std::size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *, const void *, std::size_t>() };
     if (!args.has_value())
         return false;
     const auto [dest, source, count] = *args;
     ::memmove( dest, source, count );
-    uint32_t retGuest{ mem->to_guest( dest ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write memmove return" << std::endl;
-        return false;
-    }
-    return true;
+    uint32_t retGuest{ ctx.mem->to_guest( dest ) };
+    return ctx.ret( retGuest );
 }
 
 // void *memset(void *str, int c, size_t n)
-bool memset( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool memset( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *, int, std::size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *, int, std::size_t>() };
     if (!args.has_value())
         return false;
     const auto [str, c, n] = *args;
     ::memset( str, c, n * sizeof( char ) );
-    uint32_t retGuest{ mem->to_guest( str ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write memset return" << std::endl;
-        return false;
-    }
-    return true;
+    uint32_t retGuest{ ctx.mem->to_guest( str ) };
+    return ctx.ret( retGuest );
 }
 
 // int puts(const char *str);
-bool puts( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool puts( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *>() };
     if (!args.has_value())
         return false;
     const auto [str] = *args;
     int ret{ ::puts( str ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write puts return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int setvbuf( FILE * stream, char * buffer, int mode, size_t size );
-bool setvbuf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool setvbuf( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *, char *, int, size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *, char *, int, size_t>() };
     if (!args.has_value())
         return false;
     // TODO
-    uint32_t success{ 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &success ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write return value of setvbuf" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( 0 );
 }
 
 // sighandler_t signal(int signum, sighandler_t handler);
-bool signal( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool signal( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int, void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int, void *>() };
     if (!args.has_value())
         return false;
     // TODO
@@ -2572,69 +2364,54 @@ bool signal( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 }
 
 // int sprintf(char * buffer, const char * format, ...);
-bool sprintf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool sprintf( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *, const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *, const char *>() };
     if (!args.has_value())
         return false;
 
     auto [buffer, format]{ *args };
 
-    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5, false ) };
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( ctx.uc, ctx.mem, format, UC_PPC_REG_5, false ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vsprintf( buffer, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write sprintf return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int printf(const char *format, ...)
-bool printf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool printf( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *>() };
     if (!args.has_value())
         return false;
     auto [format]{ *args };
 
-    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_4, false ) };
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( ctx.uc, ctx.mem, format, UC_PPC_REG_4, false ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vprintf( format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write printf return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int vsprintf(char * buffer, const char * format, va_list ap);
-bool vsprintf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool vsprintf( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *, const char *, void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *, const char *, void *>() };
     if (!args.has_value())
         return false;
     const auto &[s, format, apPtr] = *args;
-    std::vector formatArgs{ common::get_va_arguments( mem, apPtr, format ) };
+    std::vector formatArgs{ common::get_va_arguments( ctx.mem, apPtr, format ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vsprintf( s, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write vsprintf return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int stat(const char * restrict path,	struct stat * restrict sb);
-bool stat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool stat( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, void *>() };
     if (!args.has_value())
         return false;
     const auto [path, sb] = *args;
@@ -2659,22 +2436,17 @@ bool stat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     }
     else if (ret == -1)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write stat return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int lstat(const char * restrict path, struct stat * restrict sb);
 // Like stat but doesn't follow symbolic links
-bool lstat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool lstat( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, void *>() };
     if (!args.has_value())
         return false;
     const auto [path, sb] = *args;
@@ -2699,144 +2471,104 @@ bool lstat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     }
     else if (ret == -1)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write lstat return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // char * strcat( char * destination, const char * source );
-bool strcat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strcat( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *, const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *, const char *>() };
     if (!args.has_value())
         return false;
     const auto [dest, src] = *args;
     char *ret{ ::strcat( dest, src ) };
-    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strcat return value" << std::endl;
-        return false;
-    }
-    return true;
+    uint32_t retGuest{ ret != nullptr ? ctx.mem->to_guest( ret ) : 0 };
+    return ctx.ret( retGuest );
 }
 
 // char * strchr( const char * str, int ch );
-bool strchr( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strchr( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *, int>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *, int>() };
     if (!args.has_value())
         return false;
     const auto [str, ch] = *args;
     char *ret{ ::strchr( str, ch ) };
-    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strchr return value" << std::endl;
-        return false;
-    }
-    return true;
+    uint32_t retGuest{ ret != nullptr ? ctx.mem->to_guest( ret ) : 0 };
+    return ctx.ret( retGuest );
 }
 
 // size_t strlen( const char * str );
-bool strlen( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strlen( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *>() };
     if (!args.has_value())
         return false;
     const auto [str] = *args;
     std::size_t ret{ ::strlen( str ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strlen return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // char *strpbrk(const char *str1, const char *str2);
 // Finds the first character in str1 that matches any character in str2
-bool strpbrk( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strpbrk( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, const char *>() };
     if (!args.has_value())
         return false;
     const auto [str1, str2] = *args;
     const char *ret{ ::strpbrk( str1, str2 ) };
-    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strpbrk return value" << std::endl;
-        return false;
-    }
-    return true;
+    uint32_t retGuest{ ret != nullptr ? ctx.mem->to_guest( ret ) : 0 };
+    return ctx.ret( retGuest );
 }
 
 // char * strrchr( const char * str, int ch );
-bool strrchr( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strrchr( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *, int>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *, int>() };
     if (!args.has_value())
         return false;
     const auto [str, ch] = *args;
 
     char *ret{ ::strrchr( str, ch ) };
-    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strrchr return value" << std::endl;
-        return false;
-    }
-    return true;
+    uint32_t retGuest{ ret != nullptr ? ctx.mem->to_guest( ret ) : 0 };
+    return ctx.ret( retGuest );
 }
 
 // char *strstr(const char *haystack, const char *needle);
-bool strstr( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strstr( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, const char *>() };
     if (!args.has_value())
         return false;
     const auto [haystack, needle] = *args;
 
     const char *ret{ ::strstr( haystack, needle ) };
-    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strstr return value" << std::endl;
-        return false;
-    }
-    return true;
+    uint32_t retGuest{ ret != nullptr ? ctx.mem->to_guest( ret ) : 0 };
+    return ctx.ret( retGuest );
 }
 
 // char *strcpy( char *dest, const char *src );
-bool strcpy( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strcpy( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *, const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *, const char *>() };
     if (!args.has_value())
         return false;
     const auto [dest, source] = *args;
 
     char *ret{ ::strcpy( dest, source ) };
-    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strcpy return value" << std::endl;
-        return false;
-    }
-    return true;
+    uint32_t retGuest{ ret != nullptr ? ctx.mem->to_guest( ret ) : 0 };
+    return ctx.ret( retGuest );
 }
 
 // char *strdup( const char *s );
 // Duplicates a string by allocating memory and copying the contents
-bool strdup( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strdup( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *>() };
     if (!args.has_value())
         return false;
     const auto [str] = *args;
@@ -2844,7 +2576,7 @@ bool strdup( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     if (!str)
     {
         uint32_t ret{ 0 };
-        if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
         {
             std::cerr << "Could not write strdup return value" << std::endl;
             return false;
@@ -2853,12 +2585,12 @@ bool strdup( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     }
 
     std::size_t len{ ::strlen( str ) };
-    uint32_t guestPtr{ mem->heap_alloc( len + 1 ) };
+    uint32_t guestPtr{ ctx.mem->heap_alloc( len + 1 ) };
 
     if (guestPtr == 0)
     {
-        set_guest_errno( mem, ENOMEM );
-        if (uc_reg_write( uc, UC_PPC_REG_3, &guestPtr ) != UC_ERR_OK)
+        set_guest_errno( ctx.mem, ENOMEM );
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &guestPtr ) != UC_ERR_OK)
         {
             std::cerr << "Could not write strdup return value" << std::endl;
             return false;
@@ -2866,25 +2598,20 @@ bool strdup( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         return true;
     }
 
-    char *dest{ static_cast<char *>( mem->get( guestPtr ) ) };
+    char *dest{ static_cast<char *>( ctx.mem->get( guestPtr ) ) };
     if (dest)
     {
         ::memcpy( dest, str, len + 1 );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &guestPtr ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strdup return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( guestPtr );
 }
 
 // char *strerror(int errnum);
 // Returns a pointer to the textual representation of the current errno value
-bool strerror( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strerror( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int>() };
     if (!args.has_value())
         return false;
     const auto [errnum] = *args;
@@ -2895,64 +2622,49 @@ bool strerror( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader
     if (ret != nullptr)
     {
         std::size_t len{ ::strlen( ret ) + 1 };
-        char *heap_ptr{ reinterpret_cast<char *>( mem->to_host( mem->heap_alloc( len ) ) ) };
+        char *heap_ptr{ reinterpret_cast<char *>( ctx.mem->to_host( ctx.mem->heap_alloc( len ) ) ) };
         ::memcpy( heap_ptr, ret, len );
-        retGuest = mem->to_guest( heap_ptr );
+        retGuest = ctx.mem->to_guest( heap_ptr );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strerror return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retGuest );
 }
 
 // char * strncpy ( char * destination, const char * source, size_t num );
-bool strncpy( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strncpy( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *, const char *, std::size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *, const char *, std::size_t>() };
     if (!args.has_value())
         return false;
     const auto [dest, source, num] = *args;
 
     char *ret{ ::strncpy( dest, source, num ) };
-    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strncpy return value" << std::endl;
-        return false;
-    }
-    return true;
+    uint32_t retGuest{ ret != nullptr ? ctx.mem->to_guest( ret ) : 0 };
+    return ctx.ret( retGuest );
 }
 
-bool dyld_stub_binding_helper( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool dyld_stub_binding_helper( ShimContext &ctx )
 {
     return true;
 }
 
-bool vsnprintf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool vsnprintf( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *, size_t, const char *, void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *, size_t, const char *, void *>() };
     if (!args.has_value())
         return false;
     const auto &[s, n, format, apPtr] = *args;
-    std::vector formatArgs{ common::get_va_arguments( mem, apPtr, format ) };
+    std::vector formatArgs{ common::get_va_arguments( ctx.mem, apPtr, format ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vsnprintf( s, n, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write vsnprintf return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // char *getcwd(char *buf, size_t size);
-bool getcwd( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool getcwd( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *, size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *, size_t>() };
     if (!args.has_value())
         return false;
     const auto [buf, size] = *args;
@@ -2960,22 +2672,17 @@ bool getcwd( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (ret == nullptr)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write getcwd return value" << std::endl;
-        return false;
-    }
-    return true;
+    uint32_t retGuest{ ret != nullptr ? ctx.mem->to_guest( ret ) : 0 };
+    return ctx.ret( retGuest );
 }
 
 // void free(void *ptr);
-bool free( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool free( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *>() };
     if (!args.has_value())
         return false;
     // Do not actually free memory
@@ -2983,66 +2690,51 @@ bool free( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 }
 
 // int strcmp( const char *lhs, const char *rhs );
-bool strcmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strcmp( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, const char *>() };
     if (!args.has_value())
         return false;
     const auto [lhs, rhs] = *args;
     int ret{ ::strcmp( lhs, rhs ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strcmp return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int strncmp(const char *s1, const char *s2, size_t n);
-bool strncmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strncmp( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, const char *, size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, const char *, size_t>() };
     if (!args.has_value())
         return false;
     const auto [s1, s2, n] = *args;
     int ret{ ::strncmp( s1, s2, n ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strncmp return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int fprintf(FILE *stream, const char *format, ...);
-bool fprintf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool fprintf( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *, const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *, const char *>() };
     if (!args.has_value())
         return false;
 
     auto [stream, format]{ *args };
 
-    FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
+    FILE *f{ common::resolve_file_stream( ctx.mem->to_guest( stream ) ) };
     if (!f)
         f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
 
-    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5, false ) };
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( ctx.uc, ctx.mem, format, UC_PPC_REG_5, false ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vfprintf( f, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write fprintf return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // ssize_t readlink(const char *path, char *buf, size_t bufsiz);
-bool readlink( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool readlink( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, char *, size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, char *, size_t>() };
     if (!args.has_value())
         return false;
     const auto [path, buf, bufsiz] = *args;
@@ -3051,22 +2743,17 @@ bool readlink( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader
 
     if (ret == -1)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
     std::int32_t retVal{ static_cast<std::int32_t>( ret ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retVal ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write readlink return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retVal );
 }
 
 // off_t lseek(int fd, off_t offset, int whence);
-bool lseek( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool lseek( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int, std::uint32_t, std::uint32_t, int>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int, std::uint32_t, std::uint32_t, int>() };
     if (!args.has_value())
         return false;
     const auto [fd, offsetHi, offsetLo, whence] = *args;
@@ -3076,22 +2763,17 @@ bool lseek( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (ret == static_cast<off_t>( -1 ))
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
     uint32_t retGuest = static_cast<uint32_t>( ret );
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write lseek return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retGuest );
 }
 
 // char *getenv(const char *name);
-bool getenv( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool getenv( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *>() };
     if (!args.has_value())
         return false;
     const auto [name] = *args;
@@ -3101,30 +2783,24 @@ bool getenv( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     if (name != nullptr && std::strlen( name ) >= 7 && !std::memcmp( name, "DISPLAY", 7 ))
     {
         static constexpr std::string_view retStr{ ":0" };
-        char *heap_ptr{ reinterpret_cast<char *>( mem->to_host( mem->heap_alloc( retStr.size() + 1 ) ) ) };
+        char *heap_ptr{ reinterpret_cast<char *>( ctx.mem->to_host( ctx.mem->heap_alloc( retStr.size() + 1 ) ) ) };
         ::memcpy( heap_ptr, retStr.data(), retStr.size() );
         heap_ptr[retStr.size()] = '\0';
-        retGuest = mem->to_guest( heap_ptr );
+        retGuest = ctx.mem->to_guest( heap_ptr );
     }
     else if (ret != nullptr)
     {
-        char *heap_ptr{ reinterpret_cast<char *>( mem->to_host( mem->heap_alloc( ::strlen( ret ) + 1 ) ) ) };
+        char *heap_ptr{ reinterpret_cast<char *>( ctx.mem->to_host( ctx.mem->heap_alloc( ::strlen( ret ) + 1 ) ) ) };
         ::memcpy( heap_ptr, ret, ::strlen( ret ) + 1 );
-        retGuest = mem->to_guest( heap_ptr );
+        retGuest = ctx.mem->to_guest( heap_ptr );
     }
-
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write getenv return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retGuest );
 }
 
 // int open(const char *path, int flags, ...);
-bool open( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool open( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, int, int>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, int, int>() };
     if (!args.has_value())
         return false;
     const auto [path, flags, mode] = *args;
@@ -3133,21 +2809,16 @@ bool open( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (ret == -1)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write open return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // DIR *opendir(const char *path);
-bool opendir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool opendir( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *>() };
     if (!args.has_value())
         return false;
     const auto [path] = *args;
@@ -3157,27 +2828,22 @@ bool opendir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     std::uint32_t retPtr{ 0 };
     if (hostDir == nullptr)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
     else
     {
-        DIR *hostDirDst{ reinterpret_cast<DIR *>( mem->to_host( mem->heap_alloc( sizeof( DIR ) ) ) ) };
+        DIR *hostDirDst{ reinterpret_cast<DIR *>( ctx.mem->to_host( ctx.mem->heap_alloc( sizeof( DIR ) ) ) ) };
         ::memcpy( hostDirDst, hostDir, sizeof( DIR ) );
-        retPtr = mem->to_guest( hostDirDst );
+        retPtr = ctx.mem->to_guest( hostDirDst );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retPtr ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write opendir return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retPtr );
 }
 
 // struct dirent *readdir(DIR *dirp);
-bool readdir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool readdir( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [guestDirPtr] = *args;
@@ -3185,26 +2851,26 @@ bool readdir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     std::uint32_t retPtr{ 0 };
     if (guestDirPtr == 0)
     {
-        set_guest_errno( mem, EBADF );
+        set_guest_errno( ctx.mem, EBADF );
     }
     else
     {
-        DIR *hostDir{ reinterpret_cast<DIR *>( mem->to_host( guestDirPtr ) ) };
+        DIR *hostDir{ reinterpret_cast<DIR *>( ctx.mem->to_host( guestDirPtr ) ) };
         struct dirent *hostEntry{ ::readdir( hostDir ) };
 
         if (hostEntry == nullptr)
         {
             if (errno != 0)
-                set_guest_errno( mem, errno );
+                set_guest_errno( ctx.mem, errno );
             // NULL return with errno=0 means end of directory
         }
         else
         {
-            std::uint32_t guestEntryVa{ mem->heap_alloc( sizeof( guest::dirent ) ) };
-            guest::dirent *guestEntry{ reinterpret_cast<guest::dirent *>( mem->to_host( guestEntryVa ) ) };
+            std::uint32_t guestEntryVa{ ctx.mem->heap_alloc( sizeof( guest::dirent ) ) };
+            guest::dirent *guestEntry{ reinterpret_cast<guest::dirent *>( ctx.mem->to_host( guestEntryVa ) ) };
             if (!guestEntry)
             {
-                set_guest_errno( mem, ENOMEM );
+                set_guest_errno( ctx.mem, ENOMEM );
             }
             else
             {
@@ -3224,18 +2890,13 @@ bool readdir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
         }
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retPtr ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write readdir return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retPtr );
 }
 
 // int closedir(DIR *dirp);
-bool closedir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool closedir( ShimContext &ctx )
 {
-    const auto args{ get_arguments<std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [guestDir] = *args;
@@ -3243,26 +2904,21 @@ bool closedir( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader
     int ret{ 0 };
     if (guestDir == 0)
     {
-        set_guest_errno( mem, EBADF );
+        set_guest_errno( ctx.mem, EBADF );
     }
     else
     {
         // no ::closedir as it calls free on non heap address
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write closedir return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int unlink(const char *pathname);
 // Deletes a name from the filesystem
-bool unlink( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool unlink( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *>() };
     if (!args.has_value())
         return false;
     const auto [pathname] = *args;
@@ -3271,24 +2927,18 @@ bool unlink( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (ret == -1)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write unlink return value" << std::endl;
-        return false;
-    }
-
-    return true;
+    return ctx.ret( ret );
 }
 
 // int utime(const char *filename, const struct utimbuf *times);
 // Set file access and modification times
 // TODO fix, not working, bad date, why?
-bool utime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool utime( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, const void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, const void *>() };
     if (!args.has_value())
         return false;
     const auto [filename, times] = *args;
@@ -3306,21 +2956,16 @@ bool utime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (ret == -1)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write utime return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int chmod(const char *path, mode_t mode);
-bool chmod( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool chmod( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [path, mode] = *args;
@@ -3329,21 +2974,16 @@ bool chmod( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (ret == -1)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write chmod return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int close(int fd);
-bool close( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool close( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int>() };
     if (!args.has_value())
         return false;
     const auto [fd] = *args;
@@ -3352,21 +2992,16 @@ bool close( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (ret == -1)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write close return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // ssize_t read(int fd, void *buf, size_t count);
-bool read( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool read( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int, void *, size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int, void *, size_t>() };
     if (!args.has_value())
         return false;
     const auto [fd, buf, count] = *args;
@@ -3375,22 +3010,17 @@ bool read( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (ret == -1)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
     std::int32_t retVal{ static_cast<std::int32_t>( ret ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retVal ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write read return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retVal );
 }
 
 // ssize_t write(int fd, const void *buf, size_t count);
-bool write( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool write( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int, const void *, size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int, const void *, size_t>() };
     if (!args.has_value())
         return false;
     const auto [fd, buf, count] = *args;
@@ -3399,39 +3029,29 @@ bool write( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (ret == -1)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write write return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int memcmp(const void *s1, const void *s2, size_t n);
-bool memcmp( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool memcmp( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const void *, const void *, size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const void *, const void *, size_t>() };
     if (!args.has_value())
         return false;
     const auto [s1, s2, n] = *args;
 
     int ret{ ::memcmp( s1, s2, n ) };
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write memcmp return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // time_t time(time_t *tloc);
-bool time( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool time( ShimContext &ctx )
 {
-    const auto args{ get_arguments<time_t *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<time_t *>() };
     if (!args.has_value())
         return false;
     const auto [tloc] = *args;
@@ -3444,20 +3064,15 @@ bool time( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     }
 
     std::uint32_t retNative{ static_cast<std::uint32_t>( ret ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retNative ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write time return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retNative );
 }
 
 // clock_t times(struct tms *buf);
-bool times( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool times( ShimContext &ctx )
 {
     // TODO
     /*
-    const auto args{ get_arguments<struct tms *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<struct tms *>() };
     if (!args.has_value())
         return false;
     const auto [buf] = *args;
@@ -3479,41 +3094,31 @@ bool times( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 }
 
 // char *tmpnam(char *s);
-bool tmpnam( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool tmpnam( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *>() };
     if (!args.has_value())
         return false;
     const auto [s] = *args;
 
     char *ret{ ::tmpnam( s ) };
 
-    std::uint32_t guestRet{ ret ? mem->to_guest( ret ) : 0 };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &guestRet ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write tmpnam return value" << std::endl;
-        return false;
-    }
-    return true;
+    std::uint32_t guestRet{ ret ? ctx.mem->to_guest( ret ) : 0 };
+    return ctx.ret( guestRet );
 }
 
 // int getdtablesize(void);
-bool getdtablesize( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool getdtablesize( ShimContext &ctx )
 {
     int ret{ ::getdtablesize() };
     std::uint32_t retGuest{ static_cast<std::uint32_t>( ret ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write getdtablesize return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retGuest );
 }
 
 // mode_t umask(mode_t mask);
-bool umask( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool umask( ShimContext &ctx )
 {
-    const auto args{ get_arguments<uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [mask] = *args;
@@ -3521,18 +3126,13 @@ bool umask( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     mode_t ret{ ::umask( static_cast<mode_t>( mask ) ) };
     uint32_t retGuest = static_cast<uint32_t>( ret );
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write umask return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retGuest );
 }
 
 // struct tm *localtime(const time_t *timep);
-bool localtime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool localtime( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const time_t *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const time_t *>() };
     if (!args.has_value())
         return false;
     const auto [timep] = *args;
@@ -3553,7 +3153,7 @@ bool localtime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loade
     void *zone_ptr{ nullptr };
     if (ret->tm_zone != nullptr)
     {
-        zone_ptr = reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( ::strlen( ret->tm_zone ) + 1 ) ) );
+        zone_ptr = reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( ::strlen( ret->tm_zone ) + 1 ) ) );
         ::memcpy( zone_ptr, ret->tm_zone, ::strlen( ret->tm_zone ) + 1 );
     }
     guest::tm tmGuest{ .tm_sec = common::ensure_endianness( ret->tm_sec, std::endian::big ),
@@ -3567,22 +3167,17 @@ bool localtime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loade
                        .tm_isdst = common::ensure_endianness( ret->tm_isdst, std::endian::big ),
                        .tm_gmtoff =
                            common::ensure_endianness( static_cast<std::int32_t>( ret->tm_gmtoff ), std::endian::big ),
-                       .tm_zone = mem->to_guest( zone_ptr ) };
-    void *retPtrHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( sizeof( guest::tm ) ) ) ) };
+                       .tm_zone = ctx.mem->to_guest( zone_ptr ) };
+    void *retPtrHost{ reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( sizeof( guest::tm ) ) ) ) };
     ::memcpy( retPtrHost, &tmGuest, sizeof( guest::tm ) );
-    uint32_t retGuest{ mem->to_guest( retPtrHost ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write localtime return value" << std::endl;
-        return false;
-    }
-    return true;
+    uint32_t retGuest{ ctx.mem->to_guest( retPtrHost ) };
+    return ctx.ret( retGuest );
 }
 
 // struct hostent *gethostbyname(const char *name);
-bool gethostbyname( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool gethostbyname( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *>() };
     if (!args.has_value())
         return false;
     const auto [name] = *args;
@@ -3592,7 +3187,7 @@ bool gethostbyname( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
     if (!ret)
     {
         uint32_t nullPtr{ 0 };
-        if (uc_reg_write( uc, UC_PPC_REG_3, &nullPtr ) != UC_ERR_OK)
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &nullPtr ) != UC_ERR_OK)
         {
             std::cerr << "Could not write gethostbyname return value" << std::endl;
             return false;
@@ -3603,9 +3198,9 @@ bool gethostbyname( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
     if (ret->h_name)
     {
         size_t nameLen{ ::strlen( ret->h_name ) + 1 };
-        void *nameHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( nameLen ) ) ) };
+        void *nameHost{ reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( nameLen ) ) ) };
         ::memcpy( nameHost, ret->h_name, nameLen );
-        namePtr = mem->to_guest( nameHost );
+        namePtr = ctx.mem->to_guest( nameHost );
     }
 
     uint32_t aliasesPtr{ 0 };
@@ -3616,19 +3211,19 @@ bool gethostbyname( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
             aliasCount++;
 
         // Allocate array of guest pointers (aliasCount + 1 for NULL terminator)
-        void *aliasArrayHost{
-            reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( ( aliasCount + 1 ) * sizeof( uint32_t ) ) ) ) };
+        void *aliasArrayHost{ reinterpret_cast<void *>(
+            ctx.mem->to_host( ctx.mem->heap_alloc( ( aliasCount + 1 ) * sizeof( uint32_t ) ) ) ) };
         uint32_t *aliasArray{ static_cast<uint32_t *>( aliasArrayHost ) };
 
         for (size_t i = 0; i < aliasCount; i++)
         {
             size_t aliasLen{ ::strlen( ret->h_aliases[i] ) + 1 };
-            void *aliasHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( aliasLen ) ) ) };
+            void *aliasHost{ reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( aliasLen ) ) ) };
             ::memcpy( aliasHost, ret->h_aliases[i], aliasLen );
-            aliasArray[i] = common::ensure_endianness( mem->to_guest( aliasHost ), std::endian::big );
+            aliasArray[i] = common::ensure_endianness( ctx.mem->to_guest( aliasHost ), std::endian::big );
         }
         aliasArray[aliasCount] = 0; // NULL terminator
-        aliasesPtr = mem->to_guest( aliasArrayHost );
+        aliasesPtr = ctx.mem->to_guest( aliasArrayHost );
     }
 
     uint32_t addrListPtr{ 0 };
@@ -3639,18 +3234,18 @@ bool gethostbyname( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
             addrCount++;
 
         // Allocate array of guest pointers (addrCount + 1 for NULL terminator)
-        void *addrArrayHost{
-            reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( ( addrCount + 1 ) * sizeof( uint32_t ) ) ) ) };
+        void *addrArrayHost{ reinterpret_cast<void *>(
+            ctx.mem->to_host( ctx.mem->heap_alloc( ( addrCount + 1 ) * sizeof( uint32_t ) ) ) ) };
         uint32_t *addrArray{ static_cast<uint32_t *>( addrArrayHost ) };
 
         for (size_t i = 0; i < addrCount; i++)
         {
-            void *addrHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( ret->h_length ) ) ) };
+            void *addrHost{ reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( ret->h_length ) ) ) };
             ::memcpy( addrHost, ret->h_addr_list[i], ret->h_length );
-            addrArray[i] = common::ensure_endianness( mem->to_guest( addrHost ), std::endian::big );
+            addrArray[i] = common::ensure_endianness( ctx.mem->to_guest( addrHost ), std::endian::big );
         }
         addrArray[addrCount] = 0; // NULL terminator
-        addrListPtr = mem->to_guest( addrArrayHost );
+        addrListPtr = ctx.mem->to_guest( addrArrayHost );
     }
 
     guest::hostent guestHostent{ .h_name = common::ensure_endianness( namePtr, std::endian::big ),
@@ -3659,22 +3254,18 @@ bool gethostbyname( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *l
                                  .h_length = common::ensure_endianness( ret->h_length, std::endian::big ),
                                  .h_addr_list = common::ensure_endianness( addrListPtr, std::endian::big ) };
 
-    void *hostentHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( sizeof( guest::hostent ) ) ) ) };
+    void *hostentHost{
+        reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( sizeof( guest::hostent ) ) ) ) };
     ::memcpy( hostentHost, &guestHostent, sizeof( guest::hostent ) );
-    uint32_t hostentGuest{ mem->to_guest( hostentHost ) };
+    uint32_t hostentGuest{ ctx.mem->to_guest( hostentHost ) };
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &hostentGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write gethostbyname return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( hostentGuest );
 }
 
 // int gethostname(char *name, size_t namelen);
-bool gethostname( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool gethostname( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *, size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *, std::size_t>() };
     if (!args.has_value())
         return false;
     const auto [name, namelen] = *args;
@@ -3683,68 +3274,53 @@ bool gethostname( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loa
 
     if (ret == -1)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write gethostname return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int ungetc( int character, FILE * stream );
-bool ungetc( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool ungetc( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int, void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int, void *>() };
     if (!args.has_value())
         return false;
     const auto [character, stream] = *args;
 
-    FILE *f{ common::resolve_file_stream( mem->to_guest( stream ) ) };
+    FILE *f{ common::resolve_file_stream( ctx.mem->to_guest( stream ) ) };
     if (!f)
         f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
     int ret{ ::ungetc( character, f ) };
 
     if (ret == EOF)
     {
-        set_guest_errno( mem, errno );
+        set_guest_errno( ctx.mem, errno );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write gethostname return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // int sscanf(const char *str, const char *format, ...);
-bool sscanf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool sscanf( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, const char *>() };
     if (!args.has_value())
         return false;
     const auto [str, format] = *args;
 
-    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_5, true ) };
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( ctx.uc, ctx.mem, format, UC_PPC_REG_5, true ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vsscanf( str, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write sscanf return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // time_t mktime(struct tm *timeptr);
-bool mktime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool mktime( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *>() };
     if (!args.has_value())
         return false;
     const auto [timeptrGuest] = *args;
@@ -3752,7 +3328,7 @@ bool mktime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     if (!timeptrGuest)
     {
         uint32_t ret{ static_cast<uint32_t>( -1 ) };
-        if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
         {
             std::cerr << "Could not write mktime return value" << std::endl;
             return false;
@@ -3775,18 +3351,13 @@ bool mktime( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     time_t result{ ::mktime( &tmHost ) };
     uint32_t resultGuest{ static_cast<uint32_t>( result ) };
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &resultGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write mktime return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( resultGuest );
 }
 
 // void qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));
-bool qsort( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool qsort( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *, size_t, size_t, uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *, size_t, size_t, uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [base, nmemb, size, comparGuestPtr] = *args;
@@ -3794,24 +3365,24 @@ bool qsort( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
     if (!base || nmemb <= 1 || size == 0)
         return true;
 
-    const uint32_t baseGuest{ mem->to_guest( base ) };
+    const uint32_t baseGuest{ ctx.mem->to_guest( base ) };
     auto *baseBytes{ static_cast<uint8_t *>( base ) };
 
-    uc_context *ctx{};
-    if (uc_context_alloc( uc, &ctx ) != UC_ERR_OK)
+    uc_context *uc_ctx{};
+    if (uc_context_alloc( ctx.uc, &uc_ctx ) != UC_ERR_OK)
     {
         std::cerr << "qsort: uc_context_alloc failed" << std::endl;
         return false;
     }
-    if (uc_context_save( uc, ctx ) != UC_ERR_OK)
+    if (uc_context_save( ctx.uc, uc_ctx ) != UC_ERR_OK)
     {
         std::cerr << "qsort: uc_context_save failed" << std::endl;
-        uc_context_free( ctx );
+        uc_context_free( uc_ctx );
         return false;
     }
     // Read SP from the saved context for comparator calls
     uint32_t sp{};
-    uc_context_reg_read( ctx, UC_PPC_REG_1, &sp );
+    uc_context_reg_read( uc_ctx, UC_PPC_REG_1, &sp );
 
     // Sentinel: uc_emu_start stops when PC reaches this address (before executing / firing hooks)
     const uint32_t sentinel{ common::Inner_Emulation_Sentinel };
@@ -3824,15 +3395,15 @@ bool qsort( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         uint32_t ptrB{ baseGuest + static_cast<uint32_t>( j * size ) };
 
         // Set up PPC state for comparator call
-        uc_reg_write( uc, UC_PPC_REG_3, &ptrA ); // arg1 = pointer to element a
-        uc_reg_write( uc, UC_PPC_REG_4, &ptrB ); // arg2 = pointer to element b
-        uc_reg_write( uc, UC_PPC_REG_1, &sp );   // restore stack pointer
-        uc_reg_write( uc, UC_PPC_REG_LR, &sentinel );
+        uc_reg_write( ctx.uc, UC_PPC_REG_3, &ptrA ); // arg1 = pointer to element a
+        uc_reg_write( ctx.uc, UC_PPC_REG_4, &ptrB ); // arg2 = pointer to element b
+        uc_reg_write( ctx.uc, UC_PPC_REG_1, &sp );   // restore stack pointer
+        uc_reg_write( ctx.uc, UC_PPC_REG_LR, &sentinel );
 
-        uc_emu_start( uc, comparGuestPtr, sentinel, 0, 0 );
+        uc_emu_start( ctx.uc, comparGuestPtr, sentinel, 0, 0 );
 
         uint32_t result{};
-        uc_reg_read( uc, UC_PPC_REG_3, &result );
+        uc_reg_read( ctx.uc, UC_PPC_REG_3, &result );
         return static_cast<int32_t>( result ) < 0;
     } };
 
@@ -3843,30 +3414,25 @@ bool qsort( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
         std::memcpy( sorted.data() + i * size, baseBytes + indices[i] * size, size );
     std::memcpy( baseBytes, sorted.data(), nmemb * size );
 
-    uc_context_restore( uc, ctx );
-    uc_context_free( ctx );
+    uc_context_restore( ctx.uc, uc_ctx );
+    uc_context_free( uc_ctx );
 
     return true;
 }
 
 // clock_t clock(void);
-bool clock( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool clock( ShimContext &ctx )
 {
     clock_t ret{ ::clock() };
     uint32_t retGuest{ static_cast<uint32_t>( ret ) };
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write clock return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retGuest );
 }
 
 // char *setlocale(int category, const char *locale);
-bool setlocale( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool setlocale( ShimContext &ctx )
 {
-    const auto args{ get_arguments<int, const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<int, const char *>() };
     if (!args.has_value())
         return false;
     const auto [category, locale] = *args;
@@ -3877,64 +3443,49 @@ bool setlocale( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loade
     if (ret != nullptr)
     {
         size_t len{ ::strlen( ret ) + 1 };
-        void *localeHost{ reinterpret_cast<void *>( mem->to_host( mem->heap_alloc( len ) ) ) };
+        void *localeHost{ reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( len ) ) ) };
         ::memcpy( localeHost, ret, len );
-        retGuest = mem->to_guest( localeHost );
+        retGuest = ctx.mem->to_guest( localeHost );
     }
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write setlocale return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retGuest );
 }
 
 // int snprintf(char *str, size_t size, const char *format, ...);
-bool snprintf( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool snprintf( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *, size_t, const char *>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *, size_t, const char *>() };
     if (!args.has_value())
         return false;
     const auto [str, size, format] = *args;
 
-    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( uc, mem, format, UC_PPC_REG_6, false ) };
+    std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( ctx.uc, ctx.mem, format, UC_PPC_REG_6, false ) };
 
     // UB but for now works for arm64 mac os / x86_64 windows
     int ret{ ::vsnprintf( str, size, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write snprintf return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // char *strncat(char *dest, const char *src, size_t n);
-bool strncat( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strncat( ShimContext &ctx )
 {
-    const auto args{ get_arguments<char *, const char *, size_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<char *, const char *, size_t>() };
     if (!args.has_value())
         return false;
     const auto [dest, src, n] = *args;
 
     char *ret{ ::strncat( dest, src, n ) };
-    uint32_t retGuest{ ret != nullptr ? mem->to_guest( ret ) : 0 };
+    uint32_t retGuest{ ret != nullptr ? ctx.mem->to_guest( ret ) : 0 };
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strncat return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retGuest );
 }
 
 // void *bsearch(const void *key, const void *base, size_t num, size_t width, int (*compare)(const void *, const void
 // *))
-bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool bsearch( ShimContext &ctx )
 {
-    const auto args{ get_arguments<void *, void *, std::size_t, std::size_t, uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<void *, void *, std::size_t, std::size_t, uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [key, base, num, width, comparGuestPtr] = *args;
@@ -3942,7 +3493,7 @@ bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
     if (!key || !base || num == 0 || width == 0)
     {
         uint32_t result{ 0 };
-        if (uc_reg_write( uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
+        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &result ) != UC_ERR_OK)
         {
             std::cerr << "Could not write bsearch return value" << std::endl;
             return false;
@@ -3950,24 +3501,24 @@ bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
         return true;
     }
 
-    const uint32_t keyGuest{ mem->to_guest( const_cast<void *>( key ) ) };
-    const uint32_t baseGuest{ mem->to_guest( const_cast<void *>( base ) ) };
+    const uint32_t keyGuest{ ctx.mem->to_guest( const_cast<void *>( key ) ) };
+    const uint32_t baseGuest{ ctx.mem->to_guest( const_cast<void *>( base ) ) };
 
-    uc_context *ctx{};
-    if (uc_context_alloc( uc, &ctx ) != UC_ERR_OK)
+    uc_context *uc_ctx{};
+    if (uc_context_alloc( ctx.uc, &uc_ctx ) != UC_ERR_OK)
     {
         std::cerr << "bsearch: uc_context_alloc failed" << std::endl;
         return false;
     }
-    if (uc_context_save( uc, ctx ) != UC_ERR_OK)
+    if (uc_context_save( ctx.uc, uc_ctx ) != UC_ERR_OK)
     {
         std::cerr << "bsearch: uc_context_save failed" << std::endl;
-        uc_context_free( ctx );
+        uc_context_free( uc_ctx );
         return false;
     }
 
     uint32_t sp{};
-    uc_context_reg_read( ctx, UC_PPC_REG_1, &sp );
+    uc_context_reg_read( uc_ctx, UC_PPC_REG_1, &sp );
 
     const uint32_t sentinel{ common::Inner_Emulation_Sentinel };
 
@@ -3981,15 +3532,15 @@ bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
         uint32_t midElemGuest{ baseGuest + static_cast<uint32_t>( mid * width ) };
 
         // Call guest comparator(key, &array[mid])
-        uc_reg_write( uc, UC_PPC_REG_3, &keyGuest );
-        uc_reg_write( uc, UC_PPC_REG_4, &midElemGuest );
-        uc_reg_write( uc, UC_PPC_REG_1, &sp );
-        uc_reg_write( uc, UC_PPC_REG_LR, &sentinel );
+        uc_reg_write( ctx.uc, UC_PPC_REG_3, &keyGuest );
+        uc_reg_write( ctx.uc, UC_PPC_REG_4, &midElemGuest );
+        uc_reg_write( ctx.uc, UC_PPC_REG_1, &sp );
+        uc_reg_write( ctx.uc, UC_PPC_REG_LR, &sentinel );
 
-        uc_emu_start( uc, comparGuestPtr, sentinel, 0, 0 );
+        uc_emu_start( ctx.uc, comparGuestPtr, sentinel, 0, 0 );
 
         uint32_t cmpRaw{};
-        uc_reg_read( uc, UC_PPC_REG_3, &cmpRaw );
+        uc_reg_read( ctx.uc, UC_PPC_REG_3, &cmpRaw );
         const int32_t cmp{ static_cast<int32_t>( cmpRaw ) };
 
         if (cmp == 0)
@@ -4007,22 +3558,17 @@ bool bsearch( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader 
         }
     }
 
-    uc_context_restore( uc, ctx );
-    uc_context_free( ctx );
+    uc_context_restore( ctx.uc, uc_ctx );
+    uc_context_free( uc_ctx );
 
-    if (uc_reg_write( uc, UC_PPC_REG_3, &resultGuest ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write bsearch return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( resultGuest );
 }
 
 // double strtod(const char *str, char **endptr);
 // Converts string to double
-bool strtod( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strtod( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, std::uint32_t>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, std::uint32_t>() };
     if (!args.has_value())
         return false;
     const auto [str, endptr] = *args;
@@ -4032,26 +3578,21 @@ bool strtod( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (endptr != 0 && hostEndPtr != nullptr)
     {
-        std::uint32_t guestEndPtr{ common::ensure_endianness( mem->to_guest( hostEndPtr ), std::endian::big ) };
+        std::uint32_t guestEndPtr{ common::ensure_endianness( ctx.mem->to_guest( hostEndPtr ), std::endian::big ) };
 
-        std::uint32_t *endptrHost{ reinterpret_cast<std::uint32_t *>( mem->to_host( endptr ) ) };
+        std::uint32_t *endptrHost{ reinterpret_cast<std::uint32_t *>( ctx.mem->to_host( endptr ) ) };
         *endptrHost = guestEndPtr;
     }
 
     // Return double in FPR1 (PPC calling convention for floating point return values)
-    if (uc_reg_write( uc, UC_PPC_REG_FPR1, &ret ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strtod return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( ret );
 }
 
 // long strtol(const char *str, char **endptr, int base);
 // Converts string to long integer
-bool strtol( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
+bool strtol( ShimContext &ctx )
 {
-    const auto args{ get_arguments<const char *, std::uint32_t, int>( uc, mem ) };
+    const auto args{ ctx.get_arguments<const char *, std::uint32_t, int>() };
     if (!args.has_value())
         return false;
     const auto [str, endptr, base] = *args;
@@ -4061,17 +3602,12 @@ bool strtol( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader )
 
     if (endptr != 0 && hostEndPtr != nullptr)
     {
-        std::uint32_t guestEndPtr{ common::ensure_endianness( mem->to_guest( hostEndPtr ), std::endian::big ) };
+        std::uint32_t guestEndPtr{ common::ensure_endianness( ctx.mem->to_guest( hostEndPtr ), std::endian::big ) };
 
-        std::uint32_t *endptrHost{ reinterpret_cast<std::uint32_t *>( mem->to_host( endptr ) ) };
+        std::uint32_t *endptrHost{ reinterpret_cast<std::uint32_t *>( ctx.mem->to_host( endptr ) ) };
         *endptrHost = guestEndPtr;
     }
     std::uint32_t retVal{ static_cast<std::uint32_t>( ret ) };
-    if (uc_reg_write( uc, UC_PPC_REG_3, &retVal ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not write strtol return value" << std::endl;
-        return false;
-    }
-    return true;
+    return ctx.ret( retVal );
 }
 } // namespace import::callback

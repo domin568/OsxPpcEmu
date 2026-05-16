@@ -7,6 +7,7 @@
 
 #include "CMachoLoader.hpp"
 #include "Common.hpp"
+#include "shims/ShimContext.hpp"
 #include <algorithm>
 #include <iostream>
 #include <string_view>
@@ -17,8 +18,8 @@ namespace import
 
 namespace callback
 {
-using CallbackPtr = bool ( * )( uc_engine *, memory::CMemory *mem, loader::CMachoLoader * );
-#define callback( name ) bool name( uc_engine *, memory::CMemory *, loader::CMachoLoader * )
+using CallbackPtr = bool ( * )( ShimContext &ctx );
+#define callback( name ) bool name( ShimContext &ctx );
 
 // some Carbon functions
 
@@ -140,70 +141,6 @@ callback( closedir );
 callback( unlink );
 callback( utime );
 
-template <std::size_t I, template <typename> class Pred, typename... Ts> struct count_before;
-template <std::size_t I, template <typename> class Pred> struct count_before<I, Pred>
-{
-    static constexpr std::size_t value = 0;
-};
-template <std::size_t I, template <typename> class Pred, typename First, typename... Rest>
-struct count_before<I, Pred, First, Rest...>
-{
-    static constexpr std::size_t value =
-        I == 0 ? 0 : ( ( Pred<First>::value ? 1u : 0u ) + count_before<I - 1, Pred, Rest...>::value );
-};
-
-template <typename T> using IsGprArg = std::bool_constant<std::is_integral_v<T> || std::is_pointer_v<T>>;
-template <typename T> using IsFprArg = std::bool_constant<std::is_floating_point_v<T>>;
-
-template <typename T> std::optional<T> read_argument( uc_engine *uc, memory::CMemory *mem, const uc_ppc_reg regId )
-{
-    uint64_t reg{};
-    if (uc_reg_read( uc, regId, &reg ) != UC_ERR_OK)
-    {
-        std::cerr << "Could not read argument" << std::endl;
-        return {};
-    }
-    if constexpr (std::is_integral_v<T>)
-        return static_cast<T>( reg );
-    else if constexpr (std::is_pointer_v<T>)
-        return reinterpret_cast<T>( mem->get( reg ) );
-    else if constexpr (std::is_same_v<T, double>)
-        return std::bit_cast<double>( reg );
-    else if constexpr (std::is_same_v<T, float>)
-        return std::bit_cast<float>( static_cast<uint32_t>( reg ) );
-    return {};
-}
-
-template <typename... Args, std::size_t... I>
-std::optional<std::tuple<Args...>> read_arguments_idx( uc_engine *uc, memory::CMemory *mem, std::index_sequence<I...> )
-{
-    auto opts{ std::make_tuple( ( [uc, mem]<std::size_t idx, typename T>() -> std::optional<T> {
-        if constexpr (IsGprArg<T>::value)
-        {
-            constexpr std::size_t offset{ count_before<idx, IsGprArg, Args...>::value };
-            constexpr uc_ppc_reg base{ UC_PPC_REG_3 };
-            return read_argument<T>( uc, mem, static_cast<uc_ppc_reg>( base + offset ) );
-        }
-        else if constexpr (IsFprArg<T>::value)
-        {
-            constexpr std::size_t offset{ count_before<idx, IsFprArg, Args...>::value };
-            constexpr uc_ppc_reg base{ UC_PPC_REG_FPR1 };
-            return read_argument<T>( uc, mem, static_cast<uc_ppc_reg>( base + offset ) );
-        }
-        return std::optional<T>{};
-    }.template operator()<I, std::tuple_element_t<I, std::tuple<Args...>>>() )... ) };
-
-    const bool ok{ ( ... && static_cast<bool>( std::get<I>( opts ) ) ) };
-    if (!ok)
-        return {};
-    return std::make_optional( std::make_tuple( ( *std::get<I>( opts ) )... ) );
-}
-
-template <typename... Args> std::optional<std::tuple<Args...>> get_arguments( uc_engine *uc, memory::CMemory *mem )
-{
-    return read_arguments_idx<Args...>( uc, mem, std::index_sequence_for<Args...>{} );
-}
-
 // Helper function to set errno in guest memory
 inline void set_guest_errno( memory::CMemory *mem, int errnoValue )
 {
@@ -255,8 +192,8 @@ struct Import_Info
 
 // BEWARE! items must be sorted in Known_Import_Names and Import_Items
 // static imports
-inline constexpr size_t Unknown_Import_Index{ 0 };
-inline constexpr size_t Unknown_Import_Shift{ 1 };
+inline constexpr std::size_t Unknown_Import_Index{ 0 };
+inline constexpr std::size_t Unknown_Import_Shift{ 1 };
 inline constexpr auto Known_Import_Names{ std::to_array<std::string_view>( {
     "_BlockMoveData",
     "_CloseResFile",
@@ -426,8 +363,8 @@ inline constexpr std::array<Known_Import_Entry, Known_Import_Names.size()> Impor
     { data::Blr_Opcode, callback::closedir },                 // _closedir
     { data::Blr_Opcode, callback::dyld_func_lookup },         // _dyld_func_lookup_ptr_in_dyld
     { data::Dword_Mem, nullptr },                             // _errno
-    { data::Blr_Opcode, callback::execve },                    // _execve
-    { data::Trap_Opcode, callback::exit },                     // _exit
+    { data::Blr_Opcode, callback::execve },                   // _execve
+    { data::Trap_Opcode, callback::exit },                    // _exit
     { data::Blr_Opcode, callback::fclose },                   // _fclose
     { data::Blr_Opcode, callback::fflush },                   // _fflush
     { data::Blr_Opcode, callback::fgetc },                    // _fgetc
@@ -623,7 +560,7 @@ inline constexpr std::array<int, Known_Import_Names.size()> Import_Arg_Counts{ {
 inline constexpr std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Import_Names.size()>
     Name_To_Import_Item_Flat{ []() {
         std::array<std::pair<std::string_view, import::Known_Import_Entry>, Known_Import_Names.size()> result{};
-        for (size_t idx{ 0 }; idx < Known_Import_Names.size(); idx++)
+        for (std::size_t idx{ 0 }; idx < Known_Import_Names.size(); idx++)
             result[idx] = { Known_Import_Names[idx], Import_Items[idx] };
         return result;
     }() };
@@ -638,12 +575,12 @@ inline constexpr uint32_t Import_Entry_Size{ []() -> uint32_t {
     return std::bit_ceil( sizeof( Runtime_Import_Table_Entry::ptrToData ) + maxDataSizeIt->data.size() ); // aligned
 }() };
 inline constexpr int Import_Entry_Size_Pow2{ []() { return std::countr_zero( Import_Entry_Size ); }() };
-inline constexpr size_t Import_Table_Size{ Import_Entry_Size * Import_Items.size() +
-                                           Import_Entry_Size }; // additional Import_Entry_Size for unknown imports
+inline constexpr std::size_t Import_Table_Size{ Import_Entry_Size * Import_Items.size() +
+                                                Import_Entry_Size }; // additional Import_Entry_Size for unknown imports
 
 // dynamic imports e.g obtained by dyld_func_lookup
 
-inline constexpr size_t Known_Dynamic_Import_Count{ 1 };
+inline constexpr std::size_t Known_Dynamic_Import_Count{ 1 };
 inline constexpr std::array<std::string_view, Known_Dynamic_Import_Count> Dynamic_Imports_Names{
     "__dyld_make_delayed_module_initializer_calls",
 };
