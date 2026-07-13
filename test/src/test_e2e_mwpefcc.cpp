@@ -1,7 +1,7 @@
 /**
  * Author:    domin568
- * Brief:     End-to-end test: run OsxPpcEmu emulating mwpefld to link a PPC object file,
- *            compare the produced Mach-O against a golden file.
+ * Brief:     End-to-end test: run OsxPpcEmu emulating mwpefcc to compile a C/C++ source file,
+ *            compare the produced object file against a golden file.
  *
  * Self-contained: builds an isolated sandbox directory per run under the system temp dir and
  * populates it from test/test_files/e2e/. Requires fixtures listed in test/test_files/e2e/MANIFEST.txt;
@@ -35,39 +35,15 @@ fs::path fixture_root()
     return fs::path( TEST_FOLDER ) / "test_files" / "e2e";
 }
 
-// Files that must exist for the test to run (see MANIFEST.txt). Library files are checked by
-// directory-non-empty rather than exact name, since the exact runtime lib set can vary.
+// Files that must exist for the test to run (see MANIFEST.txt).
 std::vector<fs::path> required_paths()
 {
     const fs::path root{ fixture_root() };
     return {
-        root / "cw" / "tools" / "mwpefld",
-        root / "expected" / "cw_stress_test",
-        root / "input" / "cw_stress_test.cpp.o",
-        root / "expected" / "emu_test",
-        root / "input" / "emu_test.cpp.o",
+        root / "cw" / "tools" / "mwpefcc",
+        root / "expected" / "test.cpp.o",
+        root / "input" / "test.cpp",
     };
-}
-
-std::vector<fs::path> required_lib_dirs()
-{
-    const fs::path root{ fixture_root() };
-    return {
-        root / "cw" / "libs" / "Runtime" / "Libs",
-        root / "cw" / "libs" / "MSL_C_PPC",
-        root / "cw" / "libs" / "MSL_CPP_PPC",
-        root / "cw" / "libs" / "StubLibraries",
-    };
-}
-
-bool dir_has_files( const fs::path &dir )
-{
-    if (!fs::exists( dir ) || !fs::is_directory( dir ))
-        return false;
-    for (const auto &entry : fs::directory_iterator( dir ))
-        if (entry.is_regular_file() && entry.path().filename() != ".gitkeep")
-            return true;
-    return false;
 }
 
 // Returns a human-readable reason the fixtures are incomplete, or empty string if all present.
@@ -76,15 +52,12 @@ std::string missing_fixtures_reason()
     for (const fs::path &p : required_paths())
         if (!fs::exists( p ))
             return "missing required file: " + p.string();
-    for (const fs::path &d : required_lib_dirs())
-        if (!dir_has_files( d ))
-            return "missing library files under: " + d.string();
     return {};
 }
 
 } // namespace
 
-class MwpefldE2E : public ::testing::Test
+class MwpefccE2E : public ::testing::Test
 {
   protected:
     void SetUp() override
@@ -108,12 +81,11 @@ class MwpefldE2E : public ::testing::Test
         const fs::path root{ fixture_root() };
         fs::copy( root / "cw", m_sandbox / "cw", fs::copy_options::recursive );
         fs::create_directories( m_sandbox / "src" );
-        fs::copy_file( root / "input" / "cw_stress_test.cpp.o", m_sandbox / "src" / "cw_stress_test.cpp.o" );
-        fs::copy_file( root / "input" / "emu_test.cpp.o", m_sandbox / "src" / "emu_test.cpp.o" );
+        fs::copy_file( root / "input" / "test.cpp", m_sandbox / "src" / "test.cpp" );
         fs::create_directories( m_sandbox / "output" );
 
 #ifndef _WIN32
-        fs::permissions( m_sandbox / "cw" / "tools" / "mwpefld",
+        fs::permissions( m_sandbox / "cw" / "tools" / "mwpefcc",
                          fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec |
                              fs::perms::others_read | fs::perms::others_exec,
                          fs::perm_options::add );
@@ -146,16 +118,15 @@ class MwpefldE2E : public ::testing::Test
 #endif
     }
 
-    // Runs mwpefld (emulated) linking `objectFileName` (already copied into sandbox/src by SetUp)
-    // into `outputName`, then compares the produced Mach-O against the golden file with the same
-    // name under test_files/e2e/expected/.
-    void link_and_compare( const std::string &objectFileName, const std::string &outputName )
+    // Runs mwpefcc (emulated) compiling `sourceFileName` (already copied into sandbox/src by SetUp)
+    // into `outputName`, then compares the produced object file against the golden file with the
+    // same name under test_files/e2e/expected/.
+    void compile_and_compare( const std::string &sourceFileName, const std::string &outputName )
     {
-        const fs::path mwpefld{ m_sandbox / "cw" / "tools" / "mwpefld" };
-        const fs::path libs{ m_sandbox / "cw" / "libs" };
+        const fs::path mwpefcc{ m_sandbox / "cw" / "tools" / "mwpefcc" };
 
         const std::vector<std::string> argv{
-            EMU_BINARY,        mwpefld.string(), "-v", "-v", "-v", "src/" + objectFileName, "-o",
+            EMU_BINARY, mwpefcc.string(), "-c", "-v", "-v", "-v", "src/" + sourceFileName, "-o",
             "output/" + outputName,
         };
 
@@ -163,9 +134,7 @@ class MwpefldE2E : public ::testing::Test
             "CWINSTALL=" + ( m_sandbox / "cw" ).string(),
             "GDB_SERVER=0",
             "MWFrameworkVersions=System",
-            "MWPEFLibraries=" + ( libs / "Runtime" / "Libs" ).string() + ":" + ( libs / "MSL_C_PPC" ).string() + ":" +
-                ( libs / "MSL_CPP_PPC" ).string() + ":" + ( libs / "StubLibraries" ).string(),
-            "MWPEFLibraryFiles=MSL_All_Carbon.Lib:CarbonLib",
+            "MWCIncludes=" + ( m_sandbox / "cw" / "tools" ).string(),
         };
 
         const testutil::ProcessResult result{ testutil::run_process( argv, m_sandbox, env ) };
@@ -176,7 +145,7 @@ class MwpefldE2E : public ::testing::Test
                                         << result.stderrText;
 
         const fs::path outputFile{ m_sandbox / "output" / outputName };
-        ASSERT_TRUE( fs::exists( outputFile ) ) << "Linker did not produce an output file.\nstdout:\n"
+        ASSERT_TRUE( fs::exists( outputFile ) ) << "Compiler did not produce an output file.\nstdout:\n"
                                                 << result.stdoutText << "\nstderr:\n"
                                                 << result.stderrText;
         EXPECT_GT( fs::file_size( outputFile ), 0u );
@@ -198,12 +167,8 @@ class MwpefldE2E : public ::testing::Test
     fs::path m_sandbox{};
 };
 
-TEST_F( MwpefldE2E, CodeWarriorLinkFile1 )
+TEST_F( MwpefccE2E, CodeWarriorCompileFile1 )
 {
-    link_and_compare( "cw_stress_test.cpp.o", "cw_stress_test" );
+    compile_and_compare( "test.cpp", "test.cpp.o" );
 }
 
-TEST_F( MwpefldE2E, CodeWarriorLinkFile2 )
-{
-    link_and_compare( "emu_test.cpp.o", "emu_test" );
-}

@@ -23,15 +23,18 @@ target_link_libraries(OsxPpcEmuTest
 
 add_test(NAME OsxPpcEmuGtests COMMAND OsxPpcEmuTest)
 
-# ── End-to-end test: runs the built OsxPpcEmu binary as a subprocess to emulate
-# mwpefld linking a PPC object file. Kept as a separate target/executable so the
-# fast unit-test suite above is unaffected by it (it needs fixtures under
-# test_files/e2e/ that may be absent — see MANIFEST.txt — and will self-skip).
-add_executable(OsxPpcEmuE2E src/test_e2e_mwpefld.cpp)
+# ── End-to-end tests: run the built OsxPpcEmu binary as a subprocess to emulate real
+# CodeWarrior tools (mwpefld linking, mwpefcc compiling). Kept as a separate target/executable so
+# the fast unit-test suite above is unaffected by it (it needs fixtures under test_files/e2e/ that
+# may be absent — see MANIFEST.txt — and will self-skip).
+add_executable(OsxPpcEmuE2E src/test_e2e_mwpefld.cpp src/test_e2e_mwpefcc.cpp)
 target_include_directories(OsxPpcEmuE2E PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(OsxPpcEmuE2E PRIVATE GTest::GTest)
 target_compile_definitions(OsxPpcEmuE2E PRIVATE "EMU_BINARY=\"$<TARGET_FILE:${EXECUTABLE_NAME}>\"")
 add_dependencies(OsxPpcEmuE2E ${EXECUTABLE_NAME})
 
-add_test(NAME E2E_mwpefld COMMAND OsxPpcEmuE2E)
-set_tests_properties(E2E_mwpefld PROPERTIES TIMEOUT 300)
+add_test(NAME E2E_CodeWarriorLinkFile1 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefldE2E.CodeWarriorLinkFile1)
+add_test(NAME E2E_CodeWarriorLinkFile2 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefldE2E.CodeWarriorLinkFile2)
+add_test(NAME E2E_CodeWarriorCompileFile1 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileFile1)
+set_tests_properties(E2E_CodeWarriorLinkFile1 E2E_CodeWarriorLinkFile2 E2E_CodeWarriorCompileFile1
+        PROPERTIES TIMEOUT 300)

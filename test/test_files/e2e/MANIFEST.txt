@@ -6,8 +6,13 @@
 # will run; otherwise the test reports GTEST_SKIP with the missing path.
 #
 # [repo] cw/tools/mwpefld                     - PPC MachO linker (copied from samples/mwpefld)
+# [repo] cw/tools/mwpefcc                      - PPC C/C++ compiler (copied from samples/mwpefcc)
 # [repo] expected/cw_stress_test               - golden linked output
+# [repo] expected/emu_test                      - golden linked output
+# [repo] expected/test.cpp.o                    - golden compiled object file
 # [user] input/cw_stress_test.cpp.o            - object file to link (compiler output for samples/cw_stress_test.cpp)
+# [user] input/emu_test.cpp.o                   - object file to link
+# [repo] input/test.cpp                         - source file to compile
 # [user] cw/libs/Runtime/Libs/*                - from "MacOS Support/Libraries/Runtime/Libs"
 # [user] cw/libs/MSL_C_PPC/*                   - from "MSL/MSL_C/MSL_MacOS/Lib/PPC"
 # [user] cw/libs/MSL_CPP_PPC/*                 - from "MSL/MSL_C++/MSL_MacOS/Lib/PPC"
