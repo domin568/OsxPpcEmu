@@ -7,6 +7,7 @@
 #include "CMemory.hpp"
 #include "Common.hpp"
 #include "ImportDispatch.hpp"
+#include "shims/ShimContext.hpp"
 #include <gtest/gtest.h>
 #include <unicorn/unicorn.h>
 
@@ -129,7 +130,8 @@ struct PpcTestEnv
         uc_reg_write( uc, UC_PPC_REG_7, &r7 );
         uc_reg_write( uc, UC_PPC_REG_1, &sp );
 
-        import::callback::bsearch( uc, &*mem, nullptr );
+        ShimContext ctx{ uc, &*mem, nullptr };
+        import::callback::bsearch( ctx );
 
         uint32_t result;
         uc_reg_read( uc, UC_PPC_REG_3, &result );
@@ -247,7 +249,8 @@ TEST( Bsearch, RegistersPreserved )
     uc_reg_write( env.uc, UC_PPC_REG_31, &r31_before );
     uc_reg_write( env.uc, UC_PPC_REG_LR, &lr_before );
 
-    bool ok = import::callback::bsearch( env.uc, &*env.mem, nullptr );
+    ShimContext ctx{ env.uc, &*env.mem, nullptr };
+    bool ok = import::callback::bsearch( ctx );
     ASSERT_TRUE( ok );
 
     uint32_t r13_after, r31_after, lr_after, sp_after;
@@ -293,7 +296,8 @@ void bsearch_nested_hook( uc_engine *uc, uint64_t address, uint32_t /*size*/, vo
     uc_reg_write( uc, UC_PPC_REG_6, &r6 );
     uc_reg_write( uc, UC_PPC_REG_7, &r7 );
 
-    ud->bsearch_ok = import::callback::bsearch( uc, mem, nullptr );
+    ShimContext ctx{ uc, mem, nullptr };
+    ud->bsearch_ok = import::callback::bsearch( ctx );
 
     uc_reg_read( uc, UC_PPC_REG_3, &ud->bsearch_result );
 }

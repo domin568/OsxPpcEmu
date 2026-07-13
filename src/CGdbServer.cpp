@@ -8,17 +8,13 @@
 #include "../include/CDebugger.hpp"
 #include "../include/CMemory.hpp"
 #include "../include/Common.hpp"
+#include "../include/PlatformSocket.hpp"
 #include <algorithm>
-#include <arpa/inet.h>
 #include <chrono>
 #include <cstring>
-#include <fcntl.h>
 #include <iomanip>
 #include <iostream>
-#include <netinet/in.h>
 #include <sstream>
-#include <sys/socket.h>
-#include <unistd.h>
 #include <vector>
 
 #ifdef DEBUG
@@ -28,9 +24,9 @@ namespace gdb
 
 CGdbServer::CGdbServer( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader, debug::CDebugger *debugger,
                         uint16_t port )
-    : m_uc( uc ), m_mem( mem ), m_loader( loader ), m_debugger( debugger ), m_port( port ), m_server_socket( -1 ),
-      m_client_socket( -1 ), m_running( false ), m_state( DebugState::Stopped ), m_stop_reason( StopReason::Trap ),
-      m_stop_address( 0 ), m_step_mode( false )
+    : m_uc( uc ), m_mem( mem ), m_loader( loader ), m_debugger( debugger ), m_port( port ),
+      m_server_socket( platform::Invalid_Socket ), m_client_socket( platform::Invalid_Socket ), m_running( false ),
+      m_state( DebugState::Stopped ), m_stop_reason( StopReason::Trap ), m_stop_address( 0 ), m_step_mode( false )
 {
 }
 
@@ -44,20 +40,27 @@ bool CGdbServer::start()
     if (m_running.load())
         return true;
 
+    if (!platform::socket_stack_init())
+    {
+        std::cerr << "GDB server: Failed to initialize socket stack" << std::endl;
+        return false;
+    }
+
     // Create socket
     m_server_socket = socket( AF_INET, SOCK_STREAM, 0 );
-    if (m_server_socket < 0)
+    if (m_server_socket == platform::Invalid_Socket)
     {
         std::cerr << "GDB server: Failed to create socket" << std::endl;
+        platform::socket_stack_cleanup();
         return false;
     }
 
     // Set socket options
-    int opt = 1;
-    if (setsockopt( m_server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof( opt ) ) < 0)
+    if (!platform::set_reuse_addr( m_server_socket ))
     {
         std::cerr << "GDB server: Failed to set socket options" << std::endl;
-        close( m_server_socket );
+        platform::close_socket( m_server_socket );
+        platform::socket_stack_cleanup();
         return false;
     }
 
@@ -70,7 +73,8 @@ bool CGdbServer::start()
     if (bind( m_server_socket, reinterpret_cast<sockaddr *>( &server_addr ), sizeof( server_addr ) ) < 0)
     {
         std::cerr << "GDB server: Failed to bind to port " << m_port << std::endl;
-        close( m_server_socket );
+        platform::close_socket( m_server_socket );
+        platform::socket_stack_cleanup();
         return false;
     }
 
@@ -78,7 +82,8 @@ bool CGdbServer::start()
     if (listen( m_server_socket, 1 ) < 0)
     {
         std::cerr << "GDB server: Failed to listen" << std::endl;
-        close( m_server_socket );
+        platform::close_socket( m_server_socket );
+        platform::socket_stack_cleanup();
         return false;
     }
 
@@ -98,22 +103,24 @@ void CGdbServer::stop()
 
     m_running.store( false );
 
-    if (m_client_socket >= 0)
+    if (m_client_socket != platform::Invalid_Socket)
     {
-        close( m_client_socket );
-        m_client_socket = -1;
+        platform::close_socket( m_client_socket );
+        m_client_socket = platform::Invalid_Socket;
     }
 
-    if (m_server_socket >= 0)
+    if (m_server_socket != platform::Invalid_Socket)
     {
-        close( m_server_socket );
-        m_server_socket = -1;
+        platform::close_socket( m_server_socket );
+        m_server_socket = platform::Invalid_Socket;
     }
 
     if (m_server_thread && m_server_thread->joinable())
     {
         m_server_thread->join();
     }
+
+    platform::socket_stack_cleanup();
 
     std::cout << "GDB server stopped" << std::endl;
 }
@@ -189,10 +196,10 @@ void CGdbServer::server_loop()
         handle_client();
         std::cout << "GDB client disconnected" << std::endl;
 
-        if (m_client_socket >= 0)
+        if (m_client_socket != platform::Invalid_Socket)
         {
-            close( m_client_socket );
-            m_client_socket = -1;
+            platform::close_socket( m_client_socket );
+            m_client_socket = platform::Invalid_Socket;
         }
     }
 }
@@ -202,32 +209,17 @@ bool CGdbServer::accept_connection()
     sockaddr_in client_addr{};
     socklen_t client_len = sizeof( client_addr );
 
-    // Set socket to non-blocking for accept
-    struct timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = 100000; // 100ms timeout
-    fd_set readfds;
-    FD_ZERO( &readfds );
-    FD_SET( m_server_socket, &readfds );
-
-    int ret = select( m_server_socket + 1, &readfds, nullptr, nullptr, &tv );
-    if (ret <= 0)
+    // Wait (non-blocking, 100ms) for the listening socket to become readable before accept()
+    if (platform::wait_readable( m_server_socket, 100 ) <= 0)
         return false;
 
     m_client_socket = accept( m_server_socket, reinterpret_cast<sockaddr *>( &client_addr ), &client_len );
-    if (m_client_socket >= 0)
+    if (m_client_socket != platform::Invalid_Socket)
     {
-        // Set client socket to non-blocking mode
-        int flags = fcntl( m_client_socket, F_GETFL, 0 );
-        fcntl( m_client_socket, F_SETFL, flags | O_NONBLOCK );
-
-        // Set read timeout
-        struct timeval tv;
-        tv.tv_sec = 0;
-        tv.tv_usec = 50000; // 50ms timeout
-        setsockopt( m_client_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof( tv ) );
+        platform::set_non_blocking( m_client_socket, true );
+        platform::set_recv_timeout( m_client_socket, 50 ); // 50ms read timeout
     }
-    return m_client_socket >= 0;
+    return m_client_socket != platform::Invalid_Socket;
 }
 
 void CGdbServer::handle_client()
@@ -260,7 +252,7 @@ void CGdbServer::handle_client()
         std::string packet = receive_packet();
         if (packet.empty())
         {
-            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            if (platform::last_error_would_block())
             {
                 std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
                 continue;
@@ -312,7 +304,7 @@ std::string CGdbServer::receive_packet()
     // Wait for '$' start marker
     while (true)
     {
-        ssize_t n = recv( m_client_socket, &ch, 1, 0 );
+        int n = platform::recv_bytes( m_client_socket, &ch, 1 );
         if (n <= 0)
             return "";
 
@@ -332,7 +324,7 @@ std::string CGdbServer::receive_packet()
     // Read packet data until '#'
     while (true)
     {
-        ssize_t n = recv( m_client_socket, &ch, 1, 0 );
+        int n = platform::recv_bytes( m_client_socket, &ch, 1 );
         if (n <= 0)
             return "";
 
@@ -344,7 +336,7 @@ std::string CGdbServer::receive_packet()
 
     // Read 2-character checksum
     char checksum[3] = { 0 };
-    if (recv( m_client_socket, checksum, 2, 0 ) != 2)
+    if (platform::recv_bytes( m_client_socket, checksum, 2 ) != 2)
         return "";
 
     // Verify checksum
@@ -382,23 +374,23 @@ void CGdbServer::send_packet( const std::string &data )
     if (m_log_packets.load())
         std::cerr << "[GDB] TX: " << data << std::endl;
 
-    send( m_client_socket, packet.c_str(), packet.length(), 0 );
+    platform::send_bytes( m_client_socket, packet.c_str(), packet.length() );
 
     // Wait for ack
     char ack;
-    recv( m_client_socket, &ack, 1, 0 );
+    platform::recv_bytes( m_client_socket, &ack, 1 );
 }
 
 void CGdbServer::send_ack()
 {
     char ack = '+';
-    send( m_client_socket, &ack, 1, 0 );
+    platform::send_bytes( m_client_socket, &ack, 1 );
 }
 
 void CGdbServer::send_nak()
 {
     char nak = '-';
-    send( m_client_socket, &nak, 1, 0 );
+    platform::send_bytes( m_client_socket, &nak, 1 );
 }
 
 std::string CGdbServer::handle_packet( const std::string &packet )

@@ -49,6 +49,7 @@ class COsxPpcEmu
     std::unique_ptr<debug::CDebugger> m_debugger{};
     std::unique_ptr<gdb::CGdbServer> m_gdb_server{};
     std::FILE *m_trace_file{};
+    uint32_t m_lastAddr{ 0 }; // guest address of the last dispatched API call, used for interrupt diagnostics
 #endif
 
   private:

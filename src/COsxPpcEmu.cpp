@@ -16,8 +16,6 @@
 #include <iostream>
 #include <ranges>
 
-std::atomic<uint32_t> g_lastAddr{ 0 };
-
 namespace emu
 {
 // Forward declarations for hook functions
@@ -704,7 +702,7 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 {
     const size_t idx{ ( address - common::Import_Dispatch_Table_Address ) >> import::Import_Entry_Size_Pow2 };
 #ifdef DEBUG
-    g_lastAddr.store( address, std::memory_order_relaxed );
+    emu->m_lastAddr = static_cast<uint32_t>( address );
     if (idx == 0 || emu->m_debugger->is_trace_mode())
         print_api_call_source( uc, address, idx, emu );
 #endif
@@ -720,11 +718,11 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
 {
     COsxPpcEmu *emu = static_cast<COsxPpcEmu *>( user_data );
-    uint32_t addr{ g_lastAddr.load() };
     uint32_t lr, pc;
 
     std::cout << ">>> interrupt/exception #" << intno << std::endl;
 #ifdef DEBUG
+    const uint32_t addr{ emu ? emu->m_lastAddr : 0 };
     if (emu)
     {
         const std::optional<std::string> callerName{ emu->m_loader.get_symbol_name_for_va(

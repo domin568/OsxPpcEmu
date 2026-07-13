@@ -17,9 +17,9 @@ set(SOURCE_FILES
         src/CMemory.cpp
         src/CDebugger.cpp
         src/CGdbServer.cpp
-	src/shims/carbon/CarbonShims.cpp
-	src/shims/dyld/DyldShims.cpp
-	src/shims/libc/LibcShims.cpp
+        src/shims/carbon/CarbonShims.cpp
+        src/shims/dyld/DyldShims.cpp
+        src/shims/libc/LibcShims.cpp
 )
 set(HEADER_FILES
         include/CMachoLoader.hpp
@@ -30,12 +30,12 @@ set(HEADER_FILES
         include/CDebugger.hpp
         include/CGdbServer.hpp
         include/PpcStructures.hpp
-	include/shims/carbon/CarbonShims.hpp
-	include/shims/dyld/DyldShims.hpp
-	include/shims/libc/LibcShims.hpp
+        include/shims/carbon/CarbonShims.hpp
+        include/shims/dyld/DyldShims.hpp
+        include/shims/libc/LibcShims.hpp
 )
 
-set(ENABLE_DEBUGGER ON CACHE BOOL "Enable built-in PPC debugger and GDB server" FORCE)
+option(ENABLE_DEBUGGER "Enable built-in PPC debugger and GDB server" ON)
 
 add_library(OsxPpcEmuLib STATIC ${SOURCE_FILES} ${HEADER_FILES})
 target_include_directories(OsxPpcEmuLib PUBLIC ${CMAKE_SOURCE_DIR}/include)
@@ -53,6 +53,8 @@ else ()
             unicorn
             GIT_REPOSITORY https://github.com/unicorn-engine/unicorn.git
             GIT_TAG v2.1.4
+            GIT_SUBMODULES "" # docs/Unicorn_Engine_Documentation is not needed to build and its
+                              # clone is flaky in restricted-network environments
     )
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libs" FORCE)
     FetchContent_MakeAvailable(unicorn)
@@ -73,10 +75,16 @@ FetchContent_MakeAvailable(LIEF)
 find_package(Threads REQUIRED)
 target_link_libraries(OsxPpcEmuLib PUBLIC Threads::Threads LIEF::LIEF)
 
+if (WIN32)
+    target_link_libraries(OsxPpcEmuLib PUBLIC ws2_32)
+endif ()
+
 add_executable(${EXECUTABLE_NAME} src/main.cpp)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE OsxPpcEmuLib)
 if (ENABLE_DEBUGGER)
     target_compile_definitions(${EXECUTABLE_NAME} PRIVATE DEBUG)
 endif ()
 
+include(CTest)
+enable_testing()
 add_subdirectory(test)

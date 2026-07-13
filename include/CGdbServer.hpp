@@ -7,6 +7,7 @@
 
 #ifdef DEBUG
 
+#include "PlatformSocket.hpp"
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -80,8 +81,8 @@ class CGdbServer
     debug::CDebugger *m_debugger;
 
     uint16_t m_port;
-    int m_server_socket;
-    int m_client_socket;
+    platform::socket_t m_server_socket;
+    platform::socket_t m_client_socket;
     std::atomic<bool> m_running;
     std::unique_ptr<std::thread> m_server_thread;
 

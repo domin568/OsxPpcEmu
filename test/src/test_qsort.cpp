@@ -7,6 +7,7 @@
 #include "CMemory.hpp"
 #include "Common.hpp"
 #include "ImportDispatch.hpp"
+#include "shims/ShimContext.hpp"
 #include <gtest/gtest.h>
 #include <unicorn/unicorn.h>
 
@@ -157,7 +158,8 @@ TEST( Qsort, AscendingSortIntegers )
     uc_reg_write( env.uc, UC_PPC_REG_1, &sp );
 
     // Call the qsort shim directly
-    bool ok = import::callback::qsort( env.uc, &*env.mem, nullptr );
+    ShimContext ctx{ env.uc, &*env.mem, nullptr };
+    bool ok = import::callback::qsort( ctx );
     ASSERT_TRUE( ok );
 
     // Verify result: { 1, 7, 23, 42, 99 }
@@ -193,7 +195,8 @@ TEST( Qsort, DescendingSortIntegers )
     uc_reg_write( env.uc, UC_PPC_REG_6, &r6 );
     uc_reg_write( env.uc, UC_PPC_REG_1, &sp );
 
-    bool ok = import::callback::qsort( env.uc, &*env.mem, nullptr );
+    ShimContext ctx{ env.uc, &*env.mem, nullptr };
+    bool ok = import::callback::qsort( ctx );
     ASSERT_TRUE( ok );
 
     constexpr uint32_t expected[] = { 99, 42, 23, 7, 1 };
@@ -228,7 +231,8 @@ TEST( Qsort, AlreadySorted )
     uc_reg_write( env.uc, UC_PPC_REG_6, &r6 );
     uc_reg_write( env.uc, UC_PPC_REG_1, &sp );
 
-    bool ok = import::callback::qsort( env.uc, &*env.mem, nullptr );
+    ShimContext ctx{ env.uc, &*env.mem, nullptr };
+    bool ok = import::callback::qsort( ctx );
     ASSERT_TRUE( ok );
 
     for (size_t i = 0; i < N; i++)
@@ -259,7 +263,8 @@ TEST( Qsort, SingleElement )
     uc_reg_write( env.uc, UC_PPC_REG_6, &r6 );
     uc_reg_write( env.uc, UC_PPC_REG_1, &sp );
 
-    bool ok = import::callback::qsort( env.uc, &*env.mem, nullptr );
+    ShimContext ctx{ env.uc, &*env.mem, nullptr };
+    bool ok = import::callback::qsort( ctx );
     ASSERT_TRUE( ok );
 
     EXPECT_EQ( env.read_be32( Data_Address ), 42u );
@@ -297,7 +302,8 @@ TEST( Qsort, RegistersPreserved )
     uc_reg_write( env.uc, UC_PPC_REG_31, &r31_before );
     uc_reg_write( env.uc, UC_PPC_REG_LR, &lr_before );
 
-    bool ok = import::callback::qsort( env.uc, &*env.mem, nullptr );
+    ShimContext ctx{ env.uc, &*env.mem, nullptr };
+    bool ok = import::callback::qsort( ctx );
     ASSERT_TRUE( ok );
 
     uint32_t r13_after, r31_after, lr_after, sp_after;
@@ -354,7 +360,8 @@ void nested_test_hook( uc_engine *uc, uint64_t address, uint32_t /*size*/, void 
     uc_reg_write( uc, UC_PPC_REG_5, &r5 );
     uc_reg_write( uc, UC_PPC_REG_6, &r6 );
 
-    ud->qsort_ok = import::callback::qsort( uc, mem, nullptr );
+    ShimContext ctx{ uc, mem, nullptr };
+    ud->qsort_ok = import::callback::qsort( ctx );
 }
 
 } // namespace

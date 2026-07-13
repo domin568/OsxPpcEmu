@@ -1,0 +1,16 @@
+# E2E fixture manifest (test/src/test_e2e_mwpefld.cpp)
+#
+# Paths are relative to this file's directory (test/test_files/e2e/).
+# Files marked [repo] are committed. Files marked [user] must be copied in
+# manually from a real CodeWarrior Pro 9 install before the E2E_mwpefld test
+# will run; otherwise the test reports GTEST_SKIP with the missing path.
+#
+# [repo] cw/tools/mwpefld                     - PPC MachO linker (copied from samples/mwpefld)
+# [repo] expected/cw_stress_test               - golden linked output
+# [user] input/cw_stress_test.cpp.o            - object file to link (compiler output for samples/cw_stress_test.cpp)
+# [user] cw/libs/Runtime/Libs/*                - from "MacOS Support/Libraries/Runtime/Libs"
+# [user] cw/libs/MSL_C_PPC/*                   - from "MSL/MSL_C/MSL_MacOS/Lib/PPC"
+# [user] cw/libs/MSL_CPP_PPC/*                 - from "MSL/MSL_C++/MSL_MacOS/Lib/PPC"
+# [user] cw/libs/StubLibraries/*                - from "MacOS Support/Universal/Libraries/StubLibraries"
+#
+# Required library file names (MWPEFLibraryFiles): MSL_All_Carbon.Lib, CarbonLib
