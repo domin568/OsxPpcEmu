@@ -25,7 +25,7 @@ COsxPpcEmu::COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader, memory::CM
 {
 }
 
-#ifdef DEBUG
+#ifdef DEBUGGER_ENABLED
 void COsxPpcEmu::init_debugger()
 {
     m_debugger = std::make_unique<debug::CDebugger>( m_uc, &m_mem, &m_loader, &m_trace_file );
@@ -129,7 +129,7 @@ bool COsxPpcEmu::run()
 
     uc_err errMemInvalidHook{ uc_hook_add( m_uc, &m_memInvalidHook, UC_HOOK_MEM_INVALID,
                                            reinterpret_cast<void *>( hook_mem_invalid ), this, 1, 0 ) };
-#ifdef DEBUG
+#ifdef DEBUGGER_ENABLED
     uc_err errDebugHook{ uc_hook_add( m_uc, &m_debugHook, UC_HOOK_CODE, reinterpret_cast<void *>( hook_debug ), this,
                                       textSegStart, textSegEnd ) };
     if (errDebugHook != UC_ERR_OK)
@@ -179,7 +179,7 @@ bool COsxPpcEmu::run()
         return false;
     }
 
-#ifdef DEBUG
+#ifdef DEBUGGER_ENABLED
     if (errIntHook != UC_ERR_OK && errMemInvalidHook != UC_ERR_OK)
     {
         std::cerr << "Could not create other debug hooks" << std::endl;
@@ -701,7 +701,7 @@ bool COsxPpcEmu::init_default_rune_locale(
 void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 {
     const size_t idx{ ( address - common::Import_Dispatch_Table_Address ) >> import::Import_Entry_Size_Pow2 };
-#ifdef DEBUG
+#ifdef DEBUGGER_ENABLED
     emu->m_lastAddr = static_cast<uint32_t>( address );
     if (idx == 0 || emu->m_debugger->is_trace_mode())
         print_api_call_source( uc, address, idx, emu );
@@ -709,7 +709,7 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
     ShimContext ctx{ uc, &emu->m_mem, &emu->m_loader };
     if (idx > 0)
         import::Import_Items[idx - import::Unknown_Import_Shift].hook( ctx ); // call API dispatch function
-#ifdef DEBUG
+#ifdef DEBUGGER_ENABLED
     if (idx == 0 || emu->m_debugger->is_trace_mode())
         print_api_return( uc, idx, emu );
 #endif
@@ -721,7 +721,7 @@ void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
     uint32_t lr, pc;
 
     std::cout << ">>> interrupt/exception #" << intno << std::endl;
-#ifdef DEBUG
+#ifdef DEBUGGER_ENABLED
     const uint32_t addr{ emu ? emu->m_lastAddr : 0 };
     if (emu)
     {
@@ -830,7 +830,7 @@ void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int si
     std::cerr << "Value:   0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << value << std::endl;
     std::cerr << "PC:      0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << pc;
 
-#ifdef DEBUG
+#ifdef DEBUGGER_ENABLED
     if (emu)
     {
         const std::optional<std::string> pcName{ emu->m_loader.get_symbol_name_for_va(
@@ -890,7 +890,7 @@ void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int si
 #endif
 }
 
-#ifdef DEBUG
+#ifdef DEBUGGER_ENABLED
 static void write_arg_value( std::FILE *out, uc_engine *uc, uint32_t argValue )
 {
     std::fprintf( out, "0x%x", argValue );

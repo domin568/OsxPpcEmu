@@ -11,6 +11,7 @@
 #include "BinaryDiff.hpp"
 #include "ProcessRunner.hpp"
 #include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -33,6 +34,34 @@ namespace
 fs::path fixture_root()
 {
     return fs::path( TEST_FOLDER ) / "test_files" / "e2e";
+}
+
+long getpid_wrapper()
+{
+#ifdef _WIN32
+    return static_cast<long>( GetCurrentProcessId() );
+#else
+    return static_cast<long>( ::getpid() );
+#endif
+}
+
+fs::path make_unique_sandbox_dir( const std::string &prefix )
+{
+    const auto pid{ static_cast<unsigned long>( getpid_wrapper() ) };
+    static std::atomic<unsigned long> counter{ 0 };
+    for (int attempt = 0; attempt < 100; ++attempt)
+    {
+        const auto nowNs{ static_cast<unsigned long long>(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count() ) };
+        const fs::path candidate{ fs::temp_directory_path() /
+                                   ( prefix + "_" + std::to_string( pid ) + "_" + std::to_string( ++counter ) +
+                                     "_" + std::to_string( nowNs ) ) };
+        std::error_code ec;
+        if (fs::create_directory( candidate, ec ) && !ec)
+            return candidate;
+    }
+    ADD_FAILURE() << "Could not create a unique sandbox directory after 100 attempts";
+    return {};
 }
 
 // Files that must exist for the test to run (see MANIFEST.txt).
@@ -72,11 +101,8 @@ class MwpefccE2E : public ::testing::Test
                         "(debug build blocks on the interactive debugger prompt).";
 #endif
 
-        const auto pid{ static_cast<unsigned long>( getpid_wrapper() ) };
-        static std::atomic<unsigned long> counter{ 0 };
-        m_sandbox = fs::temp_directory_path() /
-                    ( "osxppcemu_e2e_" + std::to_string( pid ) + "_" + std::to_string( ++counter ) );
-        fs::create_directories( m_sandbox );
+        m_sandbox = make_unique_sandbox_dir( "osxppcemu_e2e" );
+        ASSERT_FALSE( m_sandbox.empty() ) << "Failed to create a unique sandbox directory";
 
         const fs::path root{ fixture_root() };
         fs::copy( root / "cw", m_sandbox / "cw", fs::copy_options::recursive );
@@ -108,15 +134,6 @@ class MwpefccE2E : public ::testing::Test
         }
     }
 
-    // Minimal getpid indirection so this header stays includable without <unistd.h> on Windows.
-    static long getpid_wrapper()
-    {
-#ifdef _WIN32
-        return static_cast<long>( GetCurrentProcessId() );
-#else
-        return static_cast<long>( ::getpid() );
-#endif
-    }
 
     // Runs mwpefcc (emulated) compiling `sourceFileName` (already copied into sandbox/src by SetUp)
     // into `outputName`, then compares the produced object file against the golden file with the

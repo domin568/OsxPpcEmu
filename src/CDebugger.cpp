@@ -4,7 +4,7 @@
  * Brief:     Interactive debugger for PPC emulator (DEBUG builds only)
  **/
 
-#ifdef DEBUG
+#ifdef DEBUGGER_ENABLED
 
 #include "../include/CDebugger.hpp"
 #include "../include/CMachoLoader.hpp"

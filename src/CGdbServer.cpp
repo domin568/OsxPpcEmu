@@ -17,7 +17,7 @@
 #include <sstream>
 #include <vector>
 
-#ifdef DEBUG
+#ifdef DEBUGGER_ENABLED
 
 namespace gdb
 {

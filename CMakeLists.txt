@@ -35,13 +35,11 @@ set(HEADER_FILES
         include/shims/libc/LibcShims.hpp
 )
 
-option(ENABLE_DEBUGGER "Enable built-in PPC debugger and GDB server" ON)
+option(ENABLE_DEBUGGER "Enable built-in PPC debugger and GDB server" OFF)
 
 add_library(OsxPpcEmuLib STATIC ${SOURCE_FILES} ${HEADER_FILES})
 target_include_directories(OsxPpcEmuLib PUBLIC ${CMAKE_SOURCE_DIR}/include)
-if (ENABLE_DEBUGGER)
-    target_compile_definitions(OsxPpcEmuLib PRIVATE DEBUG)
-endif ()
+target_compile_definitions(OsxPpcEmuLib PRIVATE $<$<BOOL:${ENABLE_DEBUGGER}>:DEBUGGER_ENABLED>)
 
 find_package(Unicorn CONFIG QUIET)
 if (Unicorn_FOUND)
@@ -53,8 +51,7 @@ else ()
             unicorn
             GIT_REPOSITORY https://github.com/unicorn-engine/unicorn.git
             GIT_TAG v2.1.4
-            GIT_SUBMODULES "" # docs/Unicorn_Engine_Documentation is not needed to build and its
-                              # clone is flaky in restricted-network environments
+            GIT_SUBMODULES ""
     )
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libs" FORCE)
     FetchContent_MakeAvailable(unicorn)
@@ -75,15 +72,13 @@ FetchContent_MakeAvailable(LIEF)
 find_package(Threads REQUIRED)
 target_link_libraries(OsxPpcEmuLib PUBLIC Threads::Threads LIEF::LIEF)
 
-if (WIN32)
+if (WIN32 AND ENABLE_DEBUGGER)
     target_link_libraries(OsxPpcEmuLib PUBLIC ws2_32)
 endif ()
 
 add_executable(${EXECUTABLE_NAME} src/main.cpp)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE OsxPpcEmuLib)
-if (ENABLE_DEBUGGER)
-    target_compile_definitions(${EXECUTABLE_NAME} PRIVATE DEBUG)
-endif ()
+target_compile_definitions(${EXECUTABLE_NAME} PRIVATE $<$<BOOL:${ENABLE_DEBUGGER}>:DEBUGGER_ENABLED>)
 
 include(CTest)
 enable_testing()

@@ -1,7 +1,5 @@
 include(FetchContent)
-
 add_compile_definitions(GTEST)
-
 add_compile_definitions("TEST_FOLDER=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
 
 FetchContent_Declare(
@@ -9,6 +7,7 @@ FetchContent_Declare(
         GIT_REPOSITORY https://github.com/google/googletest.git
         GIT_TAG v1.17.0
 )
+
 FetchContent_MakeAvailable(googletest)
 add_library(GTest::GTest INTERFACE IMPORTED)
 target_link_libraries(GTest::GTest INTERFACE gtest_main)
@@ -23,10 +22,6 @@ target_link_libraries(OsxPpcEmuTest
 
 add_test(NAME OsxPpcEmuGtests COMMAND OsxPpcEmuTest)
 
-# ── End-to-end tests: run the built OsxPpcEmu binary as a subprocess to emulate real
-# CodeWarrior tools (mwpefld linking, mwpefcc compiling). Kept as a separate target/executable so
-# the fast unit-test suite above is unaffected by it (it needs fixtures under test_files/e2e/ that
-# may be absent — see MANIFEST.txt — and will self-skip).
 add_executable(OsxPpcEmuE2E src/test_e2e_mwpefld.cpp src/test_e2e_mwpefcc.cpp)
 target_include_directories(OsxPpcEmuE2E PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(OsxPpcEmuE2E PRIVATE GTest::GTest)

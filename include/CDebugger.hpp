@@ -5,7 +5,7 @@
  **/
 #pragma once
 
-#ifdef DEBUG
+#ifdef DEBUGGER_ENABLED
 
 #include "CMemory.hpp"
 #include <cstdint>
