@@ -60,7 +60,12 @@ bool dyld_make_delayed_module_initializer_calls( ShimContext &ctx )
 
     std::memcpy( trampoline_host_addr, trampoline_mem.data(), trampoline_mem.size() );
 
-    return ctx.ret( trampoline_guest_addr );
+    if (uc_reg_write( ctx.uc, UC_PPC_REG_PC, &trampoline_guest_addr ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write trampoline return address" << std::endl;
+        return false;
+    }
+    return true;
 }
 
 // int _dyld_func_lookup(const char *dyld_func_name, void **address);
