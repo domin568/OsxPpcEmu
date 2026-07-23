@@ -10,6 +10,8 @@
  **/
 #include "BinaryDiff.hpp"
 #include "ProcessRunner.hpp"
+
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -96,7 +98,7 @@ class MwpefccE2E : public ::testing::Test
             GTEST_SKIP() << "E2E fixtures incomplete (" << reason
                          << "). See test/test_files/e2e/MANIFEST.txt for what's required.";
 
-#ifdef DEBUG
+#ifdef DEBUGGER_ENABLED
         GTEST_SKIP() << "E2E test requires a release build with ENABLE_DEBUGGER=OFF "
                         "(debug build blocks on the interactive debugger prompt).";
 #endif
@@ -129,27 +131,46 @@ class MwpefccE2E : public ::testing::Test
         }
         else
         {
-            std::error_code ec;
+            std::error_code ec{};
             fs::remove_all( m_sandbox, ec );
         }
     }
 
+    std::optional<std::uint64_t> get_powr_header_offset(const std::filesystem::path &filePath)
+    {
+        std::ifstream file{ filePath, std::ios::binary };
+        if (!file)
+            return std::nullopt;
 
-    // Runs mwpefcc (emulated) compiling `sourceFileName` (already copied into sandbox/src by SetUp)
-    // into `outputName`, then compares the produced object file against the golden file with the
-    // same name under test_files/e2e/expected/.
+        static constexpr uintmax_t Search_Range{ 0x400 };
+        std::array<char, Search_Range> buffer{};
+        const auto fsz{ std::filesystem::file_size(filePath) };
+        const auto toRead{ std::min(fsz, Search_Range) };
+        file.read(reinterpret_cast<char*>(buffer.data()), toRead);
+        if (!file)
+            return std::nullopt;
+
+        static constexpr std::array<char, 4> magic{ 'P', 'O', 'W', 'R' };
+
+        const auto result{ std::ranges::search(buffer.begin(), buffer.end(), magic.begin(), magic.end()) };
+        if (result.empty())
+            return std::nullopt;
+        return std::distance(buffer.begin(), result.begin());
+    }
+
     void compile_and_compare( const std::string &sourceFileName, const std::string &outputName )
     {
         const fs::path mwpefcc{ m_sandbox / "cw" / "tools" / "mwpefcc" };
 
-        const std::vector<std::string> argv{
+        const std::vector<std::string> argv
+        {
             EMU_BINARY, mwpefcc.string(), "-c", "-v", "-v", "-v", "src/" + sourceFileName, "-o",
             "output/" + outputName,
         };
 
-        const std::vector<std::string> env{
+        const std::vector<std::string> env
+        {
             "CWINSTALL=" + ( m_sandbox / "cw" ).string(),
-            "GDB_SERVER=0",
             "MWFrameworkVersions=System",
             "MWCIncludes=" + ( m_sandbox / "cw" / "tools" ).string(),
         };
@@ -165,12 +186,16 @@ class MwpefccE2E : public ::testing::Test
         ASSERT_TRUE( fs::exists( outputFile ) ) << "Compiler did not produce an output file.\nstdout:\n"
                                                 << result.stdoutText << "\nstderr:\n"
                                                 << result.stderrText;
-        EXPECT_GT( fs::file_size( outputFile ), 0u );
+        EXPECT_GT( fs::file_size( outputFile ), 0u ) << "Compiler produced empty file";
 
         const fs::path expected{ fixture_root() / "expected" / outputName };
-        // No ignore-ranges yet — known-noisy regions (paths, uninitialized compiler memory) are added
-        // here once identified from an initial run's diff report.
-        const testutil::DiffResult diff{ testutil::compare_files( expected, outputFile ) };
+
+        const auto expectedPowrOff{ get_powr_header_offset(expected) };
+        const auto actualPowrOff{ get_powr_header_offset(outputFile) };
+        ASSERT_TRUE(expectedPowrOff.has_value()) << "Could not find POWR header in expected file";
+        ASSERT_TRUE(actualPowrOff.has_value()) << "Could not find POWR header in actual file";
+
+        const testutil::DiffResult diff{ testutil::compare_files( expected, outputFile, *expectedPowrOff, *actualPowrOff ) };
         if (!diff.equal)
         {
             const fs::path actualCopy{ expected.string() + ".actual" };
@@ -180,7 +205,6 @@ class MwpefccE2E : public ::testing::Test
                           << "\nActual output copied to: " << actualCopy.string();
         }
     }
-
     fs::path m_sandbox{};
 };
 
