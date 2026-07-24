@@ -74,6 +74,8 @@ std::vector<fs::path> required_paths()
         root / "cw" / "tools" / "mwpefcc",
         root / "expected" / "test.cpp.o",
         root / "input" / "test.cpp",
+        root / "expected" / "emu_test.cpp.o",
+        root / "input" / "emu_test.cpp",
     };
 }
 
@@ -95,7 +97,7 @@ class MwpefccE2E : public ::testing::Test
     {
         const std::string reason{ missing_fixtures_reason() };
         if (!reason.empty())
-            GTEST_SKIP() << "E2E fixtures incomplete (" << reason
+            GTEST_FAIL() << "E2E fixtures incomplete (" << reason
                          << "). See test/test_files/e2e/MANIFEST.txt for what's required.";
 
 #ifdef DEBUGGER_ENABLED
@@ -110,6 +112,7 @@ class MwpefccE2E : public ::testing::Test
         fs::copy( root / "cw", m_sandbox / "cw", fs::copy_options::recursive );
         fs::create_directories( m_sandbox / "src" );
         fs::copy_file( root / "input" / "test.cpp", m_sandbox / "src" / "test.cpp" );
+        fs::copy_file( root / "input" / "emu_test.cpp", m_sandbox / "src" / "emu_test.cpp" );
         fs::create_directories( m_sandbox / "output" );
 
 #ifndef _WIN32
@@ -158,22 +161,47 @@ class MwpefccE2E : public ::testing::Test
         return std::distance(buffer.begin(), result.begin());
     }
 
+    std::vector<std::string> get_env_vars(const fs::path &libs)
+    {
+        const std::string mwCIncludes
+        {
+            ( libs / "MSL" / "MSL_C" / "MSL_Common" / "Include" ).string() + ":" +
+            ( libs / "MSL" / "MSL_C" / "MSL_MacOS" / "Include" ).string() + ":" +
+            ( libs / "MSL" / "MSL_C++" / "MSL_Common" / "Include" ).string() + ":" +
+            ( libs / "MSL" / "MSL_Extras" / "MSL_Common" / "Include" ).string() + ":" +
+            ( libs / "MSL" / "MSL_Extras" / "MSL_MacOS" / "Include" ).string() + ":" +
+            ( libs / "MacOS Support" / "Universal" / "Interfaces" / "CIncludes" ).string()
+        };
+
+        const std::string mwPefLibraries
+        {
+            ( libs / "MacOS Support" / "Universal" / "Libraries" / "StubLibraries" ).string() + ":" +
+            ( libs / "MSL" / "MSL_C" / "MSL_MacOS" / "Lib" / "PPC" ).string() + ":" +
+            ( libs / "MSL" / "MSL_C++" / "MSL_MacOS" / "Lib" / "PPC" ).string() + ":" +
+            ( libs / "MacOS Support" / "Libraries" / "Runtime" / "Libs" ).string()
+        };
+
+        return
+        {
+            "CWINSTALL=" + ( m_sandbox / "cw" ).string(),
+            "MWFrameworkVersions=System",
+            "MWCIncludes=" + mwCIncludes,
+            "MWPEFLibraries=" + mwPefLibraries,
+            "MWPEFLibraryFiles=MSL_All_Carbon.Lib:CarbonLib",
+        };
+    }
+
     void compile_and_compare( const std::string &sourceFileName, const std::string &outputName )
     {
         const fs::path mwpefcc{ m_sandbox / "cw" / "tools" / "mwpefcc" };
+        const fs::path libs{ m_sandbox / "cw" / "libs" };
 
         const std::vector<std::string> argv
         {
             EMU_BINARY, mwpefcc.string(), "-c", "-v", "-v", "-v", "src/" + sourceFileName, "-o",
             "output/" + outputName,
         };
-
-        const std::vector<std::string> env
-        {
-            "CWINSTALL=" + ( m_sandbox / "cw" ).string(),
-            "MWFrameworkVersions=System",
-            "MWCIncludes=" + ( m_sandbox / "cw" / "tools" ).string(),
-        };
+        const std::vector<std::string> env{ get_env_vars(libs) };
 
         const testutil::ProcessResult result{ testutil::run_process( argv, m_sandbox, env ) };
 
@@ -194,7 +222,6 @@ class MwpefccE2E : public ::testing::Test
         const auto actualPowrOff{ get_powr_header_offset(outputFile) };
         ASSERT_TRUE(expectedPowrOff.has_value()) << "Could not find POWR header in expected file";
         ASSERT_TRUE(actualPowrOff.has_value()) << "Could not find POWR header in actual file";
-
         const testutil::DiffResult diff{ testutil::compare_files( expected, outputFile, *expectedPowrOff, *actualPowrOff ) };
         if (!diff.equal)
         {
@@ -213,3 +240,7 @@ TEST_F( MwpefccE2E, CodeWarriorCompileFile1 )
     compile_and_compare( "test.cpp", "test.cpp.o" );
 }
 
+TEST_F( MwpefccE2E, CodeWarriorCompileFile2 )
+{
+    compile_and_compare( "emu_test.cpp", "emu_test.cpp.o" );
+}

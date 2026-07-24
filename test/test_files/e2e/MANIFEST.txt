@@ -1,21 +1,39 @@
-# E2E fixture manifest (test/src/test_e2e_mwpefld.cpp)
+# E2E fixture manifest (test/src/test_e2e_mwpefld.cpp, test/src/test_e2e_mwpefcc.cpp)
 #
 # Paths are relative to this file's directory (test/test_files/e2e/).
 # Files marked [repo] are committed. Files marked [user] must be copied in
-# manually from a real CodeWarrior Pro 9 install before the E2E_mwpefld test
-# will run; otherwise the test reports GTEST_SKIP with the missing path.
+# manually from a real CodeWarrior Pro 9 install before the E2E tests will
+# run; otherwise the test fails with the missing path.
 #
 # [repo] cw/tools/mwpefld                     - PPC MachO linker (copied from samples/mwpefld)
-# [repo] cw/tools/mwpefcc                      - PPC C/C++ compiler (copied from samples/mwpefcc)
-# [repo] expected/cw_stress_test               - golden linked output
-# [repo] expected/emu_test                      - golden linked output
-# [repo] expected/test.cpp.o                    - golden compiled object file
-# [user] input/cw_stress_test.cpp.o            - object file to link (compiler output for samples/cw_stress_test.cpp)
-# [user] input/emu_test.cpp.o                   - object file to link
-# [repo] input/test.cpp                         - source file to compile
-# [user] cw/libs/Runtime/Libs/*                - from "MacOS Support/Libraries/Runtime/Libs"
-# [user] cw/libs/MSL_C_PPC/*                   - from "MSL/MSL_C/MSL_MacOS/Lib/PPC"
-# [user] cw/libs/MSL_CPP_PPC/*                 - from "MSL/MSL_C++/MSL_MacOS/Lib/PPC"
-# [user] cw/libs/StubLibraries/*                - from "MacOS Support/Universal/Libraries/StubLibraries"
+# [repo] cw/tools/mwpefcc                     - PPC C/C++ compiler (copied from samples/mwpefcc)
+# [repo] expected/cw_stress_test              - golden linked output
+# [repo] expected/emu_test                    - golden linked output
+# [repo] expected/test.cpp.o                  - golden compiled object file
+# [repo] expected/emu_test.cpp.o              - golden compiled object file
+# [user] input/cw_stress_test.cpp.o           - object file to link (compiler output for samples/cw_stress_test.cpp)
+# [user] input/emu_test.cpp.o                 - object file to link
+# [repo] input/test.cpp                       - source file to compile
+# [repo] input/emu_test.cpp                   - source file to compile
+#
+# [user] cw/libs/MSL/MSL_C/MSL_Common/Include - from "MSL/MSL_C/MSL_Common/Include"
+# [user] cw/libs/MSL/MSL_C/MSL_Common/Src     - from "MSL/MSL_C/MSL_Common/Src"
+# [user] cw/libs/MSL/MSL_C/MSL_MacOS/Include  - from "MSL/MSL_C/MSL_MacOS/Include"
+# [user] cw/libs/MSL/MSL_C/MSL_MacOS/Lib/PPC  - from "MSL/MSL_C/MSL_MacOS/Lib/PPC"
+# [user] cw/libs/MSL/MSL_C/MSL_MacOS/Project/PPC - from "MSL/MSL_C/MSL_MacOS/Project/PPC"
+# [user] cw/libs/MSL/MSL_C/MSL_MacOS/Src      - from "MSL/MSL_C/MSL_MacOS/Src"
+# [user] cw/libs/MSL/MSL_C++/MSL_Common/Include - from "MSL/MSL_C++/MSL_Common/Include"
+# [user] cw/libs/MSL/MSL_C++/MSL_Common/Src   - from "MSL/MSL_C++/MSL_Common/Src"
+# [user] cw/libs/MSL/MSL_C++/MSL_MacOS/Lib/PPC - from "MSL/MSL_C++/MSL_MacOS/Lib/PPC"
+# [user] cw/libs/MSL/MSL_Extras/MSL_Common/Include - from "MSL/MSL_Extras/MSL_Common/Include"
+# [user] cw/libs/MSL/MSL_Extras/MSL_Common/Include/sys - from "MSL/MSL_Extras/MSL_Common/Include/sys"
+# [user] cw/libs/MSL/MSL_Extras/MSL_Common/Src - from "MSL/MSL_Extras/MSL_Common/Src"
+# [user] cw/libs/MSL/MSL_Extras/MSL_MacOS/Include - from "MSL/MSL_Extras/MSL_MacOS/Include"
+# [user] cw/libs/MSL/MSL_Extras/MSL_MacOS/Lib/PPC - from "MSL/MSL_Extras/MSL_MacOS/Lib/PPC"
+# [user] cw/libs/MSL/MSL_Extras/MSL_MacOS/Project/PPC - from "MSL/MSL_Extras/MSL_MacOS/Project/PPC"
+# [user] cw/libs/MSL/MSL_Extras/MSL_MacOS/Src - from "MSL/MSL_Extras/MSL_MacOS/Src"
+# [user] cw/libs/MacOS Support/Libraries/Runtime/Libs - from "MacOS Support/Libraries/Runtime/Libs"
+# [user] cw/libs/MacOS Support/Universal/Interfaces/CIncludes - from "MacOS Support/Universal/Interfaces/CIncludes"
+# [user] cw/libs/MacOS Support/Universal/Libraries/StubLibraries - from "MacOS Support/Universal/Libraries/StubLibraries"
 #
 # Required library file names (MWPEFLibraryFiles): MSL_All_Carbon.Lib, CarbonLib

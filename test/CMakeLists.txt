@@ -31,5 +31,6 @@ add_dependencies(OsxPpcEmuE2E ${EXECUTABLE_NAME})
 add_test(NAME E2E_CodeWarriorLinkFile1 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefldE2E.CodeWarriorLinkFile1)
 add_test(NAME E2E_CodeWarriorLinkFile2 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefldE2E.CodeWarriorLinkFile2)
 add_test(NAME E2E_CodeWarriorCompileFile1 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileFile1)
-set_tests_properties(E2E_CodeWarriorLinkFile1 E2E_CodeWarriorLinkFile2 E2E_CodeWarriorCompileFile1
+add_test(NAME E2E_CodeWarriorCompileFile2 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileFile2)
+set_tests_properties(E2E_CodeWarriorLinkFile1 E2E_CodeWarriorLinkFile2 E2E_CodeWarriorCompileFile1 E2E_CodeWarriorCompileFile2
         PROPERTIES TIMEOUT 300)

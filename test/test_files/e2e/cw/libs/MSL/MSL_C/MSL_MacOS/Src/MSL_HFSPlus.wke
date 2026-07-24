@@ -1,0 +1,40 @@
+# Metrowerks Standard Library
+# Copyright © 2002 Metrowerks Corporation.  All rights reserved.
+#
+# $Date: 2002/12/19 20:02:22 $
+# $Revision: 1.3 $
+
+FSCloseFork
+FSCloseIterator
+FSCompareFSRefs
+FSCreateDirectoryUnicode
+FSCreateFileUnicode
+FSDeleteObject
+FSGetCatalogInfo
+FSGetCatalogInfoBulk
+FSGetDataForkName
+FSGetForkCBInfo
+FSGetForkPosition
+FSGetResourceForkName
+FSGetVolumeInfo
+FSMakeFSRefUnicode
+FSOpenFork
+FSOpenIterator
+FSpMakeFSRef
+FSReadFork
+FSRenameUnicode
+FSResolveAliasFileWithMountFlags
+FSSetCatalogInfo
+FSSetForkPosition
+FSSetForkSize
+FSWriteFork
+PBGetForkSizeAsync
+PBGetForkSizeSync
+PBReadForkAsync
+PBReadForkSync
+PBSetForkPositionAsync
+PBSetForkPositionSync
+PBSetForkSizeAsync
+PBSetForkSizeSync
+PBWriteForkAsync
+PBWriteForkSync

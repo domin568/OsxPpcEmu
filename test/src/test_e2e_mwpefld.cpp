@@ -82,10 +82,16 @@ std::vector<fs::path> required_lib_dirs()
 {
     const fs::path root{ fixture_root() };
     return {
-        root / "cw" / "libs" / "Runtime" / "Libs",
-        root / "cw" / "libs" / "MSL_C_PPC",
-        root / "cw" / "libs" / "MSL_CPP_PPC",
-        root / "cw" / "libs" / "StubLibraries",
+        root / "cw" / "libs" / "MSL" / "MSL_C" / "MSL_Common" / "Include",
+        root / "cw" / "libs" / "MSL" / "MSL_C" / "MSL_MacOS" / "Include",
+        root / "cw" / "libs" / "MSL" / "MSL_C" / "MSL_MacOS" / "Lib" / "PPC",
+        root / "cw" / "libs" / "MSL" / "MSL_C++" / "MSL_Common" / "Include",
+        root / "cw" / "libs" / "MSL" / "MSL_C++" / "MSL_MacOS" / "Lib" / "PPC",
+        root / "cw" / "libs" / "MSL" / "MSL_Extras" / "MSL_Common" / "Include",
+        root / "cw" / "libs" / "MSL" / "MSL_Extras" / "MSL_MacOS" / "Lib" / "PPC",
+        root / "cw" / "libs" / "MacOS Support" / "Libraries" / "Runtime" / "Libs",
+        root / "cw" / "libs" / "MacOS Support" / "Universal" / "Interfaces" / "CIncludes",
+        root / "cw" / "libs" / "MacOS Support" / "Universal" / "Libraries" / "StubLibraries",
     };
 }
 
@@ -120,7 +126,7 @@ class MwpefldE2E : public ::testing::Test
     {
         const std::string reason{ missing_fixtures_reason() };
         if (!reason.empty())
-            GTEST_SKIP() << "E2E fixtures incomplete (" << reason
+            GTEST_FAIL() << "E2E fixtures incomplete (" << reason
                          << "). See test/test_files/e2e/MANIFEST.txt for what's required.";
 
 #ifdef DEBUGGER_ENABLED
@@ -161,6 +167,35 @@ class MwpefldE2E : public ::testing::Test
         }
     }
 
+    std::vector<std::string> get_env_vars(const fs::path &libs)
+    {
+        const std::string mwCIncludes
+        {
+            ( libs / "MSL" / "MSL_C" / "MSL_Common" / "Include" ).string() + ":" +
+            ( libs / "MSL" / "MSL_C" / "MSL_MacOS" / "Include" ).string() + ":" +
+            ( libs / "MSL" / "MSL_C++" / "MSL_Common" / "Include" ).string() + ":" +
+            ( libs / "MSL" / "MSL_Extras" / "MSL_Common" / "Include" ).string() + ":" +
+            ( libs / "MSL" / "MSL_Extras" / "MSL_MacOS" / "Include" ).string() + ":" +
+            ( libs / "MacOS Support" / "Universal" / "Interfaces" / "CIncludes" ).string()
+        };
+
+        const std::string mwPefLibraries
+        {
+            ( libs / "MacOS Support" / "Universal" / "Libraries" / "StubLibraries" ).string() + ":" +
+            ( libs / "MSL" / "MSL_C" / "MSL_MacOS" / "Lib" / "PPC" ).string() + ":" +
+            ( libs / "MSL" / "MSL_C++" / "MSL_MacOS" / "Lib" / "PPC" ).string() + ":" +
+            ( libs / "MacOS Support" / "Libraries" / "Runtime" / "Libs" ).string()
+        };
+
+        return
+        {
+            "CWINSTALL=" + ( m_sandbox / "cw" ).string(),
+            "MWFrameworkVersions=System",
+            "MWCIncludes=" + mwCIncludes,
+            "MWPEFLibraries=" + mwPefLibraries,
+            "MWPEFLibraryFiles=MSL_All_Carbon.Lib:CarbonLib",
+        };
+    }
 
     // Runs mwpefld (emulated) linking `objectFileName` (already copied into sandbox/src by SetUp)
     // into `outputName`, then compares the produced Mach-O against the golden file with the same
@@ -170,20 +205,13 @@ class MwpefldE2E : public ::testing::Test
         const fs::path mwpefld{ m_sandbox / "cw" / "tools" / "mwpefld" };
         const fs::path libs{ m_sandbox / "cw" / "libs" };
 
-        const std::vector<std::string> argv{
-            EMU_BINARY,        mwpefld.string(), "-v", "-v", "-v", "src/" + objectFileName, "-o",
+        const std::vector<std::string> argv
+        {
+            EMU_BINARY, mwpefld.string(), "-v", "-v", "-v", "src/" + objectFileName, "-o",
             "output/" + outputName,
         };
 
-        const std::vector<std::string> env{
-            "CWINSTALL=" + ( m_sandbox / "cw" ).string(),
-            "GDB_SERVER=0",
-            "MWFrameworkVersions=System",
-            "MWPEFLibraries=" + ( libs / "Runtime" / "Libs" ).string() + ":" + ( libs / "MSL_C_PPC" ).string() + ":" +
-                ( libs / "MSL_CPP_PPC" ).string() + ":" + ( libs / "StubLibraries" ).string(),
-            "MWPEFLibraryFiles=MSL_All_Carbon.Lib:CarbonLib",
-        };
-
+        const std::vector<std::string> env{ get_env_vars(libs) };
         const testutil::ProcessResult result{ testutil::run_process( argv, m_sandbox, env ) };
 
         ASSERT_TRUE( result.launched ) << "Failed to launch emulator binary: " << EMU_BINARY;
