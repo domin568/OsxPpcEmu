@@ -42,7 +42,8 @@ bool ___error( ShimContext &ctx )
         return false;
     }
 
-    return ctx.ret( *errnoVa );
+    const uint32_t errnoAddr{ *errnoVa };
+    return ctx.ret( errnoAddr );
 }
 
 // int ___isctype(int c, unsigned long mask);
@@ -1999,8 +2000,12 @@ bool strtod( ShimContext &ctx )
         *endptrHost = guestEndPtr;
     }
 
-    // Return double in FPR1 (PPC calling convention for floating point return values)
-    return ctx.ret( ret );
+    if (uc_reg_write( ctx.uc, UC_PPC_REG_FPR1, &ret ) != UC_ERR_OK)
+    {
+        std::cerr << "Could not write strtod return value" << std::endl;
+        return false;
+    }
+    return true;
 }
 
 // long strtol(const char *str, char **endptr, int base);
