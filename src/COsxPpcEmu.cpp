@@ -247,8 +247,8 @@ bool COsxPpcEmu::set_args_on_stack( uc_engine *uc, const std::span<const std::st
     // calculate offsets
     const auto targetArgs{ args | std::views::drop( 1 ) };
 
-    const size_t argcOffset{ 0 };
-    const size_t argsPtrsOffset{ argcOffset + sizeof( uint32_t ) }; // 4
+    constexpr size_t argcOffset{ 0 };
+    constexpr size_t argsPtrsOffset{ argcOffset + sizeof( uint32_t ) }; // 4
     const size_t envPtrsOffset{ argsPtrsOffset + targetArgs.size() * sizeof( uint32_t ) +
                                 sizeof( uint32_t ) }; // argc + argv + null
     const size_t execPathOffset{ envPtrsOffset + env.size() * sizeof( uint32_t ) +
@@ -717,8 +717,8 @@ void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu )
 
 void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
 {
-    COsxPpcEmu *emu = static_cast<COsxPpcEmu *>( user_data );
-    uint32_t lr, pc;
+    auto *emu{ static_cast<COsxPpcEmu *>( user_data ) };
+    uint32_t lr{}, pc{};
 
     std::cout << ">>> interrupt/exception #" << intno << std::endl;
 #ifdef DEBUGGER_ENABLED
@@ -790,8 +790,8 @@ void hook_intr( uc_engine *uc, uint32_t intno, void *user_data )
 
 void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data )
 {
-    COsxPpcEmu *emu = static_cast<COsxPpcEmu *>( user_data );
-    uint32_t pc, lr;
+    auto *emu{ static_cast<COsxPpcEmu *>( user_data ) };
+    uint32_t pc{}, lr{};
 
     uc_reg_read( uc, UC_PPC_REG_PC, &pc );
     uc_reg_read( uc, UC_PPC_REG_LR, &lr );

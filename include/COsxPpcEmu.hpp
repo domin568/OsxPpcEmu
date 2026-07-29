@@ -11,7 +11,7 @@
 #include "../include/CDebugger.hpp"
 #include "../include/CGdbServer.hpp"
 #endif
-#include <cstdio>
+
 #include <expected>
 #include <unicorn/unicorn.h>
 
@@ -37,7 +37,7 @@ struct Error
 class COsxPpcEmu
 {
   public:
-    static std::expected<COsxPpcEmu, Error> init( int argc, const char **argv, const std::span<const std::string> env );
+    static std::expected<COsxPpcEmu, Error> init( int argc, const char **argv, std::span<const std::string> env );
     bool run();
 #ifdef DEBUGGER_ENABLED
     void init_debugger();
@@ -67,10 +67,10 @@ class COsxPpcEmu
     // static initialization functions
     static std::optional<size_t> get_max_import_data_size(
         const std::span<const std::pair<std::string_view, import::Known_Import_Entry>> &knownImports );
-    static bool set_stack( uc_engine *uc, const std::span<const std::string> args,
-                           const std::span<const std::string> env, memory::CMemory &mem );
-    static bool set_args_on_stack( uc_engine *uc, const std::span<const std::string> args,
-                                   const std::span<const std::string> env, memory::CMemory &mem );
+    static bool set_stack( uc_engine *uc, std::span<const std::string> args,
+                           std::span<const std::string> env, memory::CMemory &mem );
+    static bool set_args_on_stack( uc_engine *uc, std::span<const std::string> args,
+                                   std::span<const std::string> env, memory::CMemory &mem );
 
     static bool resolve_imports( uc_engine *uc, loader::CMachoLoader &loader, memory::CMemory &mem );
     static bool redirect_imports(
@@ -79,7 +79,7 @@ class COsxPpcEmu
         memory::CMemory &mem );
     static bool write_unknown_import_entry( uc_engine *uc, memory::CMemory &mem );
     static bool write_dynamic_import_entries( uc_engine *uc, memory::CMemory &mem );
-    static bool write_import_entry( uc_engine *uc, size_t offset, const import::Runtime_Import_Table_Entry entry,
+    static bool write_import_entry( uc_engine *uc, size_t offset, import::Runtime_Import_Table_Entry entry,
                                     memory::CMemory &mem );
     static bool patch_import_ptr( uc_engine *uc, size_t offset, uint32_t symbolAddress, memory::CMemory &mem );
     static bool init_default_rune_locale(

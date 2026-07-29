@@ -21,6 +21,16 @@ struct DiffRegion
     std::size_t len{};
 };
 
+struct DiffSetup
+{
+    const std::filesystem::path &expected;
+    const std::filesystem::path &actual;
+    const std::uintmax_t expectedStartOff{};
+    const std::uintmax_t actualStartOff{};
+    const std::vector<DiffRegion> &ignore{};
+    std::size_t maxRegions{ 32 };
+};
+
 struct DiffResult
 {
     bool equal{ true };
@@ -42,21 +52,16 @@ inline std::vector<uint8_t> read_file_bytes( const std::filesystem::path &path, 
 // Compares `actual` against `expected`. Byte ranges listed in `ignore` are skipped
 // entirely (never counted as a diff). Reports at most `maxRegions` coalesced
 // mismatching regions.
-inline DiffResult compare_files( const std::filesystem::path &expected,
-                                 const std::filesystem::path &actual,
-                                 const std::uintmax_t expectedStartOff = 0,
-                                 const std::uintmax_t actualStartOff = 0,
-                                 const std::vector<DiffRegion> &ignore = {}, std::size_t maxRegions = 32 )
+inline DiffResult compare_files( DiffSetup setup )
 {
     DiffResult result{};
-    const std::vector<uint8_t> expectedBytes{ read_file_bytes( expected, expectedStartOff ) };
-    const std::vector<uint8_t> actualBytes{ read_file_bytes( actual, actualStartOff ) };
+    const std::vector<uint8_t> expectedBytes{ read_file_bytes( setup.expected, setup.expectedStartOff ) };
+    const std::vector<uint8_t> actualBytes{ read_file_bytes( setup.actual, setup.actualStartOff ) };
     result.expectedSize = expectedBytes.size();
     result.actualSize = actualBytes.size();
 
-    const auto isIgnored{ [&]( std::size_t offset )
-    {
-        for (const DiffRegion &r : ignore)
+    const auto isIgnored{ [&]( std::size_t offset ) {
+        for (const DiffRegion &r : setup.ignore)
             if (offset >= r.offset && offset < r.offset + r.len)
                 return true;
         return false;
@@ -67,9 +72,8 @@ inline DiffResult compare_files( const std::filesystem::path &expected,
     std::size_t regionStart{ 0 };
     std::size_t regionLen{ 0 };
 
-    const auto flushRegion{ [&]()
-    {
-        if (inRegion && result.regions.size() < maxRegions)
+    const auto flushRegion{ [&]() {
+        if (inRegion && result.regions.size() < setup.maxRegions)
             result.regions.push_back( { regionStart, regionLen } );
         inRegion = false;
         regionLen = 0;

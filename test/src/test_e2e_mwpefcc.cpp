@@ -53,11 +53,11 @@ fs::path make_unique_sandbox_dir( const std::string &prefix )
     static std::atomic<unsigned long> counter{ 0 };
     for (int attempt = 0; attempt < 100; ++attempt)
     {
-        const auto nowNs{ static_cast<unsigned long long>(
-            std::chrono::high_resolution_clock::now().time_since_epoch().count() ) };
+        const auto nowNs{
+            static_cast<unsigned long long>( std::chrono::high_resolution_clock::now().time_since_epoch().count() ) };
         const fs::path candidate{ fs::temp_directory_path() /
-                                   ( prefix + "_" + std::to_string( pid ) + "_" + std::to_string( ++counter ) +
-                                     "_" + std::to_string( nowNs ) ) };
+                                  ( prefix + "_" + std::to_string( pid ) + "_" + std::to_string( ++counter ) + "_" +
+                                    std::to_string( nowNs ) ) };
         std::error_code ec;
         if (fs::create_directory( candidate, ec ) && !ec)
             return candidate;
@@ -71,11 +71,8 @@ std::vector<fs::path> required_paths()
 {
     const fs::path root{ fixture_root() };
     return {
-        root / "cw" / "tools" / "mwpefcc",
-        root / "expected" / "test.cpp.o",
-        root / "input" / "test.cpp",
-        root / "expected" / "emu_test.cpp.o",
-        root / "input" / "emu_test.cpp",
+        root / "cw" / "tools" / "mwpefcc",    root / "expected" / "test.cpp.o", root / "input" / "test.cpp",
+        root / "expected" / "emu_test.cpp.o", root / "input" / "emu_test.cpp",
     };
 }
 
@@ -117,8 +114,8 @@ class MwpefccE2E : public ::testing::Test
 
 #ifndef _WIN32
         fs::permissions( m_sandbox / "cw" / "tools" / "mwpefcc",
-                         fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec |
-                             fs::perms::others_read | fs::perms::others_exec,
+                         fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec | fs::perms::others_read |
+                             fs::perms::others_exec,
                          fs::perm_options::add );
 #endif
     }
@@ -139,7 +136,7 @@ class MwpefccE2E : public ::testing::Test
         }
     }
 
-    std::optional<std::uint64_t> get_powr_header_offset(const std::filesystem::path &filePath)
+    std::optional<std::uint64_t> get_powr_header_offset( const std::filesystem::path &filePath )
     {
         std::ifstream file{ filePath, std::ios::binary };
         if (!file)
@@ -147,42 +144,36 @@ class MwpefccE2E : public ::testing::Test
 
         static constexpr uintmax_t Search_Range{ 0x400 };
         std::array<char, Search_Range> buffer{};
-        const auto fsz{ std::filesystem::file_size(filePath) };
-        const auto toRead{ std::min(fsz, Search_Range) };
-        file.read(reinterpret_cast<char*>(buffer.data()), toRead);
+        const auto fsz{ std::filesystem::file_size( filePath ) };
+        const auto toRead{ std::min( fsz, Search_Range ) };
+        file.read( reinterpret_cast<char *>( buffer.data() ), toRead );
         if (!file)
             return std::nullopt;
 
         static constexpr std::array<char, 4> magic{ 'P', 'O', 'W', 'R' };
 
-        const auto result{ std::ranges::search(buffer.begin(), buffer.end(), magic.begin(), magic.end()) };
+        const auto result{ std::ranges::search( buffer.begin(), buffer.end(), magic.begin(), magic.end() ) };
         if (result.empty())
             return std::nullopt;
-        return std::distance(buffer.begin(), result.begin());
+        return std::distance( buffer.begin(), result.begin() );
     }
 
-    std::vector<std::string> get_env_vars(const fs::path &libs)
+    std::vector<std::string> get_env_vars( const fs::path &libs )
     {
-        const std::string mwCIncludes
-        {
-            ( libs / "MSL" / "MSL_C" / "MSL_Common" / "Include" ).string() + ":" +
-            ( libs / "MSL" / "MSL_C" / "MSL_MacOS" / "Include" ).string() + ":" +
-            ( libs / "MSL" / "MSL_C++" / "MSL_Common" / "Include" ).string() + ":" +
-            ( libs / "MSL" / "MSL_Extras" / "MSL_Common" / "Include" ).string() + ":" +
-            ( libs / "MSL" / "MSL_Extras" / "MSL_MacOS" / "Include" ).string() + ":" +
-            ( libs / "MacOS Support" / "Universal" / "Interfaces" / "CIncludes" ).string()
-        };
+        const std::string mwCIncludes{ ( libs / "MSL" / "MSL_C" / "MSL_Common" / "Include" ).string() + ":" +
+                                       ( libs / "MSL" / "MSL_C" / "MSL_MacOS" / "Include" ).string() + ":" +
+                                       ( libs / "MSL" / "MSL_C++" / "MSL_Common" / "Include" ).string() + ":" +
+                                       ( libs / "MSL" / "MSL_Extras" / "MSL_Common" / "Include" ).string() + ":" +
+                                       ( libs / "MSL" / "MSL_Extras" / "MSL_MacOS" / "Include" ).string() + ":" +
+                                       ( libs / "MacOS Support" / "Universal" / "Interfaces" / "CIncludes" ).string() };
 
-        const std::string mwPefLibraries
-        {
+        const std::string mwPefLibraries{
             ( libs / "MacOS Support" / "Universal" / "Libraries" / "StubLibraries" ).string() + ":" +
             ( libs / "MSL" / "MSL_C" / "MSL_MacOS" / "Lib" / "PPC" ).string() + ":" +
             ( libs / "MSL" / "MSL_C++" / "MSL_MacOS" / "Lib" / "PPC" ).string() + ":" +
-            ( libs / "MacOS Support" / "Libraries" / "Runtime" / "Libs" ).string()
-        };
+            ( libs / "MacOS Support" / "Libraries" / "Runtime" / "Libs" ).string() };
 
-        return
-        {
+        return {
             "CWINSTALL=" + ( m_sandbox / "cw" ).string(),
             "MWFrameworkVersions=System",
             "MWCIncludes=" + mwCIncludes,
@@ -196,19 +187,15 @@ class MwpefccE2E : public ::testing::Test
         const fs::path mwpefcc{ m_sandbox / "cw" / "tools" / "mwpefcc" };
         const fs::path libs{ m_sandbox / "cw" / "libs" };
 
-        const std::vector<std::string> argv
-        {
-            EMU_BINARY, mwpefcc.string(), "-c", "-v", "-v", "-v", "src/" + sourceFileName, "-o",
-            "output/" + outputName,
+        const std::vector<std::string> argv{
+            EMU_BINARY, mwpefcc.string(), "-c", "-v", "-v", "-v", "src/" + sourceFileName, "-o", "output/" + outputName,
         };
-        const std::vector<std::string> env{ get_env_vars(libs) };
+        const std::vector<std::string> env{ get_env_vars( libs ) };
 
         const testutil::ProcessResult result{ testutil::run_process( argv, m_sandbox, env ) };
 
         ASSERT_TRUE( result.launched ) << "Failed to launch emulator binary: " << EMU_BINARY;
-        EXPECT_EQ( result.exitCode, 0 ) << "stdout:\n"
-                                        << result.stdoutText << "\nstderr:\n"
-                                        << result.stderrText;
+        EXPECT_EQ( result.exitCode, 0 ) << "stdout:\n" << result.stdoutText << "\nstderr:\n" << result.stderrText;
 
         const fs::path outputFile{ m_sandbox / "output" / outputName };
         ASSERT_TRUE( fs::exists( outputFile ) ) << "Compiler did not produce an output file.\nstdout:\n"
@@ -218,11 +205,19 @@ class MwpefccE2E : public ::testing::Test
 
         const fs::path expected{ fixture_root() / "expected" / outputName };
 
-        const auto expectedPowrOff{ get_powr_header_offset(expected) };
-        const auto actualPowrOff{ get_powr_header_offset(outputFile) };
-        ASSERT_TRUE(expectedPowrOff.has_value()) << "Could not find POWR header in expected file";
-        ASSERT_TRUE(actualPowrOff.has_value()) << "Could not find POWR header in actual file";
-        const testutil::DiffResult diff{ testutil::compare_files( expected, outputFile, *expectedPowrOff, *actualPowrOff ) };
+        const auto expectedPowrOff{ get_powr_header_offset( expected ) };
+        const auto actualPowrOff{ get_powr_header_offset( outputFile ) };
+        ASSERT_TRUE( expectedPowrOff.has_value() ) << "Could not find POWR header in expected file";
+        ASSERT_TRUE( actualPowrOff.has_value() ) << "Could not find POWR header in actual file";
+
+        testutil::DiffSetup setup{ .expected{ expected },
+                                   .actual{ outputFile },
+                                   .expectedStartOff{ *expectedPowrOff },
+                                   .actualStartOff{ *actualPowrOff },
+                                   .ignore{},
+                                   .maxRegions{ 32 } };
+
+        const testutil::DiffResult diff{ testutil::compare_files( setup ) };
         if (!diff.equal)
         {
             const fs::path actualCopy{ expected.string() + ".actual" };
@@ -232,6 +227,7 @@ class MwpefccE2E : public ::testing::Test
                           << "\nActual output copied to: " << actualCopy.string();
         }
     }
+    
     fs::path m_sandbox{};
 };
 

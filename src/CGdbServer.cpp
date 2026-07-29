@@ -11,7 +11,6 @@
 #include "../include/PlatformSocket.hpp"
 #include <algorithm>
 #include <chrono>
-#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -697,15 +696,18 @@ std::string CGdbServer::handle_query( const std::string &query )
         uint32_t regnum = decode_hex_u32( num_str );
 
         if (regnum == 1) // r1 (SP)
-            return "name:r1;bitsize:32;offset:4;encoding:uint;format:hex;set:General Purpose Registers;gcc:1;dwarf:1;generic:sp;";
+            return "name:r1;bitsize:32;offset:4;encoding:uint;format:hex;set:General Purpose "
+                   "Registers;gcc:1;dwarf:1;generic:sp;";
         else if (regnum == 67) // LR
-            return "name:lr;bitsize:32;offset:268;encoding:uint;format:hex;set:Special Purpose Registers;gcc:67;dwarf:67;generic:ra;";
+            return "name:lr;bitsize:32;offset:268;encoding:uint;format:hex;set:Special Purpose "
+                   "Registers;gcc:67;dwarf:67;generic:ra;";
         else if (regnum == 64) // PC
-            return "name:pc;bitsize:32;offset:256;encoding:uint;format:hex;set:Special Purpose Registers;gcc:64;dwarf:64;generic:pc;alt-name:srr0;";
+            return "name:pc;bitsize:32;offset:256;encoding:uint;format:hex;set:Special Purpose "
+                   "Registers;gcc:64;dwarf:64;generic:pc;alt-name:srr0;";
         else if (regnum < 32) // r0-r31
         {
             std::ostringstream oss;
-            oss << "name:r" << regnum << ";bitsize:32;offset:" << (regnum * 4)
+            oss << "name:r" << regnum << ";bitsize:32;offset:" << ( regnum * 4 )
                 << ";encoding:uint;format:hex;set:General Purpose Registers;gcc:" << regnum << ";dwarf:" << regnum
                 << ";";
             return oss.str();
@@ -717,9 +719,9 @@ std::string CGdbServer::handle_query( const std::string &query )
     {
         // IDA Pro uses this to enumerate threads with full info
         std::string threads_xml = "<?xml version=\"1.0\"?>"
-                                   "<threads>"
-                                   "<thread id=\"1\" core=\"0\" name=\"main\"/>"
-                                   "</threads>";
+                                  "<threads>"
+                                  "<thread id=\"1\" core=\"0\" name=\"main\"/>"
+                                  "</threads>";
 
         size_t offset = 0;
         size_t length = threads_xml.size();
@@ -1272,9 +1274,9 @@ std::string CGdbServer::handle_stop_reason()
         oss << "swbreak:;";
 
     // Format: regnum:value; (regnum in hex, values in target byte order - big endian for PPC)
-    oss << "1:" << encode_hex_u32( sp ) << ";";   // r1 (sp)
-    oss << "40:" << encode_hex_u32( pc ) << ";";  // pc (regnum 64 = 0x40)
-    oss << "43:" << encode_hex_u32( lr ) << ";";  // lr (regnum 67 = 0x43)
+    oss << "1:" << encode_hex_u32( sp ) << ";";  // r1 (sp)
+    oss << "40:" << encode_hex_u32( pc ) << ";"; // pc (regnum 64 = 0x40)
+    oss << "43:" << encode_hex_u32( lr ) << ";"; // lr (regnum 67 = 0x43)
     oss << "thread:1;";
 
     return oss.str();
@@ -1351,4 +1353,4 @@ uint64_t CGdbServer::decode_hex_u64( const std::string &hex )
 
 } // namespace gdb
 
-#endif // DEBUG
+#endif
