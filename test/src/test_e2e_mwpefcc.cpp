@@ -70,6 +70,8 @@ std::vector<fs::path> required_paths()
     return {
         root / "cw" / "tools" / "mwpefcc",    root / "expected" / "test.cpp.o", root / "input" / "test.cpp",
         root / "expected" / "emu_test.cpp.o", root / "input" / "emu_test.cpp",
+        root / "expected" / "sin.cpp.o",      root / "input" / "sin.cpp",
+        root / "expected" / "thunk_test.cpp.o", root / "input" / "thunk_test.cpp",
     };
 }
 
@@ -107,6 +109,8 @@ class MwpefccE2E : public ::testing::Test
         fs::create_directories( m_sandbox / "src" );
         fs::copy_file( root / "input" / "test.cpp", m_sandbox / "src" / "test.cpp" );
         fs::copy_file( root / "input" / "emu_test.cpp", m_sandbox / "src" / "emu_test.cpp" );
+        fs::copy_file( root / "input" / "sin.cpp", m_sandbox / "src" / "sin.cpp" );
+        fs::copy_file( root / "input" / "thunk_test.cpp", m_sandbox / "src" / "thunk_test.cpp" );
         fs::create_directories( m_sandbox / "output" );
 
 #ifndef _WIN32
@@ -219,4 +223,14 @@ TEST_F( MwpefccE2E, CodeWarriorCompileFile1 )
 TEST_F( MwpefccE2E, CodeWarriorCompileFile2 )
 {
     compile_and_compare( "emu_test.cpp", "emu_test.cpp.o" );
+}
+
+TEST_F( MwpefccE2E, CodeWarriorCompileFile3 )
+{
+    compile_and_compare( "sin.cpp", "sin.cpp.o" );
+}
+
+TEST_F( MwpefccE2E, CodeWarriorCompileFile4 )
+{
+    compile_and_compare( "thunk_test.cpp", "thunk_test.cpp.o" );
 }

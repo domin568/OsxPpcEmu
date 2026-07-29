@@ -68,7 +68,8 @@ std::vector<fs::path> required_paths()
     return {
         root / "cw" / "tools" / "mwpefld",       root / "expected" / "cw_stress_test",
         root / "input" / "cw_stress_test.cpp.o", root / "expected" / "emu_test",
-        root / "input" / "emu_test.cpp.o",
+        root / "input" / "emu_test.cpp.o",       root / "expected" / "sin",
+        root / "input" / "sin.cpp.o",
     };
 }
 
@@ -135,6 +136,7 @@ class MwpefldE2E : public ::testing::Test
         fs::create_directories( m_sandbox / "src" );
         fs::copy_file( root / "input" / "cw_stress_test.cpp.o", m_sandbox / "src" / "cw_stress_test.cpp.o" );
         fs::copy_file( root / "input" / "emu_test.cpp.o", m_sandbox / "src" / "emu_test.cpp.o" );
+        fs::copy_file( root / "input" / "sin.cpp.o", m_sandbox / "src" / "sin.cpp.o" );
         fs::create_directories( m_sandbox / "output" );
 
 #ifndef _WIN32
@@ -242,4 +244,9 @@ TEST_F( MwpefldE2E, CodeWarriorLinkFile1 )
 TEST_F( MwpefldE2E, CodeWarriorLinkFile2 )
 {
     link_and_compare( "emu_test.cpp.o", "emu_test" );
+}
+
+TEST_F( MwpefldE2E, CodeWarriorLinkFile3 )
+{
+    link_and_compare( "sin.cpp.o", "sin" );
 }

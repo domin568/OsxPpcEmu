@@ -9,12 +9,18 @@
 # [repo] cw/tools/mwpefcc                     - PPC C/C++ compiler (copied from samples/mwpefcc)
 # [repo] expected/cw_stress_test              - golden linked output
 # [repo] expected/emu_test                    - golden linked output
+# [repo] expected/sin                         - golden linked output
 # [repo] expected/test.cpp.o                  - golden compiled object file
 # [repo] expected/emu_test.cpp.o              - golden compiled object file
+# [repo] expected/sin.cpp.o                   - golden compiled object file
+# [repo] expected/thunk_test.cpp.o            - golden compiled object file
 # [user] input/cw_stress_test.cpp.o           - object file to link (compiler output for samples/cw_stress_test.cpp)
 # [user] input/emu_test.cpp.o                 - object file to link
+# [user] input/sin.cpp.o                      - object file to link
 # [repo] input/test.cpp                       - source file to compile
 # [repo] input/emu_test.cpp                   - source file to compile
+# [repo] input/sin.cpp                        - source file to compile
+# [repo] input/thunk_test.cpp                 - source file to compile
 #
 # [user] cw/libs/MSL/MSL_C/MSL_Common/Include - from "MSL/MSL_C/MSL_Common/Include"
 # [user] cw/libs/MSL/MSL_C/MSL_Common/Src     - from "MSL/MSL_C/MSL_Common/Src"
