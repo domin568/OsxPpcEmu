@@ -41,7 +41,7 @@ class CMemory
     uint32_t to_guest( const void *ptr );
     uint64_t to_host( uint32_t ptr );
 
-    [[nodiscard]] bool initialize_heap();
+    [[nodiscard]] bool initialize_heap( common::HeapMode mode = common::Heap_Default_Mode );
     uint32_t heap_alloc( std::size_t size );
     uint32_t heap_realloc( uint32_t ptr, std::size_t size );
     bool heap_free( uint32_t ptr );

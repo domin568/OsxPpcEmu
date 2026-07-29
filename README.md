@@ -26,7 +26,24 @@ If emulator has unimplemented API call it could look like this in stdout
 # Quick Start Guide
 
 ```bash
-./OsxPpcEmu <ppc32 macho executable> [arguments]
+./OsxPpcEmu [--heap-mode=bump|quarantine|real] <ppc32 macho executable> [arguments]
+```
+
+## Heap Modes
+
+The guest heap allocator supports three selectable free() policies, chosen via
+`--heap-mode=<mode>` (must appear before the target executable path) or the
+`OSXPPCEMU_HEAP_MODE` environment variable (the CLI flag takes precedence). Default: `quarantine`.
+
+| Mode         | Behaviour                                                                 | When to use |
+|--------------|----------------------------------------------------------------------------|-------------|
+| `bump`       | `free()` retires the chunk permanently (poisoned, never reused).           | Bisecting a regression: if a sample only misbehaves under a real allocator, running it in `bump` proves whether chunk reuse is the cause. |
+| `quarantine` | `free()` poisons and holds the chunk in a FIFO before allowing reuse.       | Default. Best chance of catching use-after-free bugs (in the emulated binary or in our own shims) at the cost of ~4 MiB held-back memory and deferred coalescing. |
+| `real`       | `free()` coalesces and returns the chunk to the free bins immediately.      | Highest fidelity to a real `malloc`; use when a sample's behaviour depends on immediate chunk reuse, or for throughput-oriented batch runs where the quarantine's memory/CPU overhead isn't worth it. |
+
+```bash
+./OsxPpcEmu --heap-mode=bump myapp
+OSXPPCEMU_HEAP_MODE=real ./OsxPpcEmu myapp
 ```
 
 ## Choose Your Debugger Mode
@@ -66,6 +83,12 @@ Then connect from IDA Pro: `Debugger → Attach → localhost:23946`
 | `x <addr> <len>`      | Hexdump memory            | `x 1000 100`       |
 | `w <addr> <bytes>`    | Write hex bytes to memory | `w 1000 deadbeef`  |
 | `vmmap`               | Show memory regions       | `vmmap`            |
+| `heap`                | Heap summary (mode, committed, in use, stats) | `heap`  |
+| `heap chunks [n]`     | Walk heap chunks (default 64, 0 = all) | `heap chunks 20` |
+| `heap find <addr>`    | Which chunk owns `<addr>` | `heap find 10001234` |
+| `heap bins`           | Free-list bin occupancy   | `heap bins`        |
+| `heap check`          | Validate heap integrity   | `heap check`       |
+| `heap quarantine`     | List quarantined (recently freed) chunks | `heap quarantine` |
 | `trace`               | Toggle API call tracing   | `trace`            |
 | `h` or `?`            | Show help                 | `h`                |
 | `q`                   | Quit                      | `q`                |

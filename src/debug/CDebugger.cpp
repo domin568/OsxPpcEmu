@@ -755,6 +755,8 @@ const char *chunk_state_name( memory::ChunkState state )
         return "free";
     case memory::ChunkState::Quarantined:
         return "quarantined";
+    case memory::ChunkState::Retired:
+        return "retired";
     case memory::ChunkState::Top:
         return "top";
     case memory::ChunkState::Corrupt:
@@ -780,6 +782,7 @@ void CDebugger::print_heap_summary() const
     const memory::CHeap::Stats &st{ heap.stats() };
     const std::vector<memory::ChunkInfo> quarantine{ heap.quarantine_snapshot() };
 
+    std::cout << "mode:       " << common::heap_mode_name( heap.mode() ) << std::endl;
     std::cout << std::hex;
     std::cout << "base:       0x" << heap.base_va() << std::endl;
     std::cout << "committed:  0x" << heap.committed_size() << " / 0x" << heap.max_size() << std::dec << "  ("
@@ -801,8 +804,11 @@ void CDebugger::print_heap_summary() const
     std::cout << "double frees:   " << st.doubleFrees << std::endl;
     std::cout << "invalid frees:  " << st.invalidFrees << std::endl;
     std::cout << "corrupt headers:" << st.corruptHeaders << std::endl;
-    std::cout << "quarantine:     " << quarantine.size() << " chunks, "
-               << common::human_readable_bytes( st.quarantineBytes ) << std::endl;
+    if (heap.mode() == common::HeapMode::Bump)
+        std::cout << "retired:        " << common::human_readable_bytes( st.retiredBytes ) << std::endl;
+    else
+        std::cout << "quarantine:     " << quarantine.size() << " chunks, "
+                   << common::human_readable_bytes( st.quarantineBytes ) << std::endl;
 }
 
 void CDebugger::print_heap_chunks( std::size_t limit ) const
@@ -872,7 +878,8 @@ void CDebugger::print_heap_find( uint32_t address ) const
     else
         std::cout << "offset into payload: 0x" << std::hex << ( address - c.payloadVa ) << std::dec << std::endl;
 
-    if (c.state == memory::ChunkState::Free || c.state == memory::ChunkState::Quarantined)
+    if (c.state == memory::ChunkState::Free || c.state == memory::ChunkState::Quarantined ||
+        c.state == memory::ChunkState::Retired)
         std::cout << "note: chunk is not live - this access is a likely use-after-free" << std::endl;
 }
 
@@ -943,6 +950,11 @@ void CDebugger::print_heap_quarantine() const
         return;
     }
     const std::vector<memory::ChunkInfo> quarantine{ heap.quarantine_snapshot() };
+    if (heap.mode() != common::HeapMode::Quarantine)
+    {
+        std::cout << "quarantine disabled (mode: " << common::heap_mode_name( heap.mode() ) << ")" << std::endl;
+        return;
+    }
     if (quarantine.empty())
     {
         std::cout << "quarantine empty" << std::endl;

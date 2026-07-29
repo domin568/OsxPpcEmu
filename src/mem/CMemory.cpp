@@ -178,9 +178,9 @@ uint64_t CMemory::to_host( uint32_t ptr )
 {
     return ptr + m_address;
 }
-bool CMemory::initialize_heap()
+bool CMemory::initialize_heap( common::HeapMode mode )
 {
-    return m_heap.initialize();
+    return m_heap.initialize( mode );
 }
 
 uint32_t CMemory::heap_alloc( std::size_t size )

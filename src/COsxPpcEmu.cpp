@@ -56,7 +56,8 @@ void COsxPpcEmu::init_debugger()
 }
 #endif
 
-std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, const std::span<const std::string> env )
+std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, const std::span<const std::string> env,
+                                                   common::HeapMode heapMode )
 {
     if (argc < 2 || argv == nullptr || env.data() == nullptr)
         return std::unexpected( Error{ Error::Type::Bad_Arguments, "Could not parse command line arguments" } );
@@ -88,7 +89,7 @@ std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, 
     if (!memory)
         return std::unexpected( Error{ Error::Type::MemoryError, std::move( memory.error().message ) } );
 
-    if (!memory->initialize_heap())
+    if (!memory->initialize_heap( heapMode ))
         return std::unexpected( Error{ Error::Type::MemoryError, "Could not initialize guest heap." } );
 
     if (!loader->map_image_memory( uc, *memory ))

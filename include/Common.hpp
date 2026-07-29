@@ -10,6 +10,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <unicorn/unicorn.h>
 
 class CMachoLoader;
@@ -47,6 +48,28 @@ static constexpr std::size_t Heap_Commit_Granularity{ 1u << 20 }; // 1 MiB
 static constexpr std::size_t Heap_Quarantine_Bytes{ 4u << 20 };   // 4 MiB
 static_assert( Heap_Start % Heap_Alignment == 0 );
 static_assert( Heap_Small_Bin_Count == ( Heap_Small_Bin_Max_Size / Heap_Alignment ) - 1 );
+
+// Selectable free() policy for CHeap:
+//  - Bump:       free() retires the chunk permanently (poisoned, never coalesced, never
+//                reused). Address space is only ever consumed. This is the pre-real-heap
+//                behaviour and exists as a bisection tool: if a sample regresses under a real
+//                allocator, run it in Bump to prove whether reuse is the cause.
+//  - Quarantine: free() poisons and holds the chunk in a FIFO for Heap_Quarantine_Bytes before
+//                allowing reuse. Maximises the chance of catching a use-after-free. Default.
+//  - Real:       free() coalesces and returns the chunk to the free bins immediately, like a
+//                normal allocator. Highest fidelity to real malloc, no quarantine overhead, no
+//                UAF poison.
+enum class HeapMode
+{
+    Bump,
+    Quarantine,
+    Real,
+};
+
+inline constexpr HeapMode Heap_Default_Mode{ HeapMode::Quarantine };
+
+std::string_view heap_mode_name( HeapMode mode );
+std::optional<HeapMode> heap_mode_from_string( std::string_view name );
 
 enum class ImportType
 {

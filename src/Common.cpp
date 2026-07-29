@@ -7,7 +7,9 @@
 #include "../include/Common.hpp"
 #include "../include/hook/ImportDispatch.hpp"
 #include "../include/loader/CMachoLoader.hpp"
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <format>
 #include <numeric>
 
@@ -23,6 +25,34 @@ uint64_t page_align_up( uint64_t a )
 {
     uint64_t ps = 0x1000;
     return ( a + ps - 1 ) & ~( ps - 1 );
+}
+
+std::string_view heap_mode_name( HeapMode mode )
+{
+    switch (mode)
+    {
+    case HeapMode::Bump:
+        return "bump";
+    case HeapMode::Quarantine:
+        return "quarantine";
+    case HeapMode::Real:
+        return "real";
+    }
+    return "?";
+}
+
+std::optional<HeapMode> heap_mode_from_string( std::string_view name )
+{
+    std::string lower{ name };
+    std::ranges::transform( lower, lower.begin(),
+                             []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+    if (lower == "bump")
+        return HeapMode::Bump;
+    if (lower == "quarantine")
+        return HeapMode::Quarantine;
+    if (lower == "real")
+        return HeapMode::Real;
+    return std::nullopt;
 }
 
 std::string human_readable_bytes( std::uint64_t bytes )

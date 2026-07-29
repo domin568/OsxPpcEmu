@@ -5,6 +5,7 @@
  **/
 
 #pragma once
+#include "../Common.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -24,6 +25,7 @@ enum class ChunkState
     InUse,
     Free,
     Quarantined,
+    Retired,
     Top,
     Corrupt,
 };
@@ -63,6 +65,7 @@ class CHeap
         std::uint64_t invalidFrees{};
         std::uint64_t corruptHeaders{};
         std::uint64_t quarantineBytes{};
+        std::uint64_t retiredBytes{};
     };
 
     CHeap( CMemory *owner, std::uint32_t baseVa, std::size_t maxSize );
@@ -73,8 +76,16 @@ class CHeap
     CHeap &operator=( CHeap && ) noexcept = default;
 
     // Commits the initial region and prepares the top (wilderness) chunk. Must be called once
-    // before any alloc()/free()/realloc().
-    [[nodiscard]] bool initialize();
+    // before any alloc()/free()/realloc(). `mode` fixes the free() policy for the lifetime of
+    // this heap instance; there is deliberately no public setter to change it afterwards - a
+    // heap that already has quarantined/retired chunks under one policy is not a state we want
+    // a policy switch to have to reason about. Re-initialize() to change it.
+    [[nodiscard]] bool initialize( common::HeapMode mode = common::Heap_Default_Mode );
+
+    [[nodiscard]] common::HeapMode mode() const
+    {
+        return m_mode;
+    }
 
     // CMemory may move (e.g. std::expected's converting constructor); CHeap keeps a back
     // pointer to it and must be re-pointed at the new owner after such a move.
@@ -140,6 +151,8 @@ class CHeap
     static constexpr std::uint32_t Chunk_Magic_Free{ 0xC0FFEE02 };
     // A freed-but-not-yet-reusable chunk, executable error proof
     static constexpr std::uint32_t Chunk_Magic_Quarantined{ 0xC0FFEE03 };
+    // A chunk retired permanently under HeapMode::Bump: never coalesced, never reused
+    static constexpr std::uint32_t Chunk_Magic_Retired{ 0xC0FFEE04 };
 
     struct MergeResult
     {
@@ -152,6 +165,7 @@ class CHeap
     std::uint32_t m_baseVa{ 0 };
     std::size_t m_maxSize{ 0 };
     std::size_t m_committedSize{ 0 };
+    common::HeapMode m_mode{ common::Heap_Default_Mode };
 
     std::uint32_t m_topVa{ 0 };
     std::size_t m_topSize{ 0 };
@@ -193,6 +207,9 @@ class CHeap
     // Moves one quarantined chunk back into circulation: re-checks its neighbours (one may have
     // been freed while this chunk was quarantined) and releases it for reuse.
     void admit_from_quarantine( std::uint32_t va );
+    // HeapMode::Bump's free() disposition: writes a poisoned, permanently-retired header at
+    // [va, va+size). Never coalesces, never enters a bin - the chunk is simply gone.
+    void retire_chunk( std::uint32_t va, std::size_t size, std::uint32_t prevSize );
 
     // Shared boundary-tag walk used by both validate() and walk_chunks(). Appends every chunk
     // visited to *out (if non-null), stopping after appending a Corrupt entry on invariant

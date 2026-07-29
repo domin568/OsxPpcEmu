@@ -162,8 +162,9 @@ bool CHeap::grow( std::size_t additionalNeeded )
     return true;
 }
 
-bool CHeap::initialize()
+bool CHeap::initialize( common::HeapMode mode )
 {
+    m_mode = mode;
     m_committedSize = 0;
     m_topVa = m_baseVa;
     m_topSize = 0;
@@ -220,6 +221,13 @@ void CHeap::release_free_chunk( std::uint32_t va, std::size_t size, std::uint32_
         return;
     }
     bin_insert( va, size );
+    fix_prev_size_after( va, size );
+}
+
+void CHeap::retire_chunk( std::uint32_t va, std::size_t size, std::uint32_t prevSize )
+{
+    const ChunkHeader h{ static_cast<std::uint32_t>( size ), prevSize, 0, Chunk_Magic_Retired };
+    write_header( va, h );
     fix_prev_size_after( va, size );
 }
 
@@ -351,7 +359,7 @@ bool CHeap::free( std::uint32_t guestPtr )
     }
 
     const ChunkHeader h{ read_header( chunkVa ) };
-    if (h.magic == Chunk_Magic_Free || h.magic == Chunk_Magic_Quarantined)
+    if (h.magic == Chunk_Magic_Free || h.magic == Chunk_Magic_Quarantined || h.magic == Chunk_Magic_Retired)
     {
         ++m_stats.doubleFrees;
         return false;
@@ -365,13 +373,36 @@ bool CHeap::free( std::uint32_t guestPtr )
 
     m_stats.bytesInUse -= ( h.size - common::Heap_Header_Size );
 
+    if (m_mode == common::HeapMode::Bump)
+    {
+        poison( chunkVa + static_cast<std::uint32_t>( common::Heap_Header_Size ), h.size - common::Heap_Header_Size );
+        retire_chunk( chunkVa, h.size, h.prevSize );
+        m_stats.retiredBytes += h.size;
+        return true;
+    }
+
     const MergeResult merged{ coalesce_with_free_neighbors( chunkVa, h.size, h.prevSize ) };
+
+    if (m_mode == common::HeapMode::Real)
+    {
+        release_free_chunk( merged.va, merged.size, merged.prevSize );
+        return true;
+    }
+
+    // HeapMode::Quarantine (default): poison, mark as quarantined, hold in a FIFO before the
+    // chunk is allowed to be admitted back into the free bins.
     poison( merged.va + static_cast<std::uint32_t>( common::Heap_Header_Size ),
             merged.size - common::Heap_Header_Size );
 
     const ChunkHeader quarantined{ static_cast<std::uint32_t>( merged.size ), merged.prevSize, 0,
                                     Chunk_Magic_Quarantined };
     write_header( merged.va, quarantined );
+    // The chunk being quarantined may have grown via coalesce_with_free_neighbors() above (it
+    // absorbed a free forward neighbour); whatever now follows it physically must have its
+    // prevSize boundary tag updated to match, exactly as release_free_chunk() does for the
+    // Real-mode path. Missing this call is what let two adjacent free/quarantined chunks drift
+    // out of sync with the following chunk's prevSize field.
+    fix_prev_size_after( merged.va, merged.size );
     m_quarantine.emplace_back( merged.va, static_cast<std::uint32_t>( merged.size ) );
     m_quarantineBytes += merged.size;
     m_stats.quarantineBytes = m_quarantineBytes;
@@ -420,7 +451,13 @@ std::uint32_t CHeap::realloc( std::uint32_t guestPtr, std::size_t size )
             const ChunkHeader used{ static_cast<std::uint32_t>( neededChunkSize ), h.prevSize, Flag_In_Use,
                                      Chunk_Magic_Used };
             write_header( chunkVa, used );
-            release_free_chunk( remainderVa, remainderSize, static_cast<std::uint32_t>( neededChunkSize ) );
+            // The chunk being shrunk was in-use, so its physical neighbour's freeness was never
+            // constrained by the "no two adjacent free chunks" invariant - it may already be a
+            // free chunk sitting in a bin. Coalesce with it before releasing the remainder,
+            // otherwise this would create exactly that forbidden adjacency.
+            const MergeResult merged{ coalesce_with_free_neighbors(
+                remainderVa, remainderSize, static_cast<std::uint32_t>( neededChunkSize ) ) };
+            release_free_chunk( merged.va, merged.size, merged.prevSize );
         }
         return guestPtr;
     }
@@ -499,7 +536,8 @@ bool CHeap::walk( std::vector<ChunkInfo> *out, std::string *report, std::size_t 
             return false;
         }
         const ChunkHeader h{ read_header( va ) };
-        if (h.magic != Chunk_Magic_Used && h.magic != Chunk_Magic_Free && h.magic != Chunk_Magic_Quarantined)
+        if (h.magic != Chunk_Magic_Used && h.magic != Chunk_Magic_Free && h.magic != Chunk_Magic_Quarantined &&
+            h.magic != Chunk_Magic_Retired)
         {
             if (report)
                 *report = "bad chunk magic";
@@ -528,6 +566,9 @@ bool CHeap::walk( std::vector<ChunkInfo> *out, std::string *report, std::size_t 
                     ChunkState::Corrupt } );
             return false;
         }
+        // Chunk_Magic_Retired is deliberately excluded from the adjacency check below: Bump mode
+        // never coalesces, so two physically-adjacent retired chunks are the normal steady state,
+        // not a missed-coalesce corruption.
         const bool isFree{ h.magic == Chunk_Magic_Free };
         if (isFree && prevWasFree)
         {
@@ -542,9 +583,10 @@ bool CHeap::walk( std::vector<ChunkInfo> *out, std::string *report, std::size_t 
         }
         if (out)
         {
-            const ChunkState state{ h.magic == Chunk_Magic_Used     ? ChunkState::InUse
-                                     : h.magic == Chunk_Magic_Free   ? ChunkState::Free
-                                                                      : ChunkState::Quarantined };
+            const ChunkState state{ h.magic == Chunk_Magic_Used       ? ChunkState::InUse
+                                     : h.magic == Chunk_Magic_Free     ? ChunkState::Free
+                                     : h.magic == Chunk_Magic_Retired  ? ChunkState::Retired
+                                                                       : ChunkState::Quarantined };
             out->push_back( ChunkInfo{
                 va, va + static_cast<std::uint32_t>( common::Heap_Header_Size ), h.size,
                 h.size - static_cast<std::uint32_t>( common::Heap_Header_Size ), h.prevSize, state } );
