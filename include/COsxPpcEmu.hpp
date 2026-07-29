@@ -4,12 +4,14 @@
  * Brief:     Emulator for Mach-O PowerPC object files
  **/
 #pragma once
-#include "../include/CMachoLoader.hpp"
+#include "../include/loader/CMachoLoader.hpp"
 #include "../include/Common.hpp"
-#include "../include/ImportDispatch.hpp"
+#include "../include/hook/EmuHooks.hpp"
+#include "../include/hook/HookContext.hpp"
+#include "../include/hook/ImportDispatch.hpp"
 #ifdef DEBUGGER_ENABLED
-#include "../include/CDebugger.hpp"
-#include "../include/CGdbServer.hpp"
+#include "../include/debug/CDebugger.hpp"
+#include "../include/debug/CGdbServer.hpp"
 #endif
 
 #include <expected>
@@ -43,62 +45,30 @@ class COsxPpcEmu
     void init_debugger();
 #endif
 
+  private:
+    COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader, memory::CMemory mem );
+    uc_engine *m_uc;
     memory::CMemory m_mem;
     loader::CMachoLoader m_loader;
+    // TODO populated lazily in run(): HookContext holds pointers into *this
+    hooks::HookContext m_hookCtx{};
+    hooks::CHookManager m_hooks{};
 #ifdef DEBUGGER_ENABLED
     std::unique_ptr<debug::CDebugger> m_debugger{};
     std::unique_ptr<gdb::CGdbServer> m_gdb_server{};
     std::FILE *m_trace_file{};
-    uint32_t m_lastAddr{ 0 }; // guest address of the last dispatched API call, used for interrupt diagnostics
-#endif
-
-  private:
-    COsxPpcEmu( uc_engine *uc, loader::CMachoLoader &&loader, memory::CMemory mem );
-    uc_engine *m_uc;
-    uc_hook m_apiHook{};
-    uc_hook m_interruptHook{};
-    uc_hook m_memInvalidHook{};
-#ifdef DEBUGGER_ENABLED
-    uc_hook m_traceHook{};
-    uc_hook m_debugHook{};
-    uc_hook m_watchpointHook{};
 #endif
 
     // static initialization functions
-    static std::optional<size_t> get_max_import_data_size(
-        const std::span<const std::pair<std::string_view, import::Known_Import_Entry>> &knownImports );
     static bool set_stack( uc_engine *uc, std::span<const std::string> args,
                            std::span<const std::string> env, memory::CMemory &mem );
-    static bool set_args_on_stack( uc_engine *uc, std::span<const std::string> args,
-                                   std::span<const std::string> env, memory::CMemory &mem );
-
-    static bool resolve_imports( uc_engine *uc, loader::CMachoLoader &loader, memory::CMemory &mem );
-    static bool redirect_imports(
-        uc_engine *uc,
-        const std::span<const std::pair<std::string, std::pair<uint32_t, common::ImportType>>> &allImports,
-        memory::CMemory &mem );
-    static bool write_unknown_import_entry( uc_engine *uc, memory::CMemory &mem );
-    static bool write_dynamic_import_entries( uc_engine *uc, memory::CMemory &mem );
-    static bool write_import_entry( uc_engine *uc, size_t offset, import::Runtime_Import_Table_Entry entry,
-                                    memory::CMemory &mem );
-    static bool patch_import_ptr( uc_engine *uc, size_t offset, uint32_t symbolAddress, memory::CMemory &mem );
-    static bool init_default_rune_locale(
-        uc_engine *uc,
-        const std::span<const std::pair<std::string, std::pair<uint32_t, common::ImportType>>> &staticImports,
-        memory::CMemory &mem );
+    static bool set_args_on_stack( std::span<const std::string> args, std::span<const std::string> env,
+                                   memory::CMemory &mem );
+#ifdef DEBUGGER_ENABLED
+    void start_debug_session( std::uint32_t ep );
+#endif
 };
 
-// unicorn hooks
-static void hook_api( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu );
-
-static void hook_intr( uc_engine *uc, uint32_t intno, void *user_data );
-static void hook_mem_invalid( uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value,
-                              void *user_data );
-#ifdef DEBUGGER_ENABLED
-static void hook_debug( uc_engine *uc, uint64_t address, uint32_t size, COsxPpcEmu *emu );
-
-static void print_api_call_source( uc_engine *uc, uint64_t address, size_t idx, COsxPpcEmu *emu );
-static void print_context( uc_engine *uc );
-static void print_api_return( uc_engine *uc, size_t idx, COsxPpcEmu *emu );
-#endif
 } // namespace emu
+
+

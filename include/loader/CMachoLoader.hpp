@@ -4,7 +4,7 @@
  * Brief:     Loader for Mach-O object files (PPC)
  **/
 #pragma once
-#include "../include/Common.hpp"
+#include "../Common.hpp"
 #include "CMemory.hpp"
 #include <LIEF/MachO.hpp>
 #include <expected>

@@ -4,11 +4,11 @@
  * Brief:     GDB Remote Serial Protocol server implementation
  **/
 
-#include "../include/CGdbServer.hpp"
-#include "../include/CDebugger.hpp"
-#include "../include/CMemory.hpp"
-#include "../include/Common.hpp"
-#include "../include/PlatformSocket.hpp"
+#include "../../include/debug/CGdbServer.hpp"
+#include "../../include/debug/CDebugger.hpp"
+#include "../../include/mem/CMemory.hpp"
+#include "../../include/Common.hpp"
+#include "../../include/debug/PlatformSocket.hpp"
 #include <algorithm>
 #include <chrono>
 #include <iomanip>

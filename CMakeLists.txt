@@ -11,25 +11,38 @@ set(CMAKE_CXX_STANDARD 23)
 
 set(EXECUTABLE_NAME ${PROJECT_NAME})
 set(SOURCE_FILES
-        src/CMachoLoader.cpp
+        src/loader/CMachoLoader.cpp
         src/COsxPpcEmu.cpp
         src/Common.cpp
-        src/CMemory.cpp
-        src/CDebugger.cpp
-        src/CGdbServer.cpp
+        src/mem/CMemory.cpp
+        src/debug/CDebugger.cpp
+        src/debug/CGdbServer.cpp
+        src/hook/EmuHooks.cpp
+        src/hook/EmuTrace.cpp
+        src/hook/ImportTable.cpp
+        src/mem/StackLayout.cpp
         src/shims/carbon/CarbonShims.cpp
         src/shims/dyld/DyldShims.cpp
         src/shims/libc/LibcShims.cpp
 )
 set(HEADER_FILES
-        include/CMachoLoader.hpp
+        include/loader/CMachoLoader.hpp
         include/COsxPpcEmu.hpp
         include/Common.hpp
-        include/ImportDispatch.hpp
-        include/CMemory.hpp
-        include/CDebugger.hpp
-        include/CGdbServer.hpp
+        include/DefaultRuneLocale.hpp
+        include/hook/EmuHooks.hpp
+        include/hook/EmuTrace.hpp
+        include/hook/HookContext.hpp
+        include/hook/ImportDispatch.hpp
+        include/hook/ImportTable.hpp
+        include/mem/CMemory.hpp
+        include/mem/CHeap.hpp
+        include/mem/StackLayout.hpp
+        include/debug/CDebugger.hpp
+        include/debug/CGdbServer.hpp
+        include/debug/PlatformSocket.hpp
         include/PpcStructures.hpp
+        include/shims/ShimContext.hpp
         include/shims/carbon/CarbonShims.hpp
         include/shims/dyld/DyldShims.hpp
         include/shims/libc/LibcShims.hpp
@@ -38,7 +51,13 @@ set(HEADER_FILES
 option(ENABLE_DEBUGGER "Enable built-in PPC debugger and GDB server" OFF)
 
 add_library(OsxPpcEmuLib STATIC ${SOURCE_FILES} ${HEADER_FILES})
-target_include_directories(OsxPpcEmuLib PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(OsxPpcEmuLib PUBLIC
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/include/mem
+        ${CMAKE_SOURCE_DIR}/include/debug
+        ${CMAKE_SOURCE_DIR}/include/hook
+        ${CMAKE_SOURCE_DIR}/include/loader
+)
 target_compile_definitions(OsxPpcEmuLib PRIVATE $<$<BOOL:${ENABLE_DEBUGGER}>:DEBUGGER_ENABLED>)
 
 find_package(Unicorn CONFIG QUIET)

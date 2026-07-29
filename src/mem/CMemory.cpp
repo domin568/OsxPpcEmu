@@ -3,8 +3,8 @@
  * Created:   06.10.2025
  * Brief:     memory manager for emu
  **/
-#include "../include/CMemory.hpp"
-#include "../include/Common.hpp"
+#include "../../include/mem/CMemory.hpp"
+#include "../../include/Common.hpp"
 #include <cstddef>
 #include <cstring>
 #include <expected>

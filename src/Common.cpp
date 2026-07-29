@@ -5,8 +5,8 @@
  **/
 
 #include "../include/Common.hpp"
-#include "../include/CMachoLoader.hpp"
-#include "../include/ImportDispatch.hpp"
+#include "../include/loader/CMachoLoader.hpp"
+#include "../include/hook/ImportDispatch.hpp"
 #include <numeric>
 
 namespace common
@@ -55,15 +55,10 @@ std::optional<std::string> read_string_at_va( uc_engine *uc, uint32_t va )
 
 std::optional<uint32_t> get_import_entry_va_by_name( const std::string &name )
 {
-    auto importNameMatches{
-        []( const std::pair<std::string_view, import::Known_Import_Entry> &p ) { return p.first; } };
-    const auto importIt{ std::ranges::lower_bound( import::All_Imports, name, std::less<>{}, importNameMatches ) };
-    const bool found{ importIt != import::All_Imports.end() && importIt->first == name };
-    if (!found)
+    const std::optional<std::size_t> idx{ import::find_known_import( name ) };
+    if (!idx)
         return std::nullopt;
-    const ptrdiff_t idx{ std::distance( import::All_Imports.begin(), importIt ) };
-    return static_cast<uint32_t>( common::Import_Dispatch_Table_Address +
-                                  ( idx + import::Unknown_Import_Shift ) * import::Import_Entry_Size );
+    return import::import_entry_address( *idx );
 }
 
 std::size_t count_format_specifiers( std::string_view format )
@@ -208,15 +203,12 @@ std::vector<std::uint64_t> get_ellipsis_arguments( uc_engine *uc, memory::CMemor
 
 FILE *resolve_file_stream( std::uint32_t guestStream )
 {
-    const auto it{ std::find( import::Known_Import_Names.begin(), import::Known_Import_Names.end(), "___sF" ) };
-    if (it == import::Known_Import_Names.end())
+    const std::optional<std::size_t> sfIdx{ import::find_known_import( "___sF" ) };
+    if (!sfIdx)
         return nullptr;
-    const std::ptrdiff_t sfIdx{ std::distance( import::Known_Import_Names.begin(), it ) };
-    const std::ptrdiff_t sfAddr{
-        sfIdx * import::Import_Entry_Size +
-        static_cast<std::ptrdiff_t>( import::Unknown_Import_Shift * import::Import_Entry_Size ) };
+    const std::uint32_t sfAddr{ import::import_entry_address( *sfIdx ) };
 
-    const std::ptrdiff_t inSfOffset{ guestStream - common::Import_Dispatch_Table_Address - sfAddr };
+    const std::ptrdiff_t inSfOffset{ guestStream - static_cast<std::ptrdiff_t>( sfAddr ) };
     static const std::ptrdiff_t fileObjSize{ 0x58 };
 
     if (inSfOffset == 0)

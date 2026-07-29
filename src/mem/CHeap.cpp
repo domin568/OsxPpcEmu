@@ -3,7 +3,7 @@
  * Created:   03.12.2025
  * Brief:     heap manager for emu
  **/
-#include "../include/CHeap.hpp"
+#include "../../include/mem/CHeap.hpp"
 
 namespace memory
 {

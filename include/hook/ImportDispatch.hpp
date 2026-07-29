@@ -13,6 +13,7 @@
 #include "shims/libc/LibcShims.hpp"
 #include <algorithm>
 #include <iostream>
+#include <optional>
 #include <string_view>
 #include <unicorn/unicorn.h>
 
@@ -65,6 +66,9 @@ struct Runtime_Import_Table_Entry // import redirection entry starting at 0xF0 0
     uint32_t ptrToData{};            // points to
     std::span<const uint8_t> data{}; // <- here, in runtime
 };
+
+inline constexpr uint32_t Import_Entry_Data_Offset{
+    static_cast<uint32_t>( sizeof( Runtime_Import_Table_Entry::ptrToData ) ) };
 
 struct Import_Info
 {
@@ -235,6 +239,24 @@ inline constexpr uint32_t Import_Entry_Size{ []() -> uint32_t {
 inline constexpr int Import_Entry_Size_Pow2{ []() { return std::countr_zero( Import_Entry_Size ); }() };
 inline constexpr std::size_t Import_Table_Size{ Import_Entry_Size * Import_Items.size() +
                                                 Import_Entry_Size }; // +1 for the "unknown import" sentinel slot
+
+// Address of the dispatch slot for All_Imports[knownImportIdx].
+// Slot 0 is the "unknown import" sentinel, hence Unknown_Import_Shift.
+constexpr uint32_t import_entry_address( std::size_t knownImportIdx )
+{
+    return static_cast<uint32_t>( common::Import_Dispatch_Table_Address +
+                                  ( knownImportIdx + Unknown_Import_Shift ) * Import_Entry_Size );
+}
+
+// Index into All_Imports / Import_Items, or nullopt if the symbol is not shimmed.
+constexpr std::optional<std::size_t> find_known_import( std::string_view name )
+{
+    constexpr auto byName{ []( const std::pair<std::string_view, Known_Import_Entry> &p ) { return p.first; } };
+    const auto it{ std::ranges::lower_bound( All_Imports, name, std::less<>{}, byName ) };
+    if (it == All_Imports.end() || it->first != name)
+        return std::nullopt;
+    return static_cast<std::size_t>( std::distance( All_Imports.begin(), it ) );
+}
 
 // dynamic imports e.g obtained by dyld_func_lookup
 

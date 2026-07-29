@@ -4,10 +4,10 @@
  * Brief:     Loader for Mach-O object files (PPC)
  **/
 
-#include "../include/CMachoLoader.hpp"
-#include "../include/CMemory.hpp"
-#include "../include/Common.hpp"
-#include "../include/PpcStructures.hpp"
+#include "../../include/loader/CMachoLoader.hpp"
+#include "../../include/mem/CMemory.hpp"
+#include "../../include/Common.hpp"
+#include "../../include/PpcStructures.hpp"
 #include <LIEF/MachO.hpp>
 #include <bit>
 #include <filesystem>

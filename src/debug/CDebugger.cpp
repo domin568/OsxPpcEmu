@@ -6,9 +6,9 @@
 
 #ifdef DEBUGGER_ENABLED
 
-#include "../include/CDebugger.hpp"
-#include "../include/CMachoLoader.hpp"
-#include "../include/Common.hpp"
+#include "../../include/debug/CDebugger.hpp"
+#include "../../include/loader/CMachoLoader.hpp"
+#include "../../include/Common.hpp"
 #include <LIEF/MachO.hpp>
 #include <algorithm>
 #include <cstdlib>
