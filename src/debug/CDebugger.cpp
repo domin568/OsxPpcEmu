@@ -669,29 +669,37 @@ void CDebugger::show_callstack( size_t maxDepth ) const
 
 bool CDebugger::print_vm_map()
 {
-    uc_mem_region *regions;
+    uc_mem_region *regions{};
     uint32_t count{};
     if (uc_mem_regions( m_uc, &regions, &count ) != UC_ERR_OK)
         return false;
+
+    const std::ios::fmtflags savedFlags{ std::cout.flags() };
+    const char savedFill{ std::cout.fill() };
+
+    const std::uint32_t heapStart{ common::Heap_Start };
+    const std::uint32_t heapCommittedEnd{ m_mem ? heapStart + static_cast<std::uint32_t>( m_mem->heap().committed_size() )
+                                                 : heapStart };
+    std::uint64_t totalMapped{ 0 };
 
     std::cout << "     va         size     perm  description" << std::endl;
     for (uint32_t i = 0; i < count; i++)
     {
         const auto &r = regions[i];
+        const std::uint64_t regionSize{ r.end - r.begin + 1 };
+        totalMapped += regionSize;
+
         std::cout << " 0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << r.begin << "  0x" << std::setw( 8 )
-                  << r.end - r.begin + 1 << "  ";
+                   << regionSize << std::dec << std::setfill( ' ' ) << " (" << common::human_readable_bytes( regionSize )
+                   << ")  ";
 
         std::string perms;
-        if (r.perms & UC_PROT_READ)
-            perms += "R";
-        if (r.perms & UC_PROT_WRITE)
-            perms += "W";
-        if (r.perms & UC_PROT_EXEC)
-            perms += "X";
+        perms += ( r.perms & UC_PROT_READ ) ? 'R' : '-';
+        perms += ( r.perms & UC_PROT_WRITE ) ? 'W' : '-';
+        perms += ( r.perms & UC_PROT_EXEC ) ? 'X' : '-';
+        std::cout << std::setfill( ' ' ) << std::left << std::setw( 3 ) << perms << " " << std::right;
 
-        std::cout << std::left << std::setw( 3 ) << perms << " " << std::right;
-
-        if (r.begin == common::Heap_Start)
+        if (r.begin >= heapStart && r.begin < heapCommittedEnd)
         {
             std::cout << "(heap)";
         }
@@ -703,13 +711,253 @@ bool CDebugger::print_vm_map()
         {
             std::cout << "(import dispatch table)";
         }
+        else if (m_loader)
+        {
+            const std::optional<std::string> segName{ m_loader->get_segment_name_for_va(
+                static_cast<uint32_t>( r.begin ) ) };
+            if (segName.has_value())
+                std::cout << "(image: " << *segName << ")";
+            else
+                std::cout << "(unknown)";
+        }
         else
         {
-            std::cout << "(image)";
+            std::cout << "(unknown)";
         }
         std::cout << "\n";
     }
+
+    std::cout << std::dec << "total mapped: 0x" << std::hex << totalMapped << std::dec << " ("
+               << common::human_readable_bytes( totalMapped ) << ")";
+    if (m_mem)
+    {
+        const memory::CHeap::Stats &st{ m_mem->heap_stats() };
+        std::cout << "  (heap committed: " << common::human_readable_bytes( m_mem->heap().committed_size() )
+                   << ", in use: " << common::human_readable_bytes( st.bytesInUse ) << ")";
+    }
+    std::cout << std::endl;
+
+    uc_free( regions );
+    std::cout.flags( savedFlags );
+    std::cout.fill( savedFill );
     return true;
+}
+
+namespace
+{
+const char *chunk_state_name( memory::ChunkState state )
+{
+    switch (state)
+    {
+    case memory::ChunkState::InUse:
+        return "in-use";
+    case memory::ChunkState::Free:
+        return "free";
+    case memory::ChunkState::Quarantined:
+        return "quarantined";
+    case memory::ChunkState::Top:
+        return "top";
+    case memory::ChunkState::Corrupt:
+        return "CORRUPT";
+    }
+    return "?";
+}
+} // namespace
+
+void CDebugger::print_heap_summary() const
+{
+    if (!m_mem)
+    {
+        std::cout << "no memory manager" << std::endl;
+        return;
+    }
+    const memory::CHeap &heap{ m_mem->heap() };
+    if (!heap.is_initialized())
+    {
+        std::cout << "heap not initialized" << std::endl;
+        return;
+    }
+    const memory::CHeap::Stats &st{ heap.stats() };
+    const std::vector<memory::ChunkInfo> quarantine{ heap.quarantine_snapshot() };
+
+    std::cout << std::hex;
+    std::cout << "base:       0x" << heap.base_va() << std::endl;
+    std::cout << "committed:  0x" << heap.committed_size() << " / 0x" << heap.max_size() << std::dec << "  ("
+               << common::human_readable_bytes( heap.committed_size() ) << " / "
+               << common::human_readable_bytes( heap.max_size() ) << ")" << std::endl;
+    std::cout << std::hex << "top chunk:  0x" << heap.top_va() << " (size 0x" << heap.top_size() << ", "
+               << common::human_readable_bytes( heap.top_size() ) << ")" << std::endl;
+    std::cout << std::dec;
+    std::cout << "alloc calls:    " << st.allocCalls << std::endl;
+    std::cout << "free calls:     " << st.freeCalls << std::endl;
+    std::cout << "realloc calls:  " << st.reallocCalls << std::endl;
+    std::cout << "bytes requested:" << st.bytesRequested << " (" << common::human_readable_bytes( st.bytesRequested )
+               << ")" << std::endl;
+    std::cout << "bytes in use:   " << st.bytesInUse << " (" << common::human_readable_bytes( st.bytesInUse ) << ")"
+               << std::endl;
+    std::cout << "peak in use:    " << st.peakBytesInUse << " (" << common::human_readable_bytes( st.peakBytesInUse )
+               << ")" << std::endl;
+    std::cout << "grow count:     " << st.growCount << std::endl;
+    std::cout << "double frees:   " << st.doubleFrees << std::endl;
+    std::cout << "invalid frees:  " << st.invalidFrees << std::endl;
+    std::cout << "corrupt headers:" << st.corruptHeaders << std::endl;
+    std::cout << "quarantine:     " << quarantine.size() << " chunks, "
+               << common::human_readable_bytes( st.quarantineBytes ) << std::endl;
+}
+
+void CDebugger::print_heap_chunks( std::size_t limit ) const
+{
+    if (!m_mem)
+    {
+        std::cout << "no memory manager" << std::endl;
+        return;
+    }
+    const memory::CHeap &heap{ m_mem->heap() };
+    if (!heap.is_initialized())
+    {
+        std::cout << "heap not initialized" << std::endl;
+        return;
+    }
+    const std::vector<memory::ChunkInfo> chunks{ heap.walk_chunks( limit ) };
+    std::cout << "     chunk va     payload va     size    payload size  state       readable" << std::endl;
+    for (const memory::ChunkInfo &c : chunks)
+    {
+        std::cout << " 0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << c.chunkVa << "   0x" << std::setw( 8 )
+                   << c.payloadVa << "   0x" << std::setw( 6 ) << c.size << "   0x" << std::setw( 6 ) << c.payloadSize
+                   << std::dec << std::setfill( ' ' ) << "   " << std::setw( 11 ) << std::left
+                   << chunk_state_name( c.state ) << std::right << common::human_readable_bytes( c.payloadSize )
+                   << std::endl;
+        if (c.state == memory::ChunkState::Corrupt)
+        {
+            std::cout << "... walk stopped at corruption" << std::endl;
+            break;
+        }
+    }
+    if (limit != 0 && chunks.size() >= limit)
+        std::cout << "... (more chunks not shown, use 'heap chunks 0' for all)" << std::endl;
+}
+
+void CDebugger::print_heap_find( uint32_t address ) const
+{
+    if (!m_mem)
+    {
+        std::cout << "no memory manager" << std::endl;
+        return;
+    }
+    const memory::CHeap &heap{ m_mem->heap() };
+    if (!heap.is_initialized())
+    {
+        std::cout << "heap not initialized" << std::endl;
+        return;
+    }
+    const std::optional<memory::ChunkInfo> chunk{ heap.find_chunk( address ) };
+    if (!chunk.has_value())
+    {
+        std::cout << "0x" << std::hex << address << std::dec << " is not inside the heap" << std::endl;
+        return;
+    }
+    const memory::ChunkInfo &c{ *chunk };
+    std::cout << std::hex;
+    std::cout << "chunk va:    0x" << c.chunkVa << std::endl;
+    std::cout << "payload va:  0x" << c.payloadVa << std::endl;
+    std::cout << "size:        0x" << c.size << " (payload 0x" << c.payloadSize << ")" << std::dec << "  ("
+               << common::human_readable_bytes( c.size ) << ", payload " << common::human_readable_bytes( c.payloadSize )
+               << ")" << std::endl;
+    std::cout << std::dec;
+    std::cout << "state:       " << chunk_state_name( c.state ) << std::endl;
+
+    if (address < c.payloadVa)
+        std::cout << "note: address is inside the chunk HEADER (possible underflow/overflow into metadata)"
+                   << std::endl;
+    else
+        std::cout << "offset into payload: 0x" << std::hex << ( address - c.payloadVa ) << std::dec << std::endl;
+
+    if (c.state == memory::ChunkState::Free || c.state == memory::ChunkState::Quarantined)
+        std::cout << "note: chunk is not live - this access is a likely use-after-free" << std::endl;
+}
+
+void CDebugger::print_heap_bins() const
+{
+    if (!m_mem)
+    {
+        std::cout << "no memory manager" << std::endl;
+        return;
+    }
+    const memory::CHeap &heap{ m_mem->heap() };
+    if (!heap.is_initialized())
+    {
+        std::cout << "heap not initialized" << std::endl;
+        return;
+    }
+    const std::vector<memory::BinInfo> bins{ heap.bin_snapshot() };
+    if (bins.empty())
+    {
+        std::cout << "all bins empty" << std::endl;
+        return;
+    }
+    std::cout << " bin  chunk size  count  total bytes" << std::endl;
+    for (const memory::BinInfo &b : bins)
+    {
+        std::cout << " " << std::setw( 3 ) << b.index << "  ";
+        if (b.chunkSize != 0)
+            std::cout << "0x" << std::hex << std::setw( 8 ) << std::setfill( '0' ) << b.chunkSize << std::dec
+                       << std::setfill( ' ' );
+        else
+            std::cout << "(large)   ";
+        std::cout << "  " << std::setw( 5 ) << b.count << "  " << b.totalBytes << " (" << common::human_readable_bytes( b.totalBytes )
+                   << ")" << std::endl;
+    }
+}
+
+void CDebugger::print_heap_check() const
+{
+    if (!m_mem)
+    {
+        std::cout << "no memory manager" << std::endl;
+        return;
+    }
+    const memory::CHeap &heap{ m_mem->heap() };
+    if (!heap.is_initialized())
+    {
+        std::cout << "heap not initialized" << std::endl;
+        return;
+    }
+    std::string report;
+    if (heap.validate( &report ))
+        std::cout << "heap OK" << std::endl;
+    else
+        std::cout << "heap CORRUPT: " << report << std::endl;
+}
+
+void CDebugger::print_heap_quarantine() const
+{
+    if (!m_mem)
+    {
+        std::cout << "no memory manager" << std::endl;
+        return;
+    }
+    const memory::CHeap &heap{ m_mem->heap() };
+    if (!heap.is_initialized())
+    {
+        std::cout << "heap not initialized" << std::endl;
+        return;
+    }
+    const std::vector<memory::ChunkInfo> quarantine{ heap.quarantine_snapshot() };
+    if (quarantine.empty())
+    {
+        std::cout << "quarantine empty" << std::endl;
+        return;
+    }
+    std::uint64_t total{ 0 };
+    for (const memory::ChunkInfo &c : quarantine)
+    {
+        std::cout << " 0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << c.chunkVa << "   size 0x"
+                   << std::setw( 6 ) << c.size << std::dec << std::setfill( ' ' ) << "  (" << common::human_readable_bytes( c.size )
+                   << ")" << std::endl;
+        total += c.size;
+    }
+    std::cout << "total quarantined: " << common::human_readable_bytes( total ) << " in " << quarantine.size()
+               << " chunks" << std::endl;
 }
 
 void CDebugger::print_help() const
@@ -747,6 +995,12 @@ void CDebugger::print_help() const
     std::cout << "  x <addr> <len>   - Hexdump memory (addr and len in hex)" << std::endl;
     std::cout << "  w/wm <addr> <bytes> - Write hex bytes to memory (e.g., w 1000 deadbeef)" << std::endl;
     std::cout << "  vmmap            - Show virtual memory regions" << std::endl;
+    std::cout << "  heap             - Heap summary (committed, in use, stats)" << std::endl;
+    std::cout << "  heap chunks [n]  - Walk heap chunks (default 64, 0 = all)" << std::endl;
+    std::cout << "  heap find <addr> - Which chunk owns <addr> (hex)" << std::endl;
+    std::cout << "  heap bins        - Free-list bin occupancy" << std::endl;
+    std::cout << "  heap check       - Validate heap integrity" << std::endl;
+    std::cout << "  heap quarantine  - List quarantined (recently freed) chunks" << std::endl;
     std::cout << "  trace            - Toggle tracing API calls" << std::endl;
     std::cout << "  h / ?            - Show this help" << std::endl;
     std::cout << "  q                - Quit emulator" << std::endl;
@@ -1219,6 +1473,47 @@ void CDebugger::handle_command( const std::string &cmd )
     else if (command == "vmmap")
     {
         print_vm_map();
+    }
+    else if (command == "heap")
+    {
+        std::string sub;
+        iss >> sub;
+        if (sub.empty())
+        {
+            print_heap_summary();
+        }
+        else if (sub == "chunks")
+        {
+            std::size_t limit{ 64 };
+            std::size_t parsed{};
+            if (iss >> parsed)
+                limit = parsed;
+            print_heap_chunks( limit );
+        }
+        else if (sub == "find")
+        {
+            uint32_t addr{};
+            if (iss >> std::hex >> addr)
+                print_heap_find( addr );
+            else
+                std::cout << "Usage: heap find <addr>" << std::endl;
+        }
+        else if (sub == "bins")
+        {
+            print_heap_bins();
+        }
+        else if (sub == "check")
+        {
+            print_heap_check();
+        }
+        else if (sub == "quarantine")
+        {
+            print_heap_quarantine();
+        }
+        else
+        {
+            std::cout << "Usage: heap [chunks [n] | find <addr> | bins | check | quarantine]" << std::endl;
+        }
     }
     else if (command == "trace")
     {

@@ -4,11 +4,11 @@
  * Brief:     Emulator for Mach-O PowerPC object files
  **/
 #pragma once
-#include "../include/loader/CMachoLoader.hpp"
 #include "../include/Common.hpp"
 #include "../include/hook/EmuHooks.hpp"
 #include "../include/hook/HookContext.hpp"
 #include "../include/hook/ImportDispatch.hpp"
+#include "../include/loader/CMachoLoader.hpp"
 #ifdef DEBUGGER_ENABLED
 #include "../include/debug/CDebugger.hpp"
 #include "../include/debug/CGdbServer.hpp"
@@ -60,15 +60,14 @@ class COsxPpcEmu
 #endif
 
     // static initialization functions
-    static bool set_stack( uc_engine *uc, std::span<const std::string> args,
-                           std::span<const std::string> env, memory::CMemory &mem );
+    static bool set_stack( uc_engine *uc, std::span<const std::string> args, std::span<const std::string> env,
+                           memory::CMemory &mem );
     static bool set_args_on_stack( std::span<const std::string> args, std::span<const std::string> env,
                                    memory::CMemory &mem );
+    static bool enable_floating_point_ops( uc_engine *uc );
 #ifdef DEBUGGER_ENABLED
     void start_debug_session( std::uint32_t ep );
 #endif
 };
 
 } // namespace emu
-
-

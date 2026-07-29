@@ -1205,15 +1205,20 @@ bool DisposeHandle( ShimContext &ctx )
         return false;
     const auto [handleGuest] = *args;
 
-    // Simply set error status - no actual freeing happens
     if (handleGuest == 0)
     {
         g_lastMemError = memFullErr;
+        return true;
     }
-    else
+
+    std::uint32_t *handleHost{ reinterpret_cast<std::uint32_t *>( ctx.mem->get( handleGuest ) ) };
+    if (handleHost != nullptr)
     {
-        g_lastMemError = noErr;
+        const std::uint32_t ptrGuest{ common::ensure_endianness( *handleHost, std::endian::big ) };
+        ctx.mem->heap_free( ptrGuest );
     }
+    ctx.mem->heap_free( handleGuest );
+    g_lastMemError = noErr;
     return true;
 }
 
@@ -1495,37 +1500,16 @@ bool SetHandleSize( ShimContext &ctx )
 
     // Read the pointer value (big-endian) that the handle points to
     const std::uint32_t oldPtrGuest{ common::ensure_endianness( *handleHost, std::endian::big ) };
-    const std::size_t oldSize{ ctx.mem->get_alloc_size( oldPtrGuest ) };
 
-    if (newSize <= oldSize)
+    const std::uint32_t newAlloc{ ctx.mem->heap_realloc( oldPtrGuest, newSize ) };
+    if (newAlloc == 0 && newSize != 0)
     {
-        // Shrinking or same size - just update the tracked size
-        ctx.mem->set_alloc_size( oldPtrGuest, newSize );
-        g_lastMemError = noErr;
+        g_lastMemError = memFullErr;
     }
     else
     {
-        // Growing - need to allocate new memory and copy old data
-        const std::uint32_t newAlloc{ ctx.mem->heap_alloc( newSize ) };
-
-        if (newAlloc == 0)
-        {
-            g_lastMemError = memFullErr;
-        }
-        else
-        {
-            // Copy old data to new location
-            void *oldPtr{ ctx.mem->get( oldPtrGuest ) };
-            void *newPtr{ ctx.mem->get( newAlloc ) };
-            if (oldPtr && newPtr)
-            {
-                ::memcpy( newPtr, oldPtr, oldSize );
-            }
-
-            // Update the handle to point to the new allocation
-            *handleHost = common::ensure_endianness( newAlloc, std::endian::big );
-            g_lastMemError = noErr;
-        }
+        *handleHost = common::ensure_endianness( newAlloc, std::endian::big );
+        g_lastMemError = noErr;
     }
 
     return true;

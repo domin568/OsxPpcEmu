@@ -4,11 +4,11 @@
  * Brief:     memory manager for emu
  **/
 #pragma once
+#include "CHeap.hpp"
 #include "Common.hpp"
 #include <expected>
 #include <string>
 #include <unicorn/unicorn.h>
-#include <unordered_map>
 
 namespace memory
 {
@@ -41,10 +41,17 @@ class CMemory
     uint32_t to_guest( const void *ptr );
     uint64_t to_host( uint32_t ptr );
 
-    void initialize_heap();
+    [[nodiscard]] bool initialize_heap();
     uint32_t heap_alloc( std::size_t size );
+    uint32_t heap_realloc( uint32_t ptr, std::size_t size );
+    bool heap_free( uint32_t ptr );
+    bool heap_owns( uint32_t ptr ) const;
     std::size_t get_alloc_size( uint32_t ptr );
-    void set_alloc_size( uint32_t ptr, std::size_t size );
+    const CHeap::Stats &heap_stats() const;
+    [[nodiscard]] const CHeap &heap() const
+    {
+        return m_heap;
+    }
 
   private:
     CMemory( uc_engine *uc, void *memPtr, size_t size, std::size_t pageSize );
@@ -54,10 +61,9 @@ class CMemory
         uintptr_t m_address;
     };
     std::size_t m_memSize{ 0 };
-    std::size_t m_heapPtr{ common::Heap_Start };
+    CHeap m_heap{ this, static_cast<std::uint32_t>( common::Heap_Start ), common::Heap_Size };
     static std::size_t get_system_page_size();
 
     std::size_t m_pageSize{};
-    std::unordered_map<uint32_t, std::size_t> m_allocSizes{};
 };
 } // namespace memory

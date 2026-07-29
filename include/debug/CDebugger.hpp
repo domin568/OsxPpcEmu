@@ -128,6 +128,12 @@ class CDebugger
     void show_registers() const;
     void show_callstack( size_t maxDepth = 10 ) const;
     bool print_vm_map();
+    void print_heap_summary() const;
+    void print_heap_chunks( std::size_t limit ) const;
+    void print_heap_find( uint32_t address ) const;
+    void print_heap_bins() const;
+    void print_heap_check() const;
+    void print_heap_quarantine() const;
 
     std::vector<uint32_t> get_callstack_addresses( size_t maxDepth = 10 ) const;
 

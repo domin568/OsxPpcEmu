@@ -289,4 +289,14 @@ std::optional<LIEF::MachO::Section> CMachoLoader::get_section_for_va( const uint
         return std::nullopt;
     return *s;
 }
+
+std::optional<std::string> CMachoLoader::get_segment_name_for_va( uint32_t va )
+{
+    for (const auto &seg : m_executable->segments())
+    {
+        if (va >= seg.virtual_address() && va < seg.virtual_address() + seg.virtual_size())
+            return seg.name();
+    }
+    return std::nullopt;
+}
 } // namespace loader

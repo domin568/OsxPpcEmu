@@ -15,6 +15,7 @@ set(SOURCE_FILES
         src/COsxPpcEmu.cpp
         src/Common.cpp
         src/mem/CMemory.cpp
+        src/mem/CHeap.cpp
         src/debug/CDebugger.cpp
         src/debug/CGdbServer.cpp
         src/hook/EmuHooks.cpp

@@ -1,5 +1,6 @@
 /**
  * Author:    domin568
+ * Created:   16.05.2026
  * Brief:     redirected API implementations
  **/
 
@@ -10,6 +11,7 @@
 #include <array>
 #include <climits>
 #include <dirent.h>
+#include <limits>
 #include <netdb.h>
 #include <numeric>
 #include <span>
@@ -646,6 +648,13 @@ bool calloc( ShimContext &ctx )
         return false;
     const auto [num, size]{ *args };
 
+    // Guard against 32-bit guest size_t overflow before it can be truncated by heap_alloc.
+    if (num != 0 && size > ( std::numeric_limits<std::uint32_t>::max )() / num)
+    {
+        set_guest_errno( ctx.mem, ENOMEM );
+        return ctx.ret( 0 );
+    }
+
     uint32_t ret{ ctx.mem->heap_alloc( num * size ) };
     // calloc zeros the memory
     void *ptr{ ctx.mem->get( ret ) };
@@ -667,54 +676,13 @@ bool realloc( ShimContext &ctx )
         return false;
     const auto [ptr, size]{ *args };
 
-    // If ptr is NULL, realloc behaves like malloc
-    if (!ptr)
-    {
-        uint32_t ret{ ctx.mem->heap_alloc( size ) };
-        if (ret == 0)
-        {
-            set_guest_errno( ctx.mem, ENOMEM );
-        }
-        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-        {
-            std::cerr << "Could not write realloc return" << std::endl;
-            return false;
-        }
-        return true;
-    }
-
-    // If size is 0, realloc behaves like free (but we return NULL since we don't actually free)
-    if (size == 0)
-    {
-        uint32_t ret{ 0 };
-        if (uc_reg_write( ctx.uc, UC_PPC_REG_3, &ret ) != UC_ERR_OK)
-        {
-            std::cerr << "Could not write realloc return" << std::endl;
-            return false;
-        }
-        return true;
-    }
-
-    // Allocate new memory and copy old data
-    uint32_t oldGuestPtr{ ctx.mem->to_guest( ptr ) };
-    std::size_t oldSize{ ctx.mem->get_alloc_size( oldGuestPtr ) };
-
-    uint32_t newPtr{ ctx.mem->heap_alloc( size ) };
-    void *newHostPtr{ ctx.mem->get( newPtr ) };
-
-    if (newHostPtr && ptr)
-    {
-        // Copy old data to new location
-        // Copy the minimum of old size and new size to avoid reading/writing out of bounds
-        std::size_t copySize{ oldSize > 0 ? std::min( oldSize, size ) : size };
-        ::memcpy( newHostPtr, ptr, copySize );
-    }
-    else if (newPtr == 0)
+    const std::uint32_t guestPtr{ ptr != nullptr ? ctx.mem->to_guest( ptr ) : 0 };
+    const std::uint32_t ret{ ctx.mem->heap_realloc( guestPtr, size ) };
+    if (ret == 0 && size != 0)
     {
         set_guest_errno( ctx.mem, ENOMEM );
     }
-
-    return ctx.ret( newPtr );
+    return ctx.ret( ret );
 }
 
 // void* memcpy(void * destination, const void * source, size_t num);
@@ -1101,7 +1069,12 @@ bool free( ShimContext &ctx )
     const auto args{ ctx.get_arguments<void *>() };
     if (!args.has_value())
         return false;
-    // Do not actually free memory
+    const auto [ptr]{ *args };
+    if (ptr != nullptr)
+    {
+        const std::uint32_t guestPtr{ ctx.mem->to_guest( ptr ) };
+        ctx.mem->heap_free( guestPtr );
+    }
     return true;
 }
 

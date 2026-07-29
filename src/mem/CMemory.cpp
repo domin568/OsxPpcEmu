@@ -80,8 +80,11 @@ CMemory::~CMemory()
 #endif
 }
 
-CMemory::CMemory( CMemory &&o ) noexcept : m_uc{ o.m_uc }, m_memPtr( o.m_memPtr ), m_memSize( o.m_memSize )
+CMemory::CMemory( CMemory &&o ) noexcept
+    : m_uc{ o.m_uc }, m_memPtr( o.m_memPtr ), m_memSize( o.m_memSize ), m_heap{ std::move( o.m_heap ) },
+      m_pageSize{ o.m_pageSize }
 {
+    m_heap.rebind( this );
     o.m_memPtr = nullptr;
     o.m_memSize = 0;
     o.m_uc = nullptr;
@@ -103,6 +106,9 @@ CMemory &CMemory::operator=( CMemory &&o ) noexcept
         m_memPtr = o.m_memPtr;
         m_memSize = o.m_memSize;
         m_uc = o.m_uc;
+        m_pageSize = o.m_pageSize;
+        m_heap = std::move( o.m_heap );
+        m_heap.rebind( this );
         o.m_memPtr = nullptr;
         o.m_memSize = 0;
         o.m_uc = nullptr;
@@ -172,39 +178,39 @@ uint64_t CMemory::to_host( uint32_t ptr )
 {
     return ptr + m_address;
 }
-// ultra simple, just to move emulation further
-void CMemory::initialize_heap()
+bool CMemory::initialize_heap()
 {
-    commit( common::Heap_Start, common::Heap_Size, UC_PROT_ALL );
+    return m_heap.initialize();
 }
 
 uint32_t CMemory::heap_alloc( std::size_t size )
 {
-    const uint32_t tmp{ static_cast<uint32_t>( m_heapPtr ) };
-    // Round up to 16-byte alignment for PowerPC (required for proper alignment of all data types)
-    std::size_t alignedSize{ ( size + 15 ) & ~15 };
-    m_heapPtr += alignedSize;
+    return m_heap.alloc( size );
+}
 
-    if (m_heapPtr + alignedSize > common::Heap_Start + common::Heap_Size)
-    {
-        return 0;
-    }
+uint32_t CMemory::heap_realloc( uint32_t ptr, std::size_t size )
+{
+    return m_heap.realloc( ptr, size );
+}
 
-    m_allocSizes[tmp] = size;
-    return tmp;
+bool CMemory::heap_free( uint32_t ptr )
+{
+    return m_heap.free( ptr );
+}
+
+bool CMemory::heap_owns( uint32_t ptr ) const
+{
+    return m_heap.owns( ptr );
 }
 
 std::size_t CMemory::get_alloc_size( uint32_t ptr )
 {
-    auto it{ m_allocSizes.find( ptr ) };
-    if (it != m_allocSizes.end())
-        return it->second;
-    return 0;
+    return m_heap.usable_size( ptr );
 }
 
-void CMemory::set_alloc_size( uint32_t ptr, std::size_t size )
+const CHeap::Stats &CMemory::heap_stats() const
 {
-    m_allocSizes[ptr] = size;
+    return m_heap.stats();
 }
 
 } // namespace memory

@@ -47,6 +47,7 @@ class CMachoLoader
     std::optional<std::string> get_symbol_name_for_va( const uint32_t va, LIEF::MachO::Symbol::TYPE type,
                                                        SymbolSection section );
     std::optional<LIEF::MachO::Section> get_section_for_va( const uint32_t va );
+    std::optional<std::string> get_segment_name_for_va( uint32_t va );
 
   private:
     explicit CMachoLoader( std::unique_ptr<LIEF::MachO::Binary> executable );

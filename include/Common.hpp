@@ -36,6 +36,18 @@ static constexpr std::size_t Default_Page_Size{ 0x1000 };
 static constexpr std::size_t Heap_Start{ 0x10'00'00'00 };
 static constexpr std::size_t Heap_Size{ 0x10'00'00'00 };
 
+static constexpr std::size_t Heap_Alignment{ 16 };
+static constexpr std::size_t Heap_Header_Size{ 16 };
+static constexpr std::size_t Heap_Min_Chunk_Size{ 32 };
+static constexpr std::size_t Heap_Small_Bin_Count{ 31 }; // exact chunk sizes 32..512, step 16
+static constexpr std::size_t Heap_Small_Bin_Max_Size{ 512 };
+static constexpr std::size_t Heap_Large_Bin_Scan_Cap{ 64 };
+static constexpr std::size_t Heap_Initial_Commit{ 1u << 20 };     // 1 MiB
+static constexpr std::size_t Heap_Commit_Granularity{ 1u << 20 }; // 1 MiB
+static constexpr std::size_t Heap_Quarantine_Bytes{ 4u << 20 };   // 4 MiB
+static_assert( Heap_Start % Heap_Alignment == 0 );
+static_assert( Heap_Small_Bin_Count == ( Heap_Small_Bin_Max_Size / Heap_Alignment ) - 1 );
+
 enum class ImportType
 {
     Direct,
@@ -57,6 +69,10 @@ template <std::integral T> constexpr T align_up( T v, size_t alignment )
 
 uint64_t page_align_down( uint64_t a );
 uint64_t page_align_up( uint64_t a );
+
+// Formats a byte count as a human-readable string, e.g. 3871136 -> "3.69 MB".
+// Uses binary (1024-based) units: B, KB, MB, GB, TB.
+std::string human_readable_bytes( std::uint64_t bytes );
 
 std::optional<std::string> read_string_at_va( uc_engine *uc, uint32_t va );
 std::optional<uint32_t> get_import_entry_va_by_name( const std::string &name );

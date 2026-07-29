@@ -31,7 +31,7 @@ struct EmuMemoryFixture : ::testing::Test
         auto memRes{ memory::CMemory::init( uc, common::Guest_Virtual_Memory_Size ) };
         ASSERT_TRUE( memRes.has_value() );
         mem.emplace( std::move( *memRes ) );
-        mem->initialize_heap();
+        ASSERT_TRUE( mem->initialize_heap() );
     }
 
     void TearDown() override

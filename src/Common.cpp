@@ -5,8 +5,10 @@
  **/
 
 #include "../include/Common.hpp"
-#include "../include/loader/CMachoLoader.hpp"
 #include "../include/hook/ImportDispatch.hpp"
+#include "../include/loader/CMachoLoader.hpp"
+#include <array>
+#include <format>
 #include <numeric>
 
 namespace common
@@ -21,6 +23,25 @@ uint64_t page_align_up( uint64_t a )
 {
     uint64_t ps = 0x1000;
     return ( a + ps - 1 ) & ~( ps - 1 );
+}
+
+std::string human_readable_bytes( std::uint64_t bytes )
+{
+    static constexpr std::array<const char *, 5> Units{ "B", "KB", "MB", "GB", "TB" };
+    std::size_t unit{ 0 };
+    std::uint64_t divisor{ 1 };
+    while (bytes / divisor >= 1024 && unit + 1 < Units.size())
+    {
+        divisor *= 1024;
+        ++unit;
+    }
+    if (unit == 0)
+        return std::format( "{} {}", bytes, Units[unit] );
+
+    const std::uint64_t whole{ bytes / divisor };
+    const std::uint64_t remainder{ bytes % divisor };
+    const std::uint64_t hundredths{ ( remainder * 100 ) / divisor };
+    return std::format( "{}.{:02} {}", whole, hundredths, Units[unit] );
 }
 
 std::optional<std::string> read_string_at_va( uc_engine *uc, uint32_t va )

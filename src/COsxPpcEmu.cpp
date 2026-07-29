@@ -5,11 +5,11 @@
  **/
 
 #include "../include/COsxPpcEmu.hpp"
-#include "../include/loader/CMachoLoader.hpp"
-#include "../include/mem/CMemory.hpp"
 #include "../include/Common.hpp"
 #include "../include/hook/EmuHooks.hpp"
 #include "../include/hook/ImportTable.hpp"
+#include "../include/loader/CMachoLoader.hpp"
+#include "../include/mem/CMemory.hpp"
 #include "../include/mem/StackLayout.hpp"
 #include <filesystem>
 #include <iostream>
@@ -66,21 +66,17 @@ std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, 
     if (!std::filesystem::exists( emuTarget ))
         return std::unexpected( Error{ Error::Type::FileNotFound, "File not found." } );
 
-    uc_err err;
-    uc_engine *uc;
+    uc_err err{};
+    uc_engine *uc{};
     uc_mode ppcMode{ static_cast<uc_mode>( UC_MODE_PPC32 | UC_MODE_BIG_ENDIAN ) };
     err = uc_open( UC_ARCH_PPC, ppcMode, &uc );
     if (err != UC_ERR_OK)
         return std::unexpected( Error{ Error::Type::UnicornOpenError, "Could not create ppc32 unicorn emulator." } );
 
-    // Enable floating-point operations by setting the FP bit (bit 13) in MSR
-    // MSR bits: FP=0x2000 (bit 13)
-    uint32_t msr = 0x2000;
-    err = uc_reg_write( uc, UC_PPC_REG_MSR, &msr );
-    if (err != UC_ERR_OK)
+    if (!enable_floating_point_ops( uc ))
     {
         uc_close( uc );
-        return std::unexpected( Error{ Error::Type::UnicornOpenError, "Could not set MSR register." } );
+        return std::unexpected( Error{ Error::Type::UnicornOpenError, "Could not enable floating-point operations." } );
     }
 
     std::expected<loader::CMachoLoader, loader::Error> loader{ loader::CMachoLoader::init( emuTarget ) };
@@ -92,7 +88,8 @@ std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, 
     if (!memory)
         return std::unexpected( Error{ Error::Type::MemoryError, std::move( memory.error().message ) } );
 
-    memory->initialize_heap();
+    if (!memory->initialize_heap())
+        return std::unexpected( Error{ Error::Type::MemoryError, "Could not initialize guest heap." } );
 
     if (!loader->map_image_memory( uc, *memory ))
         return std::unexpected( Error{ Error::Type::ImageLoaderError, "Could not map image memory." } );
@@ -220,6 +217,20 @@ bool COsxPpcEmu::set_args_on_stack( const std::span<const std::string> args, con
     }
 
     mem.write( common::Stack_Dyld_Region_Start_Address, image->bytes.data(), image->bytes.size() );
+    return true;
+}
+
+bool COsxPpcEmu::enable_floating_point_ops( uc_engine *uc )
+{
+    uc_err err{};
+    // Enable floating-point operations by setting the FP bit (bit 13) in MSR
+    // MSR bits: FP=0x2000 (bit 13)
+    uint32_t msr = 0x2000;
+    err = uc_reg_write( uc, UC_PPC_REG_MSR, &msr );
+    if (err != UC_ERR_OK)
+    {
+        return false;
+    }
     return true;
 }
 

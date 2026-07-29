@@ -12,7 +12,7 @@ FetchContent_MakeAvailable(googletest)
 add_library(GTest::GTest INTERFACE IMPORTED)
 target_link_libraries(GTest::GTest INTERFACE gtest_main)
 
-add_executable(OsxPpcEmuTest src/test.cpp src/test_qsort.cpp src/test_bsearch.cpp src/test_mwobj_parser.cpp src/test_stack_layout.cpp src/test_import_table.cpp)
+add_executable(OsxPpcEmuTest src/test.cpp src/test_qsort.cpp src/test_bsearch.cpp src/test_mwobj_parser.cpp src/test_stack_layout.cpp src/test_import_table.cpp src/test_heap.cpp)
 target_include_directories(OsxPpcEmuTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(OsxPpcEmuTest PRIVATE GTest::GTest OsxPpcEmuLib)
 
@@ -22,6 +22,7 @@ add_test(NAME OsxPpcEmuTestBsearch COMMAND OsxPpcEmuTest --gtest_filter=Bsearch.
 add_test(NAME OsxPpcEmuTestMwobj COMMAND OsxPpcEmuTest --gtest_filter=MwObj*)
 add_test(NAME OsxPpcEmuTestStack COMMAND OsxPpcEmuTest --gtest_filter=StackLayout.*)
 add_test(NAME OsxPpcEmuTestImportTable COMMAND OsxPpcEmuTest --gtest_filter=ImportTable.*:EmuMemoryFixture.*)
+add_test(NAME OsxPpcEmuTestHeap COMMAND OsxPpcEmuTest --gtest_filter=HeapFixture.*)
 
 add_executable(OsxPpcEmuE2E src/test_e2e_mwpefld.cpp src/test_e2e_mwpefcc.cpp)
 target_include_directories(OsxPpcEmuE2E PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
