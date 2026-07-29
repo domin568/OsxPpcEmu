@@ -12,15 +12,14 @@ FetchContent_MakeAvailable(googletest)
 add_library(GTest::GTest INTERFACE IMPORTED)
 target_link_libraries(GTest::GTest INTERFACE gtest_main)
 
-add_executable(OsxPpcEmuTest src/test.cpp src/test_qsort.cpp src/test_bsearch.cpp)
+add_executable(OsxPpcEmuTest src/test.cpp src/test_qsort.cpp src/test_bsearch.cpp src/test_mwobj_parser.cpp)
+target_include_directories(OsxPpcEmuTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(OsxPpcEmuTest PRIVATE GTest::GTest OsxPpcEmuLib)
 
-target_link_libraries(OsxPpcEmuTest
-        PRIVATE
-        GTest::GTest
-        OsxPpcEmuLib
-)
-
-add_test(NAME OsxPpcEmuGtests COMMAND OsxPpcEmuTest)
+add_test(NAME OsxPpcEmuTestCommon COMMAND OsxPpcEmuTest --gtest_filter=Common.*)
+add_test(NAME OsxPpcEmuTestQsort COMMAND OsxPpcEmuTest --gtest_filter=Qsort.*)
+add_test(NAME OsxPpcEmuTestBsearch COMMAND OsxPpcEmuTest --gtest_filter=Bsearch.*)
+add_test(NAME OsxPpcEmuTestMwobj COMMAND OsxPpcEmuTest --gtest_filter=MwObj*)
 
 add_executable(OsxPpcEmuE2E src/test_e2e_mwpefld.cpp src/test_e2e_mwpefcc.cpp)
 target_include_directories(OsxPpcEmuE2E PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)

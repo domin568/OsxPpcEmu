@@ -1,24 +1,21 @@
 /**
  * Author:    domin568
+ * Created:   13.07.2026
  * Brief:     End-to-end test: run OsxPpcEmu emulating mwpefcc to compile a C/C++ source file,
  *            compare the produced object file against a golden file.
- *
- * Self-contained: builds an isolated sandbox directory per run under the system temp dir and
- * populates it from test/test_files/e2e/. Requires fixtures listed in test/test_files/e2e/MANIFEST.txt;
- * if any are missing the test is skipped (not failed) so the rest of the suite stays green without a
- * real CodeWarrior install.
  **/
 #include "BinaryDiff.hpp"
+#include "MwObjDiff.hpp"
+#include "MwObjParser.hpp"
 #include "ProcessRunner.hpp"
 
-#include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <iostream>
+#include <sstream>
 #include <vector>
 #ifdef _WIN32
 #define NOMINMAX
@@ -136,28 +133,6 @@ class MwpefccE2E : public ::testing::Test
         }
     }
 
-    std::optional<std::uint64_t> get_powr_header_offset( const std::filesystem::path &filePath )
-    {
-        std::ifstream file{ filePath, std::ios::binary };
-        if (!file)
-            return std::nullopt;
-
-        static constexpr uintmax_t Search_Range{ 0x400 };
-        std::array<char, Search_Range> buffer{};
-        const auto fsz{ std::filesystem::file_size( filePath ) };
-        const auto toRead{ std::min( fsz, Search_Range ) };
-        file.read( reinterpret_cast<char *>( buffer.data() ), toRead );
-        if (!file)
-            return std::nullopt;
-
-        static constexpr std::array<char, 4> magic{ 'P', 'O', 'W', 'R' };
-
-        const auto result{ std::ranges::search( buffer.begin(), buffer.end(), magic.begin(), magic.end() ) };
-        if (result.empty())
-            return std::nullopt;
-        return std::distance( buffer.begin(), result.begin() );
-    }
-
     std::vector<std::string> get_env_vars( const fs::path &libs )
     {
         const std::string mwCIncludes{ ( libs / "MSL" / "MSL_C" / "MSL_Common" / "Include" ).string() + ":" +
@@ -205,29 +180,34 @@ class MwpefccE2E : public ::testing::Test
 
         const fs::path expected{ fixture_root() / "expected" / outputName };
 
-        const auto expectedPowrOff{ get_powr_header_offset( expected ) };
-        const auto actualPowrOff{ get_powr_header_offset( outputFile ) };
-        ASSERT_TRUE( expectedPowrOff.has_value() ) << "Could not find POWR header in expected file";
-        ASSERT_TRUE( actualPowrOff.has_value() ) << "Could not find POWR header in actual file";
+        // Parse both object files structure-by-structure and compare semantically instead of
+        // byte-by-byte: the embedded source path (and everything whose offset/size depends on
+        // its length) legitimately differs between the golden fixture and this sandbox build,
+        // and the compiler is known to leave uninitialized memory in padding/reserved bytes.
+        const auto expectedObj{ mwobj::parse( expected ) };
+        const auto actualObj{ mwobj::parse( outputFile ) };
+        ASSERT_TRUE( expectedObj.has_value() )
+            << "Failed to parse golden object file " << expected.string() << ": " << expectedObj.error();
+        ASSERT_TRUE( actualObj.has_value() )
+            << "Failed to parse emulator-produced object file " << outputFile.string() << ": " << actualObj.error();
 
-        testutil::DiffSetup setup{ .expected{ expected },
-                                   .actual{ outputFile },
-                                   .expectedStartOff{ *expectedPowrOff },
-                                   .actualStartOff{ *actualPowrOff },
-                                   .ignore{},
-                                   .maxRegions{ 32 } };
-
-        const testutil::DiffResult diff{ testutil::compare_files( setup ) };
-        if (!diff.equal)
+        const std::vector<std::string> diffs{ mwobj::compare_objects( *expectedObj, *actualObj ) };
+        if (!diffs.empty())
         {
             const fs::path actualCopy{ expected.string() + ".actual" };
             std::error_code ec;
             fs::copy_file( outputFile, actualCopy, fs::copy_options::overwrite_existing, ec );
-            ADD_FAILURE() << testutil::format_diff_report( diff, expected, outputFile )
-                          << "\nActual output copied to: " << actualCopy.string();
+
+            std::ostringstream oss;
+            oss << "MWOBPPC object files differ semantically:\n"
+                << "  expected: " << expected.string() << "\n"
+                << "  actual:   " << outputFile.string() << "\n";
+            for (const std::string &d : diffs)
+                oss << "  - " << d << "\n";
+            ADD_FAILURE() << oss.str() << "Actual output copied to: " << actualCopy.string();
         }
     }
-    
+
     fs::path m_sandbox{};
 };
 

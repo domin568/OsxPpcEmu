@@ -1,5 +1,6 @@
 /**
  * Author:    domin568
+ * Created:   13.07.2026
  * Brief:     Byte-level file comparison utility for E2E golden-file tests.
  **/
 #pragma once

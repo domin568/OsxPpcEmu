@@ -1,5 +1,6 @@
 /**
  * Author:    domin568
+ * Created:   13.07.2026
  * Brief:     Minimal child-process launcher for E2E tests (explicit argv/envp/cwd, captured stdout+stderr).
  **/
 #pragma once
@@ -74,8 +75,8 @@ inline ProcessResult run_process( const std::vector<std::string> &argv, const st
 
     PROCESS_INFORMATION pi{};
     const std::string cwdStr{ cwd.string() };
-    const BOOL ok{ CreateProcessA( nullptr, cmdLine.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
-                                   envBlock.data(), cwdStr.c_str(), &si, &pi ) };
+    const BOOL ok{ CreateProcessA( nullptr, cmdLine.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, envBlock.data(),
+                                   cwdStr.c_str(), &si, &pi ) };
     if (hOut)
         CloseHandle( hOut );
     if (hErr)

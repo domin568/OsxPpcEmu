@@ -1,3 +1,9 @@
+/**
+ * Author:    domin568
+ * Created:   X.2025
+ * Brief:     general tests
+ **/
+
 #include "../include/Common.hpp"
 #include "gtest/gtest.h"
 

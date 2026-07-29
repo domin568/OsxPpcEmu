@@ -1,12 +1,8 @@
 /**
  * Author:    domin568
+ * Created:   13.07.2026
  * Brief:     End-to-end test: run OsxPpcEmu emulating mwpefld to link a PPC object file,
  *            compare the produced Mach-O against a golden file.
- *
- * Self-contained: builds an isolated sandbox directory per run under the system temp dir and
- * populates it from test/test_files/e2e/. Requires fixtures listed in test/test_files/e2e/MANIFEST.txt;
- * if any are missing the test is skipped (not failed) so the rest of the suite stays green without a
- * real CodeWarrior install.
  **/
 #include "BinaryDiff.hpp"
 #include "ProcessRunner.hpp"

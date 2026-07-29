@@ -318,11 +318,11 @@ TEST( Qsort, RegistersPreserved )
     EXPECT_EQ( sp_after, sp ) << "SP (r1) was not preserved";
 }
 
-// ── Test: true nested emulation (outer uc_emu_start → hook → qsort → inner uc_emu_start) ──
+// ── Test: nested emulation (outer uc_emu_start → hook → qsort → inner uc_emu_start) ──
 //
 // This test sets up a real two‑level emulation scenario:
 //
-//   Caller_Address+0x00:  li r7, 0xAA          ; mark: before hook
+//   Caller_Address+0x00:  li r7, 0xAA           ; mark: before hook
 //   Caller_Address+0x04:  b  Hook_Address       ; jump to hook region
 //
 //   Hook_Address+0x00:    nop                   ; hook fires here, calls qsort (inner emu)
@@ -418,8 +418,8 @@ TEST( Qsort, NestedEmulation )
     // Register code hook over the hook region
     NestedTestUserData ud{ &env, false };
     uc_hook hh{};
-    ASSERT_EQ( uc_hook_add( env.uc, &hh, UC_HOOK_CODE, reinterpret_cast<void *>( nested_test_hook ), &ud,
-                            Hook_Address, Hook_Address + Hook_Size ),
+    ASSERT_EQ( uc_hook_add( env.uc, &hh, UC_HOOK_CODE, reinterpret_cast<void *>( nested_test_hook ), &ud, Hook_Address,
+                            Hook_Address + Hook_Size ),
                UC_ERR_OK );
 
     // ── Outer uc_emu_start ─────────────────────────────────────────
