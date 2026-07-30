@@ -61,23 +61,23 @@ bool ___isctype( ShimContext &ctx )
     uint32_t chartype = 0;
 
     if (c >= 'A' && c <= 'Z')
-        chartype |= _CTYPE_U | _CTYPE_X;
+        chartype |= guest::CTYPE_U | guest::CTYPE_X;
     if (c >= 'a' && c <= 'z')
-        chartype |= _CTYPE_L | _CTYPE_X;
+        chartype |= guest::CTYPE_L | guest::CTYPE_X;
     if (c >= '0' && c <= '9')
-        chartype |= _CTYPE_D | _CTYPE_X;
+        chartype |= guest::CTYPE_D | guest::CTYPE_X;
     if (c >= 'A' && c <= 'F')
-        chartype |= _CTYPE_X;
+        chartype |= guest::CTYPE_X;
     if (c >= 'a' && c <= 'f')
-        chartype |= _CTYPE_X;
+        chartype |= guest::CTYPE_X;
     if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v')
-        chartype |= _CTYPE_S;
+        chartype |= guest::CTYPE_S;
     if (c == ' ' || c == '\t')
-        chartype |= _CTYPE_B;
+        chartype |= guest::CTYPE_B;
     if (( c >= 0 && c <= 31 ) || c == 127)
-        chartype |= _CTYPE_C;
+        chartype |= guest::CTYPE_C;
     if (( c >= 33 && c <= 47 ) || ( c >= 58 && c <= 64 ) || ( c >= 91 && c <= 96 ) || ( c >= 123 && c <= 126 ))
-        chartype |= _CTYPE_P;
+        chartype |= guest::CTYPE_P;
 
     // Check if any of the requested mask bits are set
     uint32_t result = ( chartype & mask ) != 0 ? 1 : 0;
@@ -97,23 +97,23 @@ bool ___istype( ShimContext &ctx )
     uint32_t chartype = 0;
 
     if (c >= 'A' && c <= 'Z')
-        chartype |= _CTYPE_U | _CTYPE_X;
+        chartype |= guest::CTYPE_U | guest::CTYPE_X;
     if (c >= 'a' && c <= 'z')
-        chartype |= _CTYPE_L | _CTYPE_X;
+        chartype |= guest::CTYPE_L | guest::CTYPE_X;
     if (c >= '0' && c <= '9')
-        chartype |= _CTYPE_D | _CTYPE_X;
+        chartype |= guest::CTYPE_D | guest::CTYPE_X;
     if (c >= 'A' && c <= 'F')
-        chartype |= _CTYPE_X;
+        chartype |= guest::CTYPE_X;
     if (c >= 'a' && c <= 'f')
-        chartype |= _CTYPE_X;
+        chartype |= guest::CTYPE_X;
     if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v')
-        chartype |= _CTYPE_S;
+        chartype |= guest::CTYPE_S;
     if (c == ' ' || c == '\t')
-        chartype |= _CTYPE_B;
+        chartype |= guest::CTYPE_B;
     if (( c >= 0 && c <= 31 ) || c == 127)
-        chartype |= _CTYPE_C;
+        chartype |= guest::CTYPE_C;
     if (( c >= 33 && c <= 47 ) || ( c >= 58 && c <= 64 ) || ( c >= 91 && c <= 96 ) || ( c >= 123 && c <= 126 ))
-        chartype |= _CTYPE_P;
+        chartype |= guest::CTYPE_P;
 
     // Check if any of the requested mask bits are set
     uint32_t result = ( chartype & mask ) != 0 ? 1 : 0;
@@ -1221,9 +1221,10 @@ bool opendir( ShimContext &ctx )
     }
     else
     {
-        DIR *hostDirDst{ reinterpret_cast<DIR *>( ctx.mem->to_host( ctx.mem->heap_alloc( sizeof( DIR ) ) ) ) };
-        ::memcpy( hostDirDst, hostDir, sizeof( DIR ) );
-        retPtr = ctx.mem->to_guest( hostDirDst );
+        std::uint32_t guestHandleVa{ ctx.mem->heap_alloc( sizeof( std::uintptr_t ) ) };
+        std::uintptr_t *hostHandleDst{ reinterpret_cast<std::uintptr_t *>( ctx.mem->to_host( guestHandleVa ) ) };
+        *hostHandleDst = reinterpret_cast<std::uintptr_t>( hostDir );
+        retPtr = guestHandleVa;
     }
 
     return ctx.ret( retPtr );
@@ -1244,7 +1245,8 @@ bool readdir( ShimContext &ctx )
     }
     else
     {
-        DIR *hostDir{ reinterpret_cast<DIR *>( ctx.mem->to_host( guestDirPtr ) ) };
+        DIR *hostDir{
+            reinterpret_cast<DIR *>( *reinterpret_cast<std::uintptr_t *>( ctx.mem->to_host( guestDirPtr ) ) ) };
         struct dirent *hostEntry{ ::readdir( hostDir ) };
 
         if (hostEntry == nullptr)
@@ -1269,8 +1271,9 @@ bool readdir( ShimContext &ctx )
                 guestEntry->d_reclen =
                     common::ensure_endianness( static_cast<uint16_t>( hostEntry->d_reclen ), std::endian::big );
                 guestEntry->d_type = hostEntry->d_type;
-                guestEntry->d_namlen =
-                    common::ensure_endianness( static_cast<uint16_t>( hostEntry->d_namlen ), std::endian::big );
+                // TODO is it even needed? is this field used?
+                // guestEntry->d_namlen =
+                //     common::ensure_endianness( static_cast<uint16_t>( hostEntry->d_namlen ), std::endian::big );
                 std::strncpy( guestEntry->d_name, hostEntry->d_name, sizeof( guestEntry->d_name ) - 1 );
                 guestEntry->d_name[sizeof( guestEntry->d_name ) - 1] = '\0';
 
@@ -1905,7 +1908,6 @@ bool bsearch( ShimContext &ctx )
         uc_context_free( uc_ctx );
         return false;
     }
-
     uint32_t sp{};
     uc_context_reg_read( uc_ctx, UC_PPC_REG_1, &sp );
 

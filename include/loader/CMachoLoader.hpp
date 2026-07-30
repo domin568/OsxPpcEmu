@@ -46,7 +46,6 @@ class CMachoLoader
     std::optional<std::pair<uint64_t, uint64_t>> get_text_segment_va_range();
     std::optional<std::string> get_symbol_name_for_va( const uint32_t va, LIEF::MachO::Symbol::TYPE type,
                                                        SymbolSection section );
-    std::optional<LIEF::MachO::Section> get_section_for_va( const uint32_t va );
     std::optional<std::string> get_segment_name_for_va( uint32_t va );
 
   private:
@@ -74,11 +73,13 @@ class CMachoLoader
     {
         std::size_t operator()( const SymbolCacheKey &k ) const noexcept
         {
-            return std::hash<int>{}( static_cast<int>( k.first ) ) ^ ( std::hash<int>{}( static_cast<int>( k.second ) ) << 16 );
+            return std::hash<int>{}( static_cast<int>( k.first ) ) ^
+                   ( std::hash<int>{}( static_cast<int>( k.second ) ) << 16 );
         }
     };
     std::unordered_map<SymbolCacheKey, std::map<uint32_t, std::string>, SymbolCacheKeyHash> m_symbolCache;
-    const std::map<uint32_t, std::string> &get_or_build_symbol_map( LIEF::MachO::Symbol::TYPE type, SymbolSection section );
+    const std::map<uint32_t, std::string> &get_or_build_symbol_map( LIEF::MachO::Symbol::TYPE type,
+                                                                    SymbolSection section );
 
     // initialize functions
     static std::optional<LIEF::MachO::SegmentCommand> get_text_segment( LIEF::MachO::Binary &executable );

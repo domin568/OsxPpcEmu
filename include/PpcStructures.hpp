@@ -4,6 +4,8 @@
  * Brief:     Mac OS X 10.4 PPC structures (from SDK)
  **/
 #include "../include/Common.hpp"
+#include <cstdint>
+#include <span>
 
 namespace guest
 {
@@ -202,9 +204,9 @@ struct _RuneLocale
     std::uint32_t rl_variable;    /* pointer to variable data (guest pointer) */
     std::int32_t rl_variable_len; /* length of variable data */
 
-    std::int32_t rl_runetype[_CACHED_RUNES]; /* character type table (256 * 4 bytes) */
-    std::int32_t rl_maplower[_CACHED_RUNES]; /* lowercase mapping table (256 * 4 bytes) */
-    std::int32_t rl_mapupper[_CACHED_RUNES]; /* uppercase mapping table (256 * 4 bytes) */
+    std::int32_t rl_runetype[1 << 8]; /* character type table (256 * 4 bytes) */
+    std::int32_t rl_maplower[1 << 8]; /* lowercase mapping table (256 * 4 bytes) */
+    std::int32_t rl_mapupper[1 << 8]; /* uppercase mapping table (256 * 4 bytes) */
 
     _RuneRange rl_runetype_ext; /* extended runetype range */
     _RuneRange rl_maplower_ext; /* extended lowercase range */
@@ -228,13 +230,34 @@ struct utimbuf
 };
 
 struct FSRef
-{                           // hidden[80]
-    uint16_t volFlags;      // +0  : copied from VolumeInfo+0xA (volume signature/attrs)
-    uint16_t encodingFlags; // +2  : low byte = TextEncoding; bit14 = case flag; bit15 = invalid
-    uint32_t parentDirID;   // +4  : parent catalog node ID
-    uint32_t cnid;          // +8  : item catalog node ID (file or dir)
-    uint32_t reserved;      // +12 : unused / alignment padding
-    char name[64];          // +16 : UTF-8 name, max 63 chars + NUL terminator
+{                                // hidden[80]
+    std::uint16_t volFlags;      // +0  : copied from VolumeInfo+0xA (volume signature/attrs)
+    std::uint16_t encodingFlags; // +2  : low byte = TextEncoding; bit14 = case flag; bit15 = invalid
+    std::uint32_t parentDirID;   // +4  : parent catalog node ID
+    std::uint32_t cnid;          // +8  : item catalog node ID (file or dir)
+    std::uint32_t reserved;      // +12 : unused / alignment padding
+    char name[64];               // +16 : UTF-8 name, max 63 chars + NUL terminator
 };
+
+inline constexpr std::uint32_t CTYPE_A{ 0x00000100L };   /* Alpha */
+inline constexpr std::uint32_t CTYPE_C{ 0x00000200L };   /* Control */
+inline constexpr std::uint32_t CTYPE_D{ 0x00000400L };   /* Digit */
+inline constexpr std::uint32_t CTYPE_G{ 0x00000800L };   /* Graph */
+inline constexpr std::uint32_t CTYPE_L{ 0x00001000L };   /* Lower */
+inline constexpr std::uint32_t CTYPE_P{ 0x00002000L };   /* Punct */
+inline constexpr std::uint32_t CTYPE_S{ 0x00004000L };   /* Space */
+inline constexpr std::uint32_t CTYPE_U{ 0x00008000L };   /* Upper */
+inline constexpr std::uint32_t CTYPE_X{ 0x00010000L };   /* X digit */
+inline constexpr std::uint32_t CTYPE_B{ 0x00020000L };   /* Blank */
+inline constexpr std::uint32_t CTYPE_R{ 0x00040000L };   /* Print */
+inline constexpr std::uint32_t CTYPE_I{ 0x00080000L };   /* Ideogram */
+inline constexpr std::uint32_t CTYPE_T{ 0x00100000L };   /* Special */
+inline constexpr std::uint32_t CTYPE_Q{ 0x00200000L };   /* Phonogram */
+inline constexpr std::uint32_t CTYPE_SW0{ 0x20000000L }; /* 0 width character */
+inline constexpr std::uint32_t CTYPE_SW1{ 0x40000000L }; /* 1 width character */
+inline constexpr std::uint32_t CTYPE_SW2{ 0x80000000L }; /* 2 width character */
+inline constexpr std::uint32_t CTYPE_SW3{ 0xc0000000L }; /* 3 width character */
+inline constexpr std::uint32_t CTYPE_SWM{ 0xe0000000L }; /* Mask for screen width data */
+inline constexpr std::uint32_t CTYPE_SWS{ 30 };          /* Bits to shift to get width */
 
 } // namespace guest

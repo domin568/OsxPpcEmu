@@ -5,9 +5,9 @@
  **/
 
 #include "../../include/loader/CMachoLoader.hpp"
-#include "../../include/mem/CMemory.hpp"
 #include "../../include/Common.hpp"
 #include "../../include/PpcStructures.hpp"
+#include "../../include/mem/CMemory.hpp"
 #include <LIEF/MachO.hpp>
 #include <bit>
 #include <filesystem>
@@ -242,7 +242,7 @@ std::optional<LIEF::MachO::SegmentCommand> CMachoLoader::get_text_segment( LIEF:
 }
 
 const std::map<uint32_t, std::string> &CMachoLoader::get_or_build_symbol_map( LIEF::MachO::Symbol::TYPE type,
-                                                                               SymbolSection section )
+                                                                              SymbolSection section )
 {
     SymbolCacheKey key{ type, section };
     auto it{ m_symbolCache.find( key ) };
@@ -280,14 +280,6 @@ std::optional<std::string> CMachoLoader::get_symbol_name_for_va( const uint32_t 
         return std::nullopt;
     --it;
     return it->second;
-}
-
-std::optional<LIEF::MachO::Section> CMachoLoader::get_section_for_va( const uint32_t va )
-{
-    LIEF::MachO::Section *s{ m_executable->section_from_virtual_address( va ) };
-    if (s == nullptr)
-        return std::nullopt;
-    return *s;
 }
 
 std::optional<std::string> CMachoLoader::get_segment_name_for_va( uint32_t va )

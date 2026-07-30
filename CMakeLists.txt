@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.20)
 project(OsxPpcEmu LANGUAGES C CXX)
 
 if (MSVC)
@@ -61,44 +61,85 @@ target_include_directories(OsxPpcEmuLib PUBLIC
 )
 target_compile_definitions(OsxPpcEmuLib PRIVATE $<$<BOOL:${ENABLE_DEBUGGER}>:DEBUGGER_ENABLED>)
 
+find_package(PkgConfig QUIET)
+
 find_package(Unicorn CONFIG QUIET)
+
 if (Unicorn_FOUND)
+    message(STATUS "Found Unicorn via CMake package")
     target_link_libraries(OsxPpcEmuLib PUBLIC Unicorn::Unicorn)
+
+elseif (PkgConfig_FOUND)
+
+    pkg_check_modules(UNICORN QUIET unicorn)
+
+    if (UNICORN_FOUND)
+        message(STATUS "Found Unicorn via pkg-config")
+        add_library(Unicorn::Unicorn INTERFACE IMPORTED)
+        set_target_properties(Unicorn::Unicorn PROPERTIES
+                INTERFACE_INCLUDE_DIRECTORIES "${UNICORN_INCLUDE_DIRS}"
+                INTERFACE_LINK_LIBRARIES "${UNICORN_LIBRARIES}"
+                INTERFACE_LINK_DIRECTORIES "${UNICORN_LIBRARY_DIRS}"
+        )
+        target_link_libraries(OsxPpcEmuLib PUBLIC Unicorn::Unicorn)
+
+    else ()
+        message(STATUS "Unicorn not found; using FetchContent")
+        include(FetchContent)
+        FetchContent_Declare(
+                unicorn
+                GIT_REPOSITORY https://github.com/unicorn-engine/unicorn.git
+                GIT_TAG v2.1.4
+                GIT_SUBMODULES ""
+        )
+
+        set(UNICORN_ARCH "ppc" CACHE STRING "")
+        set(UNICORN_BUILD_TESTS OFF CACHE BOOL "")
+        FetchContent_MakeAvailable(unicorn)
+        target_link_libraries(OsxPpcEmuLib PUBLIC unicorn)
+    endif ()
 else ()
-    message(STATUS "Unicorn not found; falling back to FetchContent for build-from-source")
-    include(FetchContent)
-    FetchContent_Declare(
-            unicorn
-            GIT_REPOSITORY https://github.com/unicorn-engine/unicorn.git
-            GIT_TAG v2.1.4
-            GIT_SUBMODULES ""
-    )
-    set(UNICORN_ARCH "ppc" CACHE STRING "" FORCE)
-    set(UNICORN_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libs" FORCE)
-    FetchContent_MakeAvailable(unicorn)
-    target_link_libraries(OsxPpcEmuLib PUBLIC unicorn)
+    message(STATUS "Unicorn not found; using FetchContent")
 endif ()
 
 find_package(LIEF CONFIG QUIET)
-if (NOT LIEF_FOUND)
-    message(STATUS "LIEF not found; falling back to FetchContent")
-    include(FetchContent)
+if (LIEF_FOUND)
+    message(STATUS "Found LIEF via CMake package")
+    target_link_libraries(OsxPpcEmuLib PUBLIC LIEF::LIEF)
+else ()
+    if (PkgConfig_FOUND)
+        pkg_check_modules(LIEF QUIET lief)
+    endif ()
 
-    set(BUILD_SHARED_LIBS ON CACHE BOOL "Build LIEF as shared library" FORCE)
-    set(LIEF_BUILD_TESTS OFF CACHE BOOL "Disable tests" FORCE)
-    set(LIEF_BUILD_EXAMPLES OFF CACHE BOOL "Disable examples" FORCE)
-    set(vendorLIEF_submodule_dir "${CMAKE_CURRENT_LIST_DIR}/thirdparty/LIEF")
-    FetchContent_Declare(
-            LIEF
-            GIT_REPOSITORY https://github.com/lief-project/LIEF.git
-            GIT_TAG 0.17.1
-    )
-    FetchContent_MakeAvailable(LIEF)
+    if (LIEF_FOUND)
+        message(STATUS "Found LIEF via pkg-config")
+        add_library(LIEF::LIEF INTERFACE IMPORTED)
+        set_target_properties(LIEF::LIEF PROPERTIES
+                INTERFACE_INCLUDE_DIRECTORIES "${LIEF_INCLUDE_DIRS}"
+                INTERFACE_LINK_LIBRARIES "${LIEF_LIBRARIES}"
+                INTERFACE_LINK_DIRECTORIES "${LIEF_LIBRARY_DIRS}"
+        )
+        target_link_libraries(OsxPpcEmuLib PUBLIC LIEF::LIEF)
+    else ()
+        message(STATUS "LIEF not found; compile from source")
+        include(FetchContent)
+
+        set(BUILD_SHARED_LIBS ON CACHE BOOL "Build LIEF as shared library" FORCE)
+        set(LIEF_BUILD_TESTS OFF CACHE BOOL "Disable tests" FORCE)
+        set(LIEF_BUILD_EXAMPLES OFF CACHE BOOL "Disable examples" FORCE)
+        set(vendorLIEF_submodule_dir "${CMAKE_CURRENT_LIST_DIR}/thirdparty/LIEF")
+        FetchContent_Declare(
+                LIEF
+                GIT_REPOSITORY https://github.com/lief-project/LIEF.git
+                GIT_TAG 0.17.1
+        )
+        FetchContent_MakeAvailable(LIEF)
+        target_link_libraries(OsxPpcEmuLib PUBLIC LIEF::LIEF)
+    endif ()
 endif ()
 
 find_package(Threads REQUIRED)
-target_link_libraries(OsxPpcEmuLib PUBLIC Threads::Threads LIEF::LIEF)
+target_link_libraries(OsxPpcEmuLib PUBLIC Threads::Threads)
 
 if (WIN32 AND ENABLE_DEBUGGER)
     target_link_libraries(OsxPpcEmuLib PUBLIC ws2_32)
