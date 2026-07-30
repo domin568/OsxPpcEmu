@@ -45,7 +45,7 @@ std::optional<HeapMode> heap_mode_from_string( std::string_view name )
 {
     std::string lower{ name };
     std::ranges::transform( lower, lower.begin(),
-                             []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+                            []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
     if (lower == "bump")
         return HeapMode::Bump;
     if (lower == "quarantine")
@@ -236,7 +236,7 @@ std::vector<std::uint64_t> get_ellipsis_arguments( uc_engine *uc, memory::CMemor
                                                    const int regIdx, bool scan )
 {
     std::vector<uint64_t> formatArgs;
-    process_format_arguments( std::string_view( format ), [&]( std::size_t argIdx, char spec ) {
+    process_format_arguments( format, [&]( std::size_t argIdx, char spec ) {
         uint32_t guestArg;
         uc_reg_read( uc, regIdx + argIdx, &guestArg );
 

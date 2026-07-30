@@ -113,10 +113,17 @@ inline ProcessResult run_process( const std::vector<std::string> &argv, const st
                                       O_WRONLY | O_CREAT | O_TRUNC, 0644 );
     posix_spawn_file_actions_addopen( &actions, STDERR_FILENO, stderrPath.string().c_str(),
                                       O_WRONLY | O_CREAT | O_TRUNC, 0644 );
+
 #ifdef __APPLE__
-    posix_spawn_file_actions_addchdir_np( &actions, cwd.string().c_str() );
+    posix_spawn_file_actions_addchdir_np( &actions, cwd.c_str() );
+#elif defined( __GLIBC__ )
+#ifdef POSIX_SPAWN_USE_CHDIR // doesn't actually exist
+    posix_spawn_file_actions_addchdir( &actions, cwd.c_str() );
 #else
-    posix_spawn_file_actions_addchdir( &actions, cwd.string().c_str() );
+    posix_spawn_file_actions_addchdir_np( &actions, cwd.c_str() );
+#endif
+#else
+#error ( "No posix_spawn_file_actions_addchdir function available on this platform" )
 #endif
 
     pid_t pid{};

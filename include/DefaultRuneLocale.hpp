@@ -5,6 +5,7 @@
  **/
 #pragma once
 #include <array>
+#include <cstdint>
 namespace import::data
 {
 inline constexpr std::array<std::uint8_t, 3160> Default_Rune_Locale{
