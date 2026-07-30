@@ -31,12 +31,29 @@ target_compile_definitions(OsxPpcEmuE2E PRIVATE "EMU_BINARY=\"$<TARGET_FILE:${EX
 add_dependencies(OsxPpcEmuE2E ${EXECUTABLE_NAME})
 
 add_test(NAME E2E_CodeWarriorLinkFile1 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefldE2E.CodeWarriorLinkFile1)
-add_test(NAME E2E_CodeWarriorLinkFile2 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefldE2E.CodeWarriorLinkFile2)
-add_test(NAME E2E_CodeWarriorLinkFile3 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefldE2E.CodeWarriorLinkFile3)
-add_test(NAME E2E_CodeWarriorCompileFile1 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileFile1)
-add_test(NAME E2E_CodeWarriorCompileFile2 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileFile2)
-add_test(NAME E2E_CodeWarriorCompileFile3 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileFile3)
-add_test(NAME E2E_CodeWarriorCompileFile4 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileFile4)
-set_tests_properties(E2E_CodeWarriorLinkFile1 E2E_CodeWarriorLinkFile2 E2E_CodeWarriorLinkFile3
-        E2E_CodeWarriorCompileFile1 E2E_CodeWarriorCompileFile2 E2E_CodeWarriorCompileFile3 E2E_CodeWarriorCompileFile4
-        PROPERTIES TIMEOUT 300)
+add_test(NAME E2E_CodeWarriorLinkCMathIOstream COMMAND OsxPpcEmuE2E --gtest_filter=MwpefldE2E.CodeWarriorLinkCMathIOstream)
+add_test(NAME E2E_CodeWarriorLinkSimpleMath COMMAND OsxPpcEmuE2E --gtest_filter=MwpefldE2E.CodeWarriorLinkSimpleMath)
+add_test(NAME E2E_CodeWarriorCompileSimple COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileSimple)
+add_test(NAME E2E_CodeWarriorCompileCMathIOStream COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileCMathIOStream)
+#add_test(NAME E2E_CodeWarriorCompileCMathIOStreamO2 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileCMathIOStreamO2)
+#add_test(NAME E2E_CodeWarriorCompileCMathIOStreamO3 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileCMathIOStreamO3)
+#add_test(NAME E2E_CodeWarriorCompileCMathIOStreamO4 COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileCMathIOStreamO4)
+add_test(NAME E2E_CodeWarriorCompileInterfaceLib COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileInterfaceLib)
+add_test(NAME E2E_CodeWarriorLinkInterfaceLib COMMAND OsxPpcEmuE2E --gtest_filter=MwpefldE2E.CodeWarriorLinkInterfaceLib)
+
+add_test(NAME E2E_CodeWarriorCompileSimpleMath COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompileSimpleMath)
+add_test(NAME E2E_CodeWarriorCompilePolymorphic COMMAND OsxPpcEmuE2E --gtest_filter=MwpefccE2E.CodeWarriorCompilePolymorphic)
+set_tests_properties(
+        E2E_CodeWarriorLinkFile1
+        E2E_CodeWarriorLinkCMathIOstream
+        E2E_CodeWarriorCompileSimple
+        E2E_CodeWarriorCompileCMathIOStream
+        #E2E_CodeWarriorCompileCMathIOStreamO2
+        #E2E_CodeWarriorCompileCMathIOStreamO3
+        #E2E_CodeWarriorCompileCMathIOStreamO4
+        E2E_CodeWarriorCompileSimpleMath
+        E2E_CodeWarriorCompilePolymorphic
+        E2E_CodeWarriorCompileInterfaceLib
+        E2E_CodeWarriorLinkSimpleMath
+        E2E_CodeWarriorLinkInterfaceLib
+        PROPERTIES TIMEOUT 30)

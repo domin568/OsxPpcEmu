@@ -68,10 +68,9 @@ std::vector<fs::path> required_paths()
 {
     const fs::path root{ fixture_root() };
     return {
-        root / "cw" / "tools" / "mwpefcc",    root / "expected" / "test.cpp.o", root / "input" / "test.cpp",
-        root / "expected" / "emu_test.cpp.o", root / "input" / "emu_test.cpp",
-        root / "expected" / "sin.cpp.o",      root / "input" / "sin.cpp",
-        root / "expected" / "thunk_test.cpp.o", root / "input" / "thunk_test.cpp",
+        root / "cw" / "tools" / "mwpefcc",    root / "expected" / "test.cpp.o",       root / "input" / "test.cpp",
+        root / "expected" / "emu_test.cpp.o", root / "input" / "emu_test.cpp",        root / "expected" / "sin.cpp.o",
+        root / "input" / "sin.cpp",           root / "expected" / "thunk_test.cpp.o", root / "input" / "thunk_test.cpp",
     };
 }
 
@@ -107,10 +106,7 @@ class MwpefccE2E : public ::testing::Test
         const fs::path root{ fixture_root() };
         fs::copy( root / "cw", m_sandbox / "cw", fs::copy_options::recursive );
         fs::create_directories( m_sandbox / "src" );
-        fs::copy_file( root / "input" / "test.cpp", m_sandbox / "src" / "test.cpp" );
-        fs::copy_file( root / "input" / "emu_test.cpp", m_sandbox / "src" / "emu_test.cpp" );
-        fs::copy_file( root / "input" / "sin.cpp", m_sandbox / "src" / "sin.cpp" );
-        fs::copy_file( root / "input" / "thunk_test.cpp", m_sandbox / "src" / "thunk_test.cpp" );
+        fs::copy( root / "input", m_sandbox / "src", fs::copy_options::recursive );
         fs::create_directories( m_sandbox / "output" );
 
 #ifndef _WIN32
@@ -146,29 +142,22 @@ class MwpefccE2E : public ::testing::Test
                                        ( libs / "MSL" / "MSL_Extras" / "MSL_MacOS" / "Include" ).string() + ":" +
                                        ( libs / "MacOS Support" / "Universal" / "Interfaces" / "CIncludes" ).string() };
 
-        const std::string mwPefLibraries{
-            ( libs / "MacOS Support" / "Universal" / "Libraries" / "StubLibraries" ).string() + ":" +
-            ( libs / "MSL" / "MSL_C" / "MSL_MacOS" / "Lib" / "PPC" ).string() + ":" +
-            ( libs / "MSL" / "MSL_C++" / "MSL_MacOS" / "Lib" / "PPC" ).string() + ":" +
-            ( libs / "MacOS Support" / "Libraries" / "Runtime" / "Libs" ).string() };
-
         return {
             "CWINSTALL=" + ( m_sandbox / "cw" ).string(),
-            "MWFrameworkVersions=System",
             "MWCIncludes=" + mwCIncludes,
-            "MWPEFLibraries=" + mwPefLibraries,
-            "MWPEFLibraryFiles=MSL_All_Carbon.Lib:CarbonLib",
         };
     }
 
-    void compile_and_compare( const std::string &sourceFileName, const std::string &outputName )
+    void compile_and_compare( const std::string &sourceFileName, const std::string &outputName,
+                              std::vector<std::string> additionalSwitches = {} )
     {
         const fs::path mwpefcc{ m_sandbox / "cw" / "tools" / "mwpefcc" };
         const fs::path libs{ m_sandbox / "cw" / "libs" };
 
-        const std::vector<std::string> argv{
+        std::vector<std::string> argv{
             EMU_BINARY, mwpefcc.string(), "-c", "-v", "-v", "-v", "src/" + sourceFileName, "-o", "output/" + outputName,
         };
+        std::ranges::copy( additionalSwitches, std::back_inserter( argv ) );
         const std::vector<std::string> env{ get_env_vars( libs ) };
 
         const testutil::ProcessResult result{ testutil::run_process( argv, m_sandbox, env ) };
@@ -215,22 +204,42 @@ class MwpefccE2E : public ::testing::Test
     fs::path m_sandbox{};
 };
 
-TEST_F( MwpefccE2E, CodeWarriorCompileFile1 )
+TEST_F( MwpefccE2E, CodeWarriorCompileSimple )
 {
     compile_and_compare( "test.cpp", "test.cpp.o" );
 }
 
-TEST_F( MwpefccE2E, CodeWarriorCompileFile2 )
+TEST_F( MwpefccE2E, CodeWarriorCompileCMathIOStream )
 {
     compile_and_compare( "emu_test.cpp", "emu_test.cpp.o" );
 }
 
-TEST_F( MwpefccE2E, CodeWarriorCompileFile3 )
+TEST_F( MwpefccE2E, CodeWarriorCompileSimpleMath )
 {
     compile_and_compare( "sin.cpp", "sin.cpp.o" );
 }
 
-TEST_F( MwpefccE2E, CodeWarriorCompileFile4 )
+TEST_F( MwpefccE2E, CodeWarriorCompilePolymorphic )
 {
     compile_and_compare( "thunk_test.cpp", "thunk_test.cpp.o" );
+}
+
+TEST_F( MwpefccE2E, CodeWarriorCompileCMathIOStreamO2 )
+{
+    compile_and_compare( "emu_test.cpp", "emu_test_O2.cpp.o", { "-O2" } );
+}
+
+TEST_F( MwpefccE2E, CodeWarriorCompileCMathIOStreamO3 )
+{
+    compile_and_compare( "emu_test.cpp", "emu_test_O3.cpp.o", { "-O3" } );
+}
+
+TEST_F( MwpefccE2E, CodeWarriorCompileCMathIOStreamO4 )
+{
+    compile_and_compare( "emu_test.cpp", "emu_test_O4.cpp.o", { "-O4" } );
+}
+
+TEST_F( MwpefccE2E, CodeWarriorCompileInterfaceLib )
+{
+    compile_and_compare( "simple_alert.cpp", "simple_alert.cpp.o" );
 }

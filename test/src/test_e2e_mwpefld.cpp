@@ -66,9 +66,12 @@ std::vector<fs::path> required_paths()
 {
     const fs::path root{ fixture_root() };
     return {
-        root / "cw" / "tools" / "mwpefld",       root / "expected" / "cw_stress_test",
-        root / "input" / "cw_stress_test.cpp.o", root / "expected" / "emu_test",
-        root / "input" / "emu_test.cpp.o",       root / "expected" / "sin",
+        root / "cw" / "tools" / "mwpefld",
+        root / "expected" / "cw_stress_test",
+        root / "input" / "cw_stress_test.cpp.o",
+        root / "expected" / "emu_test",
+        root / "input" / "emu_test.cpp.o",
+        root / "expected" / "sin",
         root / "input" / "sin.cpp.o",
     };
 }
@@ -134,9 +137,7 @@ class MwpefldE2E : public ::testing::Test
         const fs::path root{ fixture_root() };
         fs::copy( root / "cw", m_sandbox / "cw", fs::copy_options::recursive );
         fs::create_directories( m_sandbox / "src" );
-        fs::copy_file( root / "input" / "cw_stress_test.cpp.o", m_sandbox / "src" / "cw_stress_test.cpp.o" );
-        fs::copy_file( root / "input" / "emu_test.cpp.o", m_sandbox / "src" / "emu_test.cpp.o" );
-        fs::copy_file( root / "input" / "sin.cpp.o", m_sandbox / "src" / "sin.cpp.o" );
+        fs::copy( root / "input", m_sandbox / "src", fs::copy_options::recursive );
         fs::create_directories( m_sandbox / "output" );
 
 #ifndef _WIN32
@@ -183,7 +184,7 @@ class MwpefldE2E : public ::testing::Test
             "MWFrameworkVersions=System",
             "MWCIncludes=" + mwCIncludes,
             "MWPEFLibraries=" + mwPefLibraries,
-            "MWPEFLibraryFiles=MSL_All_Carbon.Lib:CarbonLib",
+            "MWPEFLibraryFiles=MSL_All_Carbon.Lib:CarbonLib:MSL_All_PPC.Lib:InterfaceLib",
         };
     }
 
@@ -232,7 +233,6 @@ class MwpefldE2E : public ::testing::Test
                           << "\nActual output copied to: " << actualCopy.string();
         }
     }
-
     fs::path m_sandbox{};
 };
 
@@ -241,12 +241,17 @@ TEST_F( MwpefldE2E, CodeWarriorLinkFile1 )
     link_and_compare( "cw_stress_test.cpp.o", "cw_stress_test" );
 }
 
-TEST_F( MwpefldE2E, CodeWarriorLinkFile2 )
+TEST_F( MwpefldE2E, CodeWarriorLinkCMathIOstream )
 {
     link_and_compare( "emu_test.cpp.o", "emu_test" );
 }
 
-TEST_F( MwpefldE2E, CodeWarriorLinkFile3 )
+TEST_F( MwpefldE2E, CodeWarriorLinkSimpleMath )
 {
     link_and_compare( "sin.cpp.o", "sin" );
+}
+
+TEST_F( MwpefldE2E, CodeWarriorLinkInterfaceLib )
+{
+    link_and_compare( "simple_alert.cpp.o", "simple_alert" );
 }

@@ -73,21 +73,29 @@ else ()
             GIT_TAG v2.1.4
             GIT_SUBMODULES ""
     )
+    set(UNICORN_ARCH "ppc" CACHE STRING "" FORCE)
+    set(UNICORN_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libs" FORCE)
     FetchContent_MakeAvailable(unicorn)
     target_link_libraries(OsxPpcEmuLib PUBLIC unicorn)
 endif ()
 
-set(BUILD_SHARED_LIBS ON CACHE BOOL "Build LIEF as shared library" FORCE)
-set(LIEF_BUILD_TESTS OFF CACHE BOOL "Disable tests" FORCE)
-set(LIEF_BUILD_EXAMPLES OFF CACHE BOOL "Disable examples" FORCE)
-set(vendorLIEF_submodule_dir "${CMAKE_CURRENT_LIST_DIR}/thirdparty/LIEF")
-FetchContent_Declare(
-        LIEF
-        GIT_REPOSITORY https://github.com/lief-project/LIEF.git
-        GIT_TAG 0.17.1
-)
-FetchContent_MakeAvailable(LIEF)
+find_package(LIEF CONFIG QUIET)
+if (NOT LIEF_FOUND)
+    message(STATUS "LIEF not found; falling back to FetchContent")
+    include(FetchContent)
+
+    set(BUILD_SHARED_LIBS ON CACHE BOOL "Build LIEF as shared library" FORCE)
+    set(LIEF_BUILD_TESTS OFF CACHE BOOL "Disable tests" FORCE)
+    set(LIEF_BUILD_EXAMPLES OFF CACHE BOOL "Disable examples" FORCE)
+    set(vendorLIEF_submodule_dir "${CMAKE_CURRENT_LIST_DIR}/thirdparty/LIEF")
+    FetchContent_Declare(
+            LIEF
+            GIT_REPOSITORY https://github.com/lief-project/LIEF.git
+            GIT_TAG 0.17.1
+    )
+    FetchContent_MakeAvailable(LIEF)
+endif ()
 
 find_package(Threads REQUIRED)
 target_link_libraries(OsxPpcEmuLib PUBLIC Threads::Threads LIEF::LIEF)
