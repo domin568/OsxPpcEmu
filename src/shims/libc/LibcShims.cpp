@@ -33,6 +33,41 @@
 
 namespace import::callback
 {
+
+static void fill_guest_stat( guest::stat *guestStat, const struct stat &hostStat )
+{
+    ::memset( guestStat, 0, sizeof( guest::stat ) );
+
+    auto be{ []( auto v ) { return common::ensure_endianness( v, std::endian::big ); } };
+
+    guestStat->st_dev = be( static_cast<std::int32_t>( hostStat.st_dev ) );
+    guestStat->st_ino = be( static_cast<std::uint32_t>( hostStat.st_ino ) );
+    guestStat->st_mode = be( static_cast<std::uint16_t>( hostStat.st_mode ) );
+    guestStat->st_nlink = be( static_cast<std::uint16_t>( hostStat.st_nlink ) );
+    guestStat->st_uid = be( static_cast<std::uint32_t>( hostStat.st_uid ) );
+    guestStat->st_gid = be( static_cast<std::uint32_t>( hostStat.st_gid ) );
+    guestStat->st_rdev = be( static_cast<std::int32_t>( hostStat.st_rdev ) );
+    guestStat->st_size = be( static_cast<std::int64_t>( hostStat.st_size ) );
+    guestStat->st_blocks = be( static_cast<std::int64_t>( hostStat.st_blocks ) );
+    guestStat->st_blksize = be( static_cast<std::int32_t>( hostStat.st_blksize ) );
+
+#if defined( __APPLE__ )
+    guestStat->st_atimespec.tv_sec = be( static_cast<std::uint32_t>( hostStat.st_atimespec.tv_sec ) );
+    guestStat->st_atimespec.tv_nsec = be( static_cast<std::uint32_t>( hostStat.st_atimespec.tv_nsec ) );
+    guestStat->st_mtimespec.tv_sec = be( static_cast<std::uint32_t>( hostStat.st_mtimespec.tv_sec ) );
+    guestStat->st_mtimespec.tv_nsec = be( static_cast<std::uint32_t>( hostStat.st_mtimespec.tv_nsec ) );
+    guestStat->st_ctimespec.tv_sec = be( static_cast<std::uint32_t>( hostStat.st_ctimespec.tv_sec ) );
+    guestStat->st_ctimespec.tv_nsec = be( static_cast<std::uint32_t>( hostStat.st_ctimespec.tv_nsec ) );
+#else
+    guestStat->st_atimespec.tv_sec = be( static_cast<std::uint32_t>( hostStat.st_atim.tv_sec ) );
+    guestStat->st_atimespec.tv_nsec = be( static_cast<std::uint32_t>( hostStat.st_atim.tv_nsec ) );
+    guestStat->st_mtimespec.tv_sec = be( static_cast<std::uint32_t>( hostStat.st_mtim.tv_sec ) );
+    guestStat->st_mtimespec.tv_nsec = be( static_cast<std::uint32_t>( hostStat.st_mtim.tv_nsec ) );
+    guestStat->st_ctimespec.tv_sec = be( static_cast<std::uint32_t>( hostStat.st_ctim.tv_sec ) );
+    guestStat->st_ctimespec.tv_nsec = be( static_cast<std::uint32_t>( hostStat.st_ctim.tv_nsec ) );
+#endif
+}
+
 // int *___error(void);
 // Returns a pointer to the errno variable
 bool ___error( ShimContext &ctx )
@@ -568,18 +603,7 @@ bool fstat( ShimContext &ctx )
 
     if (ret == 0 && buf != nullptr)
     {
-        auto *guestStat{ static_cast<guest::stat *>( buf ) };
-        ::memset( guestStat, 0, sizeof( guest::stat ) );
-        guestStat->st_dev = common::ensure_endianness( hostStat.st_dev, std::endian::big );
-        guestStat->st_ino = common::ensure_endianness( hostStat.st_ino, std::endian::big );
-        guestStat->st_mode = common::ensure_endianness( hostStat.st_mode, std::endian::big );
-        guestStat->st_nlink = common::ensure_endianness( hostStat.st_nlink, std::endian::big );
-        guestStat->st_uid = common::ensure_endianness( hostStat.st_uid, std::endian::big );
-        guestStat->st_gid = common::ensure_endianness( hostStat.st_gid, std::endian::big );
-        guestStat->st_rdev = common::ensure_endianness( hostStat.st_rdev, std::endian::big );
-        guestStat->st_size = common::ensure_endianness( hostStat.st_size, std::endian::big );
-        guestStat->st_blksize = common::ensure_endianness( hostStat.st_blksize, std::endian::big );
-        guestStat->st_blocks = common::ensure_endianness( hostStat.st_blocks, std::endian::big );
+        fill_guest_stat( static_cast<guest::stat *>( buf ), hostStat );
     }
     else if (ret == -1)
     {
@@ -803,23 +827,12 @@ bool stat( ShimContext &ctx )
         return false;
     const auto [path, sb] = *args;
 
-    // Call host stat
-    struct stat hostStat;
+    struct stat hostStat{};
     int ret{ ::stat( path, &hostStat ) };
 
     if (ret == 0 && sb != nullptr)
     {
-        auto *guestStat{ static_cast<guest::stat *>( sb ) };
-        guestStat->st_dev = common::ensure_endianness( hostStat.st_dev, std::endian::big );
-        guestStat->st_ino = common::ensure_endianness( hostStat.st_ino, std::endian::big );
-        guestStat->st_mode = common::ensure_endianness( hostStat.st_mode, std::endian::big );
-        guestStat->st_nlink = common::ensure_endianness( hostStat.st_nlink, std::endian::big );
-        guestStat->st_uid = common::ensure_endianness( hostStat.st_uid, std::endian::big );
-        guestStat->st_gid = common::ensure_endianness( hostStat.st_gid, std::endian::big );
-        guestStat->st_rdev = common::ensure_endianness( hostStat.st_rdev, std::endian::big );
-        guestStat->st_size = common::ensure_endianness( hostStat.st_size, std::endian::big );
-        guestStat->st_blksize = common::ensure_endianness( hostStat.st_blksize, std::endian::big );
-        guestStat->st_blocks = common::ensure_endianness( hostStat.st_blocks, std::endian::big );
+        fill_guest_stat( static_cast<guest::stat *>( sb ), hostStat );
     }
     else if (ret == -1)
     {
@@ -838,23 +851,12 @@ bool lstat( ShimContext &ctx )
         return false;
     const auto [path, sb] = *args;
 
-    // Call host lstat
     struct stat hostStat{};
     int ret{ ::lstat( path, &hostStat ) };
 
     if (ret == 0 && sb != nullptr)
     {
-        auto *guestStat{ static_cast<guest::stat *>( sb ) };
-        guestStat->st_dev = common::ensure_endianness( hostStat.st_dev, std::endian::big );
-        guestStat->st_ino = common::ensure_endianness( hostStat.st_ino, std::endian::big );
-        guestStat->st_mode = common::ensure_endianness( hostStat.st_mode, std::endian::big );
-        guestStat->st_nlink = common::ensure_endianness( hostStat.st_nlink, std::endian::big );
-        guestStat->st_uid = common::ensure_endianness( hostStat.st_uid, std::endian::big );
-        guestStat->st_gid = common::ensure_endianness( hostStat.st_gid, std::endian::big );
-        guestStat->st_rdev = common::ensure_endianness( hostStat.st_rdev, std::endian::big );
-        guestStat->st_size = common::ensure_endianness( hostStat.st_size, std::endian::big );
-        guestStat->st_blksize = common::ensure_endianness( hostStat.st_blksize, std::endian::big );
-        guestStat->st_blocks = common::ensure_endianness( hostStat.st_blocks, std::endian::big );
+        fill_guest_stat( static_cast<guest::stat *>( sb ), hostStat );
     }
     else if (ret == -1)
     {
