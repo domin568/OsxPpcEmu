@@ -25,7 +25,7 @@ struct HookContext
 #ifdef DEBUGGER_ENABLED
     debug::CDebugger *debugger{};
     gdb::CGdbServer *gdbServer{};
-    std::FILE *traceFile{};
+    std::FILE **traceFile{};
     // guest address of the last dispatched API call, used for interrupt diagnostics
     std::uint32_t lastApiAddress{ 0 };
 #endif

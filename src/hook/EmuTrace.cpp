@@ -243,11 +243,17 @@ void write_callstack( std::FILE *out, const HookContext &ctx )
 
 } // namespace
 
+static inline std::FILE *trace_file( const HookContext &ctx )
+{
+    return ctx.traceFile ? *ctx.traceFile : nullptr;
+}
+
 void print_api_call_source( const HookContext &ctx, uc_engine *uc, std::uint64_t address, std::size_t idx )
 {
     const bool isUnknown = ( idx == import::Unknown_Import_Index );
+    std::FILE *const tf = trace_file( ctx );
 
-    if (!isUnknown && !ctx.traceFile)
+    if (!isUnknown && !tf)
         return;
 
     if (isUnknown)
@@ -255,16 +261,15 @@ void print_api_call_source( const HookContext &ctx, uc_engine *uc, std::uint64_t
         // Unknown API: output to stdout
         std::printf( "\xe2\x94\x8c\xe2\x94\x80 0x%llx (unknown)", address );
         write_callstack( stdout, ctx );
-        if (ctx.traceFile)
+        if (tf)
         {
-            std::fprintf( ctx.traceFile, "\xe2\x94\x8c\xe2\x94\x80 0x%llx (unknown)", address );
-            write_callstack( ctx.traceFile, ctx );
+            std::fprintf( tf, "\xe2\x94\x8c\xe2\x94\x80 0x%llx (unknown)", address );
+            write_callstack( tf, ctx );
         }
     }
     else if (idx - import::Unknown_Import_Shift < import::Known_Import_Names.size())
     {
         const std::size_t apiIdx = idx - import::Unknown_Import_Shift;
-        std::FILE *tf = ctx.traceFile;
 
         // Known API: output to file only
         std::fprintf( tf, "\xe2\x94\x8c\xe2\x94\x80 %.*s",
@@ -288,8 +293,8 @@ void print_api_call_source( const HookContext &ctx, uc_engine *uc, std::uint64_t
     else
     {
         std::puts( "Could not read API name." );
-        if (ctx.traceFile)
-            std::fputs( "Could not read API name.\n", ctx.traceFile );
+        if (tf)
+            std::fputs( "Could not read API name.\n", tf );
     }
 }
 
@@ -298,17 +303,19 @@ void print_api_return( const HookContext &ctx, uc_engine *uc, std::size_t idx )
     if (idx == import::Unknown_Import_Index || idx - import::Unknown_Import_Shift >= import::Known_Import_Names.size())
         return;
 
-    if (!ctx.traceFile)
+    std::FILE *const tf = trace_file( ctx );
+    if (!tf)
         return;
 
     std::uint32_t retValue;
     if (uc_reg_read( uc, UC_PPC_REG_3, &retValue ) == UC_ERR_OK)
     {
-        std::fputs( "\xe2\x94\x94\xe2\x94\x80 return: ", ctx.traceFile );
-        write_arg_value( ctx.traceFile, uc, retValue );
-        std::fputc( '\n', ctx.traceFile );
+        std::fputs( "\xe2\x94\x94\xe2\x94\x80 return: ", tf );
+        write_arg_value( tf, uc, retValue );
+        std::fputc( '\n', tf );
     }
 }
+
 
 #endif
 

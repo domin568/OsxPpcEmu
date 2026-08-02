@@ -130,7 +130,7 @@ bool COsxPpcEmu::run()
 #ifdef DEBUGGER_ENABLED
     m_hookCtx.debugger = m_debugger.get();
     m_hookCtx.gdbServer = m_gdb_server.get();
-    m_hookCtx.traceFile = m_trace_file;
+    m_hookCtx.traceFile = &m_trace_file;
 #endif
 
     if (const auto res{ m_hooks.install_all( m_hookCtx, textSegStart, textSegEnd ) }; !res)
