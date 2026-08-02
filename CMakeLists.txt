@@ -25,6 +25,7 @@ set(SOURCE_FILES
         src/shims/carbon/CarbonShims.cpp
         src/shims/dyld/DyldShims.cpp
         src/shims/libc/LibcShims.cpp
+        third_party/printf/printf.c
 )
 set(HEADER_FILES
         include/loader/CMachoLoader.hpp
@@ -47,6 +48,7 @@ set(HEADER_FILES
         include/shims/carbon/CarbonShims.hpp
         include/shims/dyld/DyldShims.hpp
         include/shims/libc/LibcShims.hpp
+        third_party/printf/printf.h
 )
 
 option(ENABLE_DEBUGGER "Enable built-in PPC debugger and GDB server" OFF)

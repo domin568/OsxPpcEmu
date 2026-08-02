@@ -4,12 +4,15 @@
  * Brief:     redirected API implementations
  **/
 
+#include "../third_party/printf/printf.h"
 #include "COsxPpcEmu.hpp"
 #include "ImportDispatch.hpp"
 #include "PpcStructures.hpp"
 #include "shims/ShimContext.hpp"
+#include "shims/libc/ScanfShim.hpp"
 #include <array>
 #include <climits>
+#include <cstdio>
 #include <dirent.h>
 #include <limits>
 #include <netdb.h>
@@ -20,12 +23,10 @@
 #include <sys/stat.h>
 #include <sys/times.h>
 #include <unistd.h>
-#include <unordered_map>
 #include <utime.h>
 #include <vector>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
-#include <sys/xattr.h>
 #endif
 #include <cassert>
 #include <locale.h>
@@ -763,8 +764,7 @@ bool sprintf( ShimContext &ctx )
 
     std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( ctx.uc, ctx.mem, format, UC_PPC_REG_5, false ) };
 
-    // UB but for now works for arm64 mac os / x86_64 windows
-    int ret{ ::vsprintf( buffer, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
+    int ret{ vsnprintf_( buffer, -1, format, formatArgs.data() ) };
     return ctx.ret( ret );
 }
 
@@ -778,8 +778,7 @@ bool printf( ShimContext &ctx )
 
     std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( ctx.uc, ctx.mem, format, UC_PPC_REG_4, false ) };
 
-    // UB but for now works for arm64 mac os / x86_64 windows
-    int ret{ ::vprintf( format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
+    int ret{ vprintf_( format, formatArgs.data() ) };
     return ctx.ret( ret );
 }
 
@@ -792,8 +791,7 @@ bool vsprintf( ShimContext &ctx )
     const auto &[s, format, apPtr] = *args;
     std::vector formatArgs{ common::get_va_arguments( ctx.mem, apPtr, format ) };
 
-    // UB but for now works for arm64 mac os / x86_64 windows
-    int ret{ ::vsprintf( s, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
+    int ret{ vsnprintf_( s, -1, format, formatArgs.data() ) };
     return ctx.ret( ret );
 }
 
@@ -1040,8 +1038,7 @@ bool vsnprintf( ShimContext &ctx )
     const auto &[s, n, format, apPtr] = *args;
     std::vector formatArgs{ common::get_va_arguments( ctx.mem, apPtr, format ) };
 
-    // UB but for now works for arm64 mac os / x86_64 windows
-    int ret{ ::vsnprintf( s, n, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
+    int ret{ vsnprintf_( s, n, format, formatArgs.data() ) };
     return ctx.ret( ret );
 }
 
@@ -1114,9 +1111,22 @@ bool fprintf( ShimContext &ctx )
         f = static_cast<FILE *>( *reinterpret_cast<FILE **>( stream ) );
 
     std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( ctx.uc, ctx.mem, format, UC_PPC_REG_5, false ) };
+    const int needed{ vsnprintf_( nullptr, 0, format, formatArgs.data() ) };
+    if (needed < 0)
+        return ctx.ret( -1 );
 
-    // UB but for now works for arm64 mac os / x86_64 windows
-    int ret{ ::vfprintf( f, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
+    std::string rendered( static_cast<std::size_t>( needed ) + 1, '\0' );
+    const int ret{ vsnprintf_( rendered.data(), rendered.size(), format, formatArgs.data() ) };
+    if (ret < 0)
+        return ctx.ret( -1 );
+
+    const std::size_t written{ std::fwrite( rendered.data(), 1, static_cast<std::size_t>( ret ), f ) };
+    if (written != static_cast<std::size_t>( ret ))
+    {
+        set_guest_errno( ctx.mem, errno );
+        return ctx.ret( -1 );
+    }
+
     return ctx.ret( ret );
 }
 
@@ -1853,9 +1863,7 @@ bool snprintf( ShimContext &ctx )
 
     std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( ctx.uc, ctx.mem, format, UC_PPC_REG_6, false ) };
 
-    // UB but for now works for arm64 mac os / x86_64 windows
-    int ret{ ::vsnprintf( str, size, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
-
+    int ret{ vsnprintf_( str, size, format, formatArgs.data() ) };
     return ctx.ret( ret );
 }
 

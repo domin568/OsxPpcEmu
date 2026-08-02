@@ -212,6 +212,7 @@ template <typename Func> static void process_format_arguments( std::string_view 
     }
 }
 
+// TODO: This function misses getting arguments from stack
 std::vector<std::uint64_t> get_va_arguments( memory::CMemory *mem, void *argsPtr, std::string_view format )
 {
     std::vector<std::uint64_t> args{};
@@ -232,17 +233,26 @@ std::vector<std::uint64_t> get_va_arguments( memory::CMemory *mem, void *argsPtr
     return args;
 }
 
+// TODO: This function misses getting arguments from stack
 std::vector<std::uint64_t> get_ellipsis_arguments( uc_engine *uc, memory::CMemory *mem, std::string_view format,
                                                    const int regIdx, bool scan )
 {
     std::vector<uint64_t> formatArgs;
     process_format_arguments( format, [&]( std::size_t argIdx, char spec ) {
-        uint32_t guestArg;
-        uc_reg_read( uc, regIdx + argIdx, &guestArg );
+        if (regIdx + static_cast<int>( argIdx ) > UC_PPC_REG_10)
+            return;
+
+        uint32_t guestArg{ 0 };
+        if (uc_reg_read( uc, regIdx + static_cast<int>( argIdx ), &guestArg ) != UC_ERR_OK)
+        {
+            std::cerr << "Error while reading reg in get_ellipsis_arguments" << std::endl;
+            return;
+        }
 
         if (is_pointer_specifier( spec ) || scan)
         {
-            formatArgs.push_back( reinterpret_cast<uint64_t>( mem->get( guestArg ) ) );
+            void *hostPtr{ mem->get( guestArg ) };
+            formatArgs.push_back( reinterpret_cast<uint64_t>( hostPtr ) );
         }
         else
         {
