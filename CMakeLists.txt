@@ -26,6 +26,7 @@ set(SOURCE_FILES
         src/shims/dyld/DyldShims.cpp
         src/shims/libc/LibcShims.cpp
         third_party/printf/printf.c
+        third_party/scanf/scanf.c
 )
 set(HEADER_FILES
         include/loader/CMachoLoader.hpp
@@ -49,6 +50,7 @@ set(HEADER_FILES
         include/shims/dyld/DyldShims.hpp
         include/shims/libc/LibcShims.hpp
         third_party/printf/printf.h
+        third_party/scanf/scanf.h
 )
 
 option(ENABLE_DEBUGGER "Enable built-in PPC debugger and GDB server" OFF)

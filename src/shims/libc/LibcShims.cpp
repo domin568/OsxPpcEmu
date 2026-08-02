@@ -5,11 +5,11 @@
  **/
 
 #include "../third_party/printf/printf.h"
+#include "../third_party/scanf/scanf.h"
 #include "COsxPpcEmu.hpp"
 #include "ImportDispatch.hpp"
 #include "PpcStructures.hpp"
 #include "shims/ShimContext.hpp"
-#include "shims/libc/ScanfShim.hpp"
 #include <array>
 #include <climits>
 #include <cstdio>
@@ -1713,8 +1713,7 @@ bool sscanf( ShimContext &ctx )
 
     std::vector<uint64_t> formatArgs{ common::get_ellipsis_arguments( ctx.uc, ctx.mem, format, UC_PPC_REG_5, true ) };
 
-    // UB but for now works for arm64 mac os / x86_64 windows
-    int ret{ ::vsscanf( str, format, reinterpret_cast<va_list>( formatArgs.data() ) ) };
+    int ret{ vsscanf_( str, format, formatArgs.data() ) };
 
     return ctx.ret( ret );
 }

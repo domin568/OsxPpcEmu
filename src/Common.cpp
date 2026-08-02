@@ -163,7 +163,9 @@ static inline bool is_pointer_specifier( char spec )
     return spec == 's' || spec == 'p' || spec == 'n';
 }
 
-template <typename Func> static void process_format_arguments( std::string_view format, Func &&c )
+// scan == true selects scanf semantics: leading '*' right after '%' means
+// assignment-suppression (no argument consumed), not a printf dynamic width.
+template <typename Func> static void process_format_arguments( std::string_view format, Func &&c, bool scan = false )
 {
     std::size_t argIdx = 0;
 
@@ -177,14 +179,21 @@ template <typename Func> static void process_format_arguments( std::string_view 
                 continue;
             }
 
-            // Find the conversion specifier
             i++;
+            bool suppressed = false;
+            if (scan && i < format.size() && format[i] == '*')
+            {
+                suppressed = true;
+                i++;
+            }
+
+            // Find the conversion specifier
             while (i < format.size())
             {
                 char ch = format[i];
 
-                // Handle dynamic width/precision (*)
-                if (ch == '*')
+                // Handle dynamic width/precision (*), printf only
+                if (ch == '*' && !scan)
                 {
                     c( argIdx, 'd' ); // * consumes an integer argument
                     argIdx++;
@@ -206,8 +215,11 @@ template <typename Func> static void process_format_arguments( std::string_view 
                 break;
 
             char spec = format[i];
-            c( argIdx, spec );
-            argIdx++;
+            if (!suppressed)
+            {
+                c( argIdx, spec );
+                argIdx++;
+            }
         }
     }
 }
@@ -258,7 +270,7 @@ std::vector<std::uint64_t> get_ellipsis_arguments( uc_engine *uc, memory::CMemor
         {
             formatArgs.push_back( static_cast<uint64_t>( guestArg ) );
         }
-    } );
+    }, scan );
     return formatArgs;
 }
 

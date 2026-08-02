@@ -2,16 +2,15 @@
 
 Translation layer for PowerPC Mac OS X executables.
 
-Project was instantiated to emulate Metrowerks CodeWarrior 9.0 for Mac OS X (PowerPC commandline program).
-all API declarations are based on dyld 46.16 / Mac OS X 10.4 SDK.
+Project was instantiated to emulate Metrowerks CodeWarrior 9.0 for Mac OS X (PowerPC commandline program). all API
+declarations are based on dyld 46.16 / Mac OS X 10.4 SDK.
 
 Under the hood it uses Unicorn Engine (https://github.com/unicorn-engine/unicorn) for emulation. All API calls are
 redirected and resolved by host.
 
 At the moment it was tested only against Metrowerks CodeWarrior 9.0 for Mac OS X, CLI, mwpefcc, mwpefld on
-arm64-apple-darwin25.1.0 host.
-Other host platforms are not yet fully tested at the time. No GUI support. The project is in the early development
-stage. 100% API coverage is not guaranteed.
+arm64-apple-darwin25.1.0 host. Other host platforms are not yet fully tested at the time. No GUI support. The project is
+in the early development stage. 100% API coverage is not guaranteed.
 
 Debug configuration has debugger (interactive or gdb server). Release just emulates the binary.
 
@@ -31,15 +30,15 @@ If emulator has unimplemented API call it could look like this in stdout
 
 ## Heap Modes
 
-The guest heap allocator supports three selectable free() policies, chosen via
+The guest heap allocator supports three selectable free () policies, chosen via
 `--heap-mode=<mode>` (must appear before the target executable path) or the
 `OSXPPCEMU_HEAP_MODE` environment variable (the CLI flag takes precedence). Default: `quarantine`.
 
-| Mode         | Behaviour                                                                 | When to use |
-|--------------|----------------------------------------------------------------------------|-------------|
-| `bump`       | `free()` retires the chunk permanently (poisoned, never reused).           | Bisecting a regression: if a sample only misbehaves under a real allocator, running it in `bump` proves whether chunk reuse is the cause. |
-| `quarantine` | `free()` poisons and holds the chunk in a FIFO before allowing reuse.       | Default. Best chance of catching use-after-free bugs (in the emulated binary or in our own shims) at the cost of ~4 MiB held-back memory and deferred coalescing. |
-| `real`       | `free()` coalesces and returns the chunk to the free bins immediately.      | Highest fidelity to a real `malloc`; use when a sample's behaviour depends on immediate chunk reuse, or for throughput-oriented batch runs where the quarantine's memory/CPU overhead isn't worth it. |
+| Mode         | Behaviour                                                              | When to use                                                                                                                                                                                           |
+|--------------|------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `bump`       | `free()` retires the chunk permanently (poisoned, never reused).       | Bisecting a regression: if a sample only misbehaves under a real allocator, running it in `bump` proves whether chunk reuse is the cause.                                                             |
+| `quarantine` | `free()` poisons and holds the chunk in a FIFO before allowing reuse.  | Default. Best chance of catching use-after-free bugs (in the emulated binary or in our own shims) at the cost of ~4 MiB held-back memory and deferred coalescing.                                     |
+| `real`       | `free()` coalesces and returns the chunk to the free bins immediately. | Highest fidelity to a real `malloc`; use when a sample's behaviour depends on immediate chunk reuse, or for throughput-oriented batch runs where the quarantine's memory/CPU overhead isn't worth it. |
 
 ```bash
 ./OsxPpcEmu --heap-mode=bump myapp
@@ -66,32 +65,32 @@ Then connect from IDA Pro: `Debugger → Attach → localhost:23946`
 
 ## Interactive Debugger Commands
 
-| Command               | Description               | Example            |
-|-----------------------|---------------------------|--------------------|
-| `c`                   | Continue execution        | `c`                |
-| `s` or `si`           | Step one instruction      | `s`                |
-| `so`                  | Step out of function      | `so`               |
-| `b <addr>`            | Set breakpoint            | `b 3620`           |
-| `d <addr>`            | Delete breakpoint         | `d 3620`           |
-| `l`                   | List breakpoints          | `l`                |
-| `watch <addr> <size>` | Set memory watchpoint     | `watch bffeff40 4` |
-| `unwatch <addr>`      | Remove watchpoint         | `unwatch bffeff40` |
-| `lw`                  | List watchpoints          | `lw`               |
-| `r`                   | Show registers            | `r`                |
-| `wr <reg> <val>`      | Write value to register   | `wr r3 1234`       |
-| `bt`                  | Show call stack           | `bt`               |
-| `x <addr> <len>`      | Hexdump memory            | `x 1000 100`       |
-| `w <addr> <bytes>`    | Write hex bytes to memory | `w 1000 deadbeef`  |
-| `vmmap`               | Show memory regions       | `vmmap`            |
-| `heap`                | Heap summary (mode, committed, in use, stats) | `heap`  |
-| `heap chunks [n]`     | Walk heap chunks (default 64, 0 = all) | `heap chunks 20` |
-| `heap find <addr>`    | Which chunk owns `<addr>` | `heap find 10001234` |
-| `heap bins`           | Free-list bin occupancy   | `heap bins`        |
-| `heap check`          | Validate heap integrity   | `heap check`       |
-| `heap quarantine`     | List quarantined (recently freed) chunks | `heap quarantine` |
-| `trace`               | Toggle API call tracing   | `trace`            |
-| `h` or `?`            | Show help                 | `h`                |
-| `q`                   | Quit                      | `q`                |
+| Command               | Description                                   | Example              |
+|-----------------------|-----------------------------------------------|----------------------|
+| `c`                   | Continue execution                            | `c`                  |
+| `s` or `si`           | Step one instruction                          | `s`                  |
+| `so`                  | Step out of function                          | `so`                 |
+| `b <addr>`            | Set breakpoint                                | `b 3620`             |
+| `d <addr>`            | Delete breakpoint                             | `d 3620`             |
+| `l`                   | List breakpoints                              | `l`                  |
+| `watch <addr> <size>` | Set memory watchpoint                         | `watch bffeff40 4`   |
+| `unwatch <addr>`      | Remove watchpoint                             | `unwatch bffeff40`   |
+| `lw`                  | List watchpoints                              | `lw`                 |
+| `r`                   | Show registers                                | `r`                  |
+| `wr <reg> <val>`      | Write value to register                       | `wr r3 1234`         |
+| `bt`                  | Show call stack                               | `bt`                 |
+| `x <addr> <len>`      | Hexdump memory                                | `x 1000 100`         |
+| `w <addr> <bytes>`    | Write hex bytes to memory                     | `w 1000 deadbeef`    |
+| `vmmap`               | Show memory regions                           | `vmmap`              |
+| `heap`                | Heap summary (mode, committed, in use, stats) | `heap`               |
+| `heap chunks [n]`     | Walk heap chunks (default 64, 0 = all)        | `heap chunks 20`     |
+| `heap find <addr>`    | Which chunk owns `<addr>`                     | `heap find 10001234` |
+| `heap bins`           | Free-list bin occupancy                       | `heap bins`          |
+| `heap check`          | Validate heap integrity                       | `heap check`         |
+| `heap quarantine`     | List quarantined (recently freed) chunks      | `heap quarantine`    |
+| `trace`               | Toggle API call tracing                       | `trace`              |
+| `h` or `?`            | Show help                                     | `h`                  |
+| `q`                   | Quit                                          | `q`                  |
 
 **Note**: Addresses and values are in hexadecimal (no 0x prefix needed)
 
@@ -240,8 +239,7 @@ Call stack:
 # Dyld notes
 
 Almost each executable in Darwin (OSX) is linked dynamically, that means all needed functions are linked during binary
-load.
-On Mac OS X (10.4) when MachO is executed, kernel (xnu/bsd/kern/mach_loader.c):
+load. On Mac OS X (10.4) when MachO is executed, kernel (xnu/bsd/kern/mach_loader.c):
 
 - maps segments (LC_COMMAND),
 - sets entry point (LC_UNIXTHREAD)
@@ -271,13 +269,12 @@ As it turns out these 3 symbols addresses are pointers in DATA segment in libsys
 For lazy symbols, dyld loads them during runtime when first call is encountered.
 
 ![lazy symbol stub](img/la_gdb.png)
-3 lazy symbols at 0x2020 points to the same address (in main executable TEXT segment).
-That's the dyld_stub_binding_helper that calls _stub_binding_helper in dyld (0x8FE01000, address is hardcoded in
-binary (no ASLR at that time yet), that's the specific address for dyld)
-and it leads to call uintptr_t dyld::bindLazySymbol(const mach_header* mh, uintptr_t* lazyPointer)
+3 lazy symbols at 0x2020 points to the same address (in main executable TEXT segment). That's the
+dyld_stub_binding_helper that calls _stub_binding_helper in dyld (0x8FE01000, address is hardcoded in binary (no ASLR at
+that time yet), that's the specific address for dyld)
+and it leads to call uintptr_t dyld::bindLazySymbol (const mach_header* mh, uintptr_t* lazyPointer)
 
-dyld parses LC_LOAD_DYLIB load command to get to know which dylib load
-then it uses info from LC_DYSYMTAB.
+dyld parses LC_LOAD_DYLIB load command to get to know which dylib load then it uses info from LC_DYSYMTAB.
 
 - Local Symbols (index in LC_SYMTAB and count of local symbols in the symbol table LC_SYMTAB)
 - External Defined Symbols (index in LC_SYMTAB and count of symbols that are exported, i.e. other dylibs/executables can
@@ -298,3 +295,10 @@ then it uses info from LC_DYSYMTAB.
 
 - MacOS and iOS Internals, Volume 1 User Mode, Jonathan Levin
 - Mac OS X Internals: A Systems Approach, Amit Singh
+
+## Third party
+
+- `third_party/printf` — Marco Paland's tiny printf/sprintf/snprintf, MIT license.
+- `third_party/scanf` — FreeBSD libc `vfscanf`, stripped to a string-only, non-locale, non-wide-char `vsscanf_`,
+  BSD-3-Clause license.
+
