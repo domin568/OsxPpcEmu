@@ -28,30 +28,14 @@ void COsxPpcEmu::init_debugger()
 {
     m_debugger = std::make_unique<debug::CDebugger>( m_uc, &m_mem, &m_loader, &m_trace_file );
 
-    // Check if GDB server mode is enabled via environment variable
     const char *gdb_mode = std::getenv( "GDB_SERVER" );
     bool enable_gdb = ( gdb_mode != nullptr && std::string( gdb_mode ) == "1" );
 
     if (enable_gdb)
     {
         m_gdb_server = std::make_unique<gdb::CGdbServer>( m_uc, &m_mem, &m_loader, m_debugger.get() );
-        m_gdb_server->set_packet_logging( true );
-        // Start GDB server
-        if (m_gdb_server->start())
-        {
-            std::cout << "GDB server started successfully" << std::endl;
-            std::cout << "Connect from IDA Pro: Debugger -> Attach -> Remote GDB debugger -> localhost:23947"
-                      << std::endl;
-        }
-        else
-        {
-            std::cerr << "Failed to start GDB server" << std::endl;
-        }
-    }
-    else
-    {
-        std::cout << "GDB server disabled. Using interactive debugger." << std::endl;
-        std::cout << "To enable GDB server: export GDB_SERVER=1" << std::endl;
+        m_gdb_server->set_packet_logging( false ); // to debug GDB protocol
+        m_gdb_server->start();
     }
 }
 #endif
@@ -149,28 +133,18 @@ bool COsxPpcEmu::run()
 #ifdef DEBUGGER_ENABLED
 void COsxPpcEmu::start_debug_session( std::uint32_t ep )
 {
-    // Start with interactive debugger prompt (unless GDB server will handle it)
-    std::cout << "\n=== Interactive Debugger ===" << std::endl;
-    std::cout << "Set breakpoints before running. Type 'h' for help, 'c' to start execution." << std::endl;
-    std::cout << "Entry point: 0x" << std::hex << ep << std::dec << std::endl;
-
-    // Set PC to entry point so debugger shows correct context
-    uc_reg_write( m_uc, UC_PPC_REG_PC, &ep );
-
-    // Enter interactive mode to set breakpoints (only if GDB not connected)
-    // If GDB server is running, it will handle the initial stop
     if (!m_gdb_server || !m_gdb_server->is_running())
     {
+        std::cout << "=== Interactive Debugger ===" << std::endl;
+        std::cout << "Set breakpoints before running. Type 'h' for help, 'c' to start execution." << std::endl;
+        std::cout << "Entry point: 0x" << std::hex << ep << std::dec << std::endl;
         m_debugger->interactive_prompt();
     }
     else
     {
-        // GDB server will control execution
-        // Add a temporary breakpoint at entry point so debugger is active
-        // This will cause the emulator to stop immediately when it starts
         m_debugger->add_breakpoint( ep );
-        std::cout << "Waiting for GDB client commands (will stop at entry point 0x" << std::hex << ep << std::dec
-                  << ")..." << std::endl;
+        std::cout << "[GDB server] Waiting for GDB client commands (will stop at entry point 0x" << std::hex << ep
+                  << std::dec << ")..." << std::endl;
     }
 }
 #endif

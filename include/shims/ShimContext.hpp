@@ -7,6 +7,7 @@
 #pragma once
 #include "CMachoLoader.hpp"
 #include "CMemory.hpp"
+#include <filesystem>
 #include <iostream>
 #include <unicorn/unicorn.h>
 

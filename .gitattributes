@@ -1,0 +1,2 @@
+test/test_files/e2e/**/*.h linguist-vendored
+test/test_files/e2e/**/*.cpp linguist-vendored

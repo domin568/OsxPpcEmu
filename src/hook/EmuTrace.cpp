@@ -196,7 +196,7 @@ void write_arg_value( std::FILE *out, uc_engine *uc, std::uint32_t argValue )
     // Try to read as string if it looks like a pointer
     if (argValue >= 0x1000 && argValue < 0xF0000000)
     {
-        constexpr std::size_t maxCheck = 64;
+        constexpr std::size_t maxCheck = 128;
         char buffer[maxCheck + 1];
         uc_err err = uc_mem_read( uc, argValue, buffer, maxCheck );
         if (err == UC_ERR_OK)
@@ -315,7 +315,6 @@ void print_api_return( const HookContext &ctx, uc_engine *uc, std::size_t idx )
         std::fputc( '\n', tf );
     }
 }
-
 
 #endif
 

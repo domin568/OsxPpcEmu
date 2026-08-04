@@ -7,8 +7,8 @@
 #ifdef DEBUGGER_ENABLED
 
 #include "../../include/debug/CDebugger.hpp"
-#include "../../include/loader/CMachoLoader.hpp"
 #include "../../include/Common.hpp"
+#include "../../include/loader/CMachoLoader.hpp"
 #include <LIEF/MachO.hpp>
 #include <algorithm>
 #include <cstdlib>
@@ -21,7 +21,8 @@ namespace debug
 {
 
 CDebugger::CDebugger( uc_engine *uc, memory::CMemory *mem, loader::CMachoLoader *loader, std::FILE **trace_file )
-    : m_uc( uc ), m_mem( mem ), m_loader( loader ), m_stepMode( StepMode::None ), m_stepOutLR( 0 ), m_trace_file( trace_file )
+    : m_uc( uc ), m_mem( mem ), m_loader( loader ), m_stepMode( StepMode::None ), m_stepOutLR( 0 ),
+      m_trace_file( trace_file )
 {
 }
 
@@ -220,8 +221,7 @@ uint32_t CDebugger::resolve_log_address( const LogBreakpoint &lb ) const
     return static_cast<uint32_t>( static_cast<int64_t>( reg_val ) + lb.offset );
 }
 
-bool CDebugger::parse_log_expression( const std::string &expr, int &reg_id, int32_t &offset,
-                                      uint32_t &abs_addr ) const
+bool CDebugger::parse_log_expression( const std::string &expr, int &reg_id, int32_t &offset, uint32_t &abs_addr ) const
 {
     reg_id = -1;
     offset = 0;
@@ -678,8 +678,8 @@ bool CDebugger::print_vm_map()
     const char savedFill{ std::cout.fill() };
 
     const std::uint32_t heapStart{ common::Heap_Start };
-    const std::uint32_t heapCommittedEnd{ m_mem ? heapStart + static_cast<std::uint32_t>( m_mem->heap().committed_size() )
-                                                 : heapStart };
+    const std::uint32_t heapCommittedEnd{
+        m_mem ? heapStart + static_cast<std::uint32_t>( m_mem->heap().committed_size() ) : heapStart };
     std::uint64_t totalMapped{ 0 };
 
     std::cout << "     va         size     perm  description" << std::endl;
@@ -690,8 +690,8 @@ bool CDebugger::print_vm_map()
         totalMapped += regionSize;
 
         std::cout << " 0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << r.begin << "  0x" << std::setw( 8 )
-                   << regionSize << std::dec << std::setfill( ' ' ) << " (" << common::human_readable_bytes( regionSize )
-                   << ")  ";
+                  << regionSize << std::dec << std::setfill( ' ' ) << " (" << common::human_readable_bytes( regionSize )
+                  << ")  ";
 
         std::string perms;
         perms += ( r.perms & UC_PROT_READ ) ? 'R' : '-';
@@ -713,8 +713,8 @@ bool CDebugger::print_vm_map()
         }
         else if (m_loader)
         {
-            const std::optional<std::string> segName{ m_loader->get_segment_name_for_va(
-                static_cast<uint32_t>( r.begin ) ) };
+            const std::optional<std::string> segName{
+                m_loader->get_segment_name_for_va( static_cast<uint32_t>( r.begin ) ) };
             if (segName.has_value())
                 std::cout << "(image: " << *segName << ")";
             else
@@ -728,12 +728,12 @@ bool CDebugger::print_vm_map()
     }
 
     std::cout << std::dec << "total mapped: 0x" << std::hex << totalMapped << std::dec << " ("
-               << common::human_readable_bytes( totalMapped ) << ")";
+              << common::human_readable_bytes( totalMapped ) << ")";
     if (m_mem)
     {
         const memory::CHeap::Stats &st{ m_mem->heap_stats() };
         std::cout << "  (heap committed: " << common::human_readable_bytes( m_mem->heap().committed_size() )
-                   << ", in use: " << common::human_readable_bytes( st.bytesInUse ) << ")";
+                  << ", in use: " << common::human_readable_bytes( st.bytesInUse ) << ")";
     }
     std::cout << std::endl;
 
@@ -786,20 +786,20 @@ void CDebugger::print_heap_summary() const
     std::cout << std::hex;
     std::cout << "base:       0x" << heap.base_va() << std::endl;
     std::cout << "committed:  0x" << heap.committed_size() << " / 0x" << heap.max_size() << std::dec << "  ("
-               << common::human_readable_bytes( heap.committed_size() ) << " / "
-               << common::human_readable_bytes( heap.max_size() ) << ")" << std::endl;
+              << common::human_readable_bytes( heap.committed_size() ) << " / "
+              << common::human_readable_bytes( heap.max_size() ) << ")" << std::endl;
     std::cout << std::hex << "top chunk:  0x" << heap.top_va() << " (size 0x" << heap.top_size() << ", "
-               << common::human_readable_bytes( heap.top_size() ) << ")" << std::endl;
+              << common::human_readable_bytes( heap.top_size() ) << ")" << std::endl;
     std::cout << std::dec;
     std::cout << "alloc calls:    " << st.allocCalls << std::endl;
     std::cout << "free calls:     " << st.freeCalls << std::endl;
     std::cout << "realloc calls:  " << st.reallocCalls << std::endl;
     std::cout << "bytes requested:" << st.bytesRequested << " (" << common::human_readable_bytes( st.bytesRequested )
-               << ")" << std::endl;
+              << ")" << std::endl;
     std::cout << "bytes in use:   " << st.bytesInUse << " (" << common::human_readable_bytes( st.bytesInUse ) << ")"
-               << std::endl;
+              << std::endl;
     std::cout << "peak in use:    " << st.peakBytesInUse << " (" << common::human_readable_bytes( st.peakBytesInUse )
-               << ")" << std::endl;
+              << ")" << std::endl;
     std::cout << "grow count:     " << st.growCount << std::endl;
     std::cout << "double frees:   " << st.doubleFrees << std::endl;
     std::cout << "invalid frees:  " << st.invalidFrees << std::endl;
@@ -808,7 +808,7 @@ void CDebugger::print_heap_summary() const
         std::cout << "retired:        " << common::human_readable_bytes( st.retiredBytes ) << std::endl;
     else
         std::cout << "quarantine:     " << quarantine.size() << " chunks, "
-                   << common::human_readable_bytes( st.quarantineBytes ) << std::endl;
+                  << common::human_readable_bytes( st.quarantineBytes ) << std::endl;
 }
 
 void CDebugger::print_heap_chunks( std::size_t limit ) const
@@ -828,11 +828,11 @@ void CDebugger::print_heap_chunks( std::size_t limit ) const
     std::cout << "     chunk va     payload va     size    payload size  state       readable" << std::endl;
     for (const memory::ChunkInfo &c : chunks)
     {
-        std::cout << " 0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << c.chunkVa << "   0x" << std::setw( 8 )
-                   << c.payloadVa << "   0x" << std::setw( 6 ) << c.size << "   0x" << std::setw( 6 ) << c.payloadSize
-                   << std::dec << std::setfill( ' ' ) << "   " << std::setw( 11 ) << std::left
-                   << chunk_state_name( c.state ) << std::right << common::human_readable_bytes( c.payloadSize )
-                   << std::endl;
+        std::cout << " 0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << c.chunkVa << "   0x"
+                  << std::setw( 8 ) << c.payloadVa << "   0x" << std::setw( 6 ) << c.size << "   0x" << std::setw( 6 )
+                  << c.payloadSize << std::dec << std::setfill( ' ' ) << "   " << std::setw( 11 ) << std::left
+                  << chunk_state_name( c.state ) << std::right << common::human_readable_bytes( c.payloadSize )
+                  << std::endl;
         if (c.state == memory::ChunkState::Corrupt)
         {
             std::cout << "... walk stopped at corruption" << std::endl;
@@ -867,14 +867,14 @@ void CDebugger::print_heap_find( uint32_t address ) const
     std::cout << "chunk va:    0x" << c.chunkVa << std::endl;
     std::cout << "payload va:  0x" << c.payloadVa << std::endl;
     std::cout << "size:        0x" << c.size << " (payload 0x" << c.payloadSize << ")" << std::dec << "  ("
-               << common::human_readable_bytes( c.size ) << ", payload " << common::human_readable_bytes( c.payloadSize )
-               << ")" << std::endl;
+              << common::human_readable_bytes( c.size ) << ", payload " << common::human_readable_bytes( c.payloadSize )
+              << ")" << std::endl;
     std::cout << std::dec;
     std::cout << "state:       " << chunk_state_name( c.state ) << std::endl;
 
     if (address < c.payloadVa)
         std::cout << "note: address is inside the chunk HEADER (possible underflow/overflow into metadata)"
-                   << std::endl;
+                  << std::endl;
     else
         std::cout << "offset into payload: 0x" << std::hex << ( address - c.payloadVa ) << std::dec << std::endl;
 
@@ -908,11 +908,11 @@ void CDebugger::print_heap_bins() const
         std::cout << " " << std::setw( 3 ) << b.index << "  ";
         if (b.chunkSize != 0)
             std::cout << "0x" << std::hex << std::setw( 8 ) << std::setfill( '0' ) << b.chunkSize << std::dec
-                       << std::setfill( ' ' );
+                      << std::setfill( ' ' );
         else
             std::cout << "(large)   ";
-        std::cout << "  " << std::setw( 5 ) << b.count << "  " << b.totalBytes << " (" << common::human_readable_bytes( b.totalBytes )
-                   << ")" << std::endl;
+        std::cout << "  " << std::setw( 5 ) << b.count << "  " << b.totalBytes << " ("
+                  << common::human_readable_bytes( b.totalBytes ) << ")" << std::endl;
     }
 }
 
@@ -964,12 +964,12 @@ void CDebugger::print_heap_quarantine() const
     for (const memory::ChunkInfo &c : quarantine)
     {
         std::cout << " 0x" << std::hex << std::setfill( '0' ) << std::setw( 8 ) << c.chunkVa << "   size 0x"
-                   << std::setw( 6 ) << c.size << std::dec << std::setfill( ' ' ) << "  (" << common::human_readable_bytes( c.size )
-                   << ")" << std::endl;
+                  << std::setw( 6 ) << c.size << std::dec << std::setfill( ' ' ) << "  ("
+                  << common::human_readable_bytes( c.size ) << ")" << std::endl;
         total += c.size;
     }
     std::cout << "total quarantined: " << common::human_readable_bytes( total ) << " in " << quarantine.size()
-               << " chunks" << std::endl;
+              << " chunks" << std::endl;
 }
 
 void CDebugger::print_help() const
@@ -1597,7 +1597,6 @@ void CDebugger::interactive_prompt()
             continue_execution();
             break;
         }
-
         handle_command( line );
     }
 }

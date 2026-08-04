@@ -7,6 +7,7 @@
 
 #include "CMachoLoader.hpp"
 #include "Common.hpp"
+#include "shims/AbiTranslate.hpp"
 #include "shims/ShimContext.hpp"
 #include "shims/carbon/CarbonShims.hpp"
 #include "shims/dyld/DyldShims.hpp"
@@ -23,13 +24,14 @@ namespace import
 namespace callback
 {
 
-// Helper function to set errno in guest memory
+// Helper function to set errno in guest memory. errnoValue is a HOST errno, translate it to the Darwin numbering
 inline void set_guest_errno( memory::CMemory *mem, int errnoValue )
 {
+    const std::int32_t darwinErrno{ abi_translate::host_errno_to_darwin( errnoValue ) };
     std::optional<uint32_t> errnoVa{ common::get_import_entry_va_by_name( "_errno" ) };
     if (errnoVa.has_value())
     {
-        uint32_t guestErrno = common::ensure_endianness( static_cast<uint32_t>( errnoValue ), std::endian::big );
+        uint32_t guestErrno = common::ensure_endianness( static_cast<uint32_t>( darwinErrno ), std::endian::big );
         void *errnoPtr = mem->get( *errnoVa );
         if (errnoPtr)
         {

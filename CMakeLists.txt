@@ -25,6 +25,8 @@ set(SOURCE_FILES
         src/shims/carbon/CarbonShims.cpp
         src/shims/dyld/DyldShims.cpp
         src/shims/libc/LibcShims.cpp
+        src/shims/AbiTranslate.cpp
+        src/shims/FsTranslate.cpp
         third_party/printf/printf.c
         third_party/scanf/scanf.c
 )
@@ -46,6 +48,8 @@ set(HEADER_FILES
         include/debug/PlatformSocket.hpp
         include/PpcStructures.hpp
         include/shims/ShimContext.hpp
+        include/shims/AbiTranslate.hpp
+        include/shims/FsTranslate.hpp
         include/shims/carbon/CarbonShims.hpp
         include/shims/dyld/DyldShims.hpp
         include/shims/libc/LibcShims.hpp

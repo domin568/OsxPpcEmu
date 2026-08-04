@@ -9,6 +9,8 @@
 #include "COsxPpcEmu.hpp"
 #include "ImportDispatch.hpp"
 #include "PpcStructures.hpp"
+#include "shims/AbiTranslate.hpp"
+#include "shims/FsTranslate.hpp"
 #include "shims/ShimContext.hpp"
 #include <array>
 #include <climits>
@@ -408,7 +410,9 @@ bool execve( ShimContext &ctx )
     const auto args{ ctx.get_arguments<const char *, std::uint32_t, std::uint32_t>() };
     if (!args.has_value())
         return false;
+
     const auto [path, guestArgvAddr, guestEnvpAddr] = *args;
+    const auto translated_path{ fs_translate::translate_path( path ) };
 
     // Resolve the emulator's own executable path
     char emuPath[4096]{};
@@ -444,12 +448,12 @@ bool execve( ShimContext &ctx )
     }
 
     // Build new argv: emulator, target binary, then original args (skip argv[0])
-    std::vector<const char *> newArgv{ emuPath, path };
+    std::vector<const char *> newArgv{ emuPath, translated_path.string().c_str() };
     for (std::size_t i{ 1 }; i < guestArgv.size(); ++i)
         newArgv.push_back( guestArgv[i] );
     newArgv.push_back( nullptr );
 
-    std::cout << "[OsxPpcEmu] execve: redirecting " << path << " through " << emuPath << std::endl;
+    std::cout << "[OsxPpcEmu] execve: redirecting " << translated_path << " through " << emuPath << std::endl;
 
     ::execv( emuPath, const_cast<char *const *>( newArgv.data() ) );
 
@@ -532,7 +536,8 @@ bool fopen( ShimContext &ctx )
         return false;
     const auto [filename, mode] = *args;
 
-    FILE *ret{ ::fopen( filename, mode ) };
+    const auto translated_filename{ fs_translate::translate_path( filename ) };
+    FILE *ret{ ::fopen( translated_filename.string().c_str(), mode ) };
 
     if (ret == nullptr)
     {
@@ -827,9 +832,9 @@ bool stat( ShimContext &ctx )
         return false;
     const auto [path, sb] = *args;
 
+    const auto translated_path{ fs_translate::translate_path( path ) };
     struct stat hostStat{};
-    int ret{ ::stat( path, &hostStat ) };
-
+    int ret{ ::stat( translated_path.string().c_str(), &hostStat ) };
     if (ret == 0 && sb != nullptr)
     {
         fill_guest_stat( static_cast<guest::stat *>( sb ), hostStat );
@@ -851,8 +856,9 @@ bool lstat( ShimContext &ctx )
         return false;
     const auto [path, sb] = *args;
 
+    const auto translated_path{ fs_translate::translate_path( path ) };
     struct stat hostStat{};
-    int ret{ ::lstat( path, &hostStat ) };
+    int ret{ ::lstat( translated_path.string().c_str(), &hostStat ) };
 
     if (ret == 0 && sb != nullptr)
     {
@@ -1206,7 +1212,8 @@ bool open( ShimContext &ctx )
         return false;
     const auto [path, flags, mode] = *args;
 
-    int ret{ ::open( path, flags, mode ) };
+    const auto translated_path{ fs_translate::translate_path( path ) };
+    int ret{ ::open( translated_path.string().c_str(), abi_translate::darwin_oflags_to_host( flags ), mode ) };
 
     if (ret == -1)
     {
@@ -1224,7 +1231,8 @@ bool opendir( ShimContext &ctx )
         return false;
     const auto [path] = *args;
 
-    DIR *hostDir{ ::opendir( path ) };
+    const auto translated_path{ fs_translate::translate_path( path ) };
+    DIR *hostDir{ ::opendir( translated_path.string().c_str() ) };
 
     std::uint32_t retPtr{ 0 };
     if (hostDir == nullptr)
@@ -1283,6 +1291,33 @@ bool readdir( ShimContext &ctx )
                 guestEntry->d_reclen =
                     common::ensure_endianness( static_cast<uint16_t>( hostEntry->d_reclen ), std::endian::big );
                 guestEntry->d_type = hostEntry->d_type;
+#ifdef DT_UNKNOWN
+                // Some Linux filesystems (XFS w/o ftype, NFS, overlayfs, ...) never fill in
+                // d_type and always report DT_UNKNOWN; macOS always fills it in. Fall back to
+                // an explicit stat() so guest code branching on d_type doesn't misclassify
+                // entries (e.g. treating a directory as a regular file).
+                if (hostEntry->d_type == DT_UNKNOWN)
+                {
+                    struct stat st{};
+                    if (::fstatat( ::dirfd( hostDir ), hostEntry->d_name, &st, AT_SYMLINK_NOFOLLOW ) == 0)
+                    {
+                        if (S_ISREG( st.st_mode ))
+                            guestEntry->d_type = DT_REG;
+                        else if (S_ISDIR( st.st_mode ))
+                            guestEntry->d_type = DT_DIR;
+                        else if (S_ISLNK( st.st_mode ))
+                            guestEntry->d_type = DT_LNK;
+                        else if (S_ISCHR( st.st_mode ))
+                            guestEntry->d_type = DT_CHR;
+                        else if (S_ISBLK( st.st_mode ))
+                            guestEntry->d_type = DT_BLK;
+                        else if (S_ISFIFO( st.st_mode ))
+                            guestEntry->d_type = DT_FIFO;
+                        else if (S_ISSOCK( st.st_mode ))
+                            guestEntry->d_type = DT_SOCK;
+                    }
+                }
+#endif
                 // TODO is it even needed? is this field used?
                 // guestEntry->d_namlen =
                 //     common::ensure_endianness( static_cast<uint16_t>( hostEntry->d_namlen ), std::endian::big );
@@ -1325,9 +1360,10 @@ bool unlink( ShimContext &ctx )
     const auto args{ ctx.get_arguments<const char *>() };
     if (!args.has_value())
         return false;
-    const auto [pathname] = *args;
+    const auto [path] = *args;
 
-    int ret{ ::unlink( pathname ) };
+    const auto translated_path{ fs_translate::translate_path( path ) };
+    int ret{ ::unlink( translated_path.string().c_str() ) };
 
     if (ret == -1)
     {
@@ -1374,7 +1410,8 @@ bool chmod( ShimContext &ctx )
         return false;
     const auto [path, mode] = *args;
 
-    int ret{ ::chmod( path, static_cast<mode_t>( mode ) ) };
+    const auto translated_path{ fs_translate::translate_path( path ) };
+    int ret{ ::chmod( translated_path.string().c_str(), static_cast<mode_t>( mode ) ) };
 
     if (ret == -1)
     {
@@ -1554,24 +1591,29 @@ bool localtime( ShimContext &ctx )
         hostTime = ::time( nullptr );
     }
     struct tm *ret{ ::localtime( &hostTime ) };
+    if (ret == nullptr)
+    {
+        set_guest_errno( ctx.mem, EOVERFLOW );
+        return ctx.ret( 0u );
+    }
     void *zone_ptr{ nullptr };
     if (ret->tm_zone != nullptr)
     {
         zone_ptr = reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( ::strlen( ret->tm_zone ) + 1 ) ) );
         ::memcpy( zone_ptr, ret->tm_zone, ::strlen( ret->tm_zone ) + 1 );
     }
-    guest::tm tmGuest{ .tm_sec = common::ensure_endianness( ret->tm_sec, std::endian::big ),
-                       .tm_min = common::ensure_endianness( ret->tm_min, std::endian::big ),
-                       .tm_hour = common::ensure_endianness( ret->tm_hour, std::endian::big ),
-                       .tm_mday = common::ensure_endianness( ret->tm_mday, std::endian::big ),
-                       .tm_mon = common::ensure_endianness( ret->tm_mon, std::endian::big ),
-                       .tm_year = common::ensure_endianness( ret->tm_year, std::endian::big ),
-                       .tm_wday = common::ensure_endianness( ret->tm_wday, std::endian::big ),
-                       .tm_yday = common::ensure_endianness( ret->tm_yday, std::endian::big ),
-                       .tm_isdst = common::ensure_endianness( ret->tm_isdst, std::endian::big ),
-                       .tm_gmtoff =
-                           common::ensure_endianness( static_cast<std::int32_t>( ret->tm_gmtoff ), std::endian::big ),
-                       .tm_zone = ctx.mem->to_guest( zone_ptr ) };
+    guest::tm tmGuest{
+        .tm_sec = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_sec ), std::endian::big ),
+        .tm_min = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_min ), std::endian::big ),
+        .tm_hour = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_hour ), std::endian::big ),
+        .tm_mday = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_mday ), std::endian::big ),
+        .tm_mon = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_mon ), std::endian::big ),
+        .tm_year = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_year ), std::endian::big ),
+        .tm_wday = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_wday ), std::endian::big ),
+        .tm_yday = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_yday ), std::endian::big ),
+        .tm_isdst = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_isdst ), std::endian::big ),
+        .tm_gmtoff = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_gmtoff ), std::endian::big ),
+        .tm_zone = ctx.mem->to_guest( zone_ptr ) };
     void *retPtrHost{ reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( sizeof( guest::tm ) ) ) ) };
     ::memcpy( retPtrHost, &tmGuest, sizeof( guest::tm ) );
     uint32_t retGuest{ ctx.mem->to_guest( retPtrHost ) };
@@ -1652,11 +1694,12 @@ bool gethostbyname( ShimContext &ctx )
         addrListPtr = ctx.mem->to_guest( addrArrayHost );
     }
 
-    guest::hostent guestHostent{ .h_name = common::ensure_endianness( namePtr, std::endian::big ),
-                                 .h_aliases = common::ensure_endianness( aliasesPtr, std::endian::big ),
-                                 .h_addrtype = common::ensure_endianness( ret->h_addrtype, std::endian::big ),
-                                 .h_length = common::ensure_endianness( ret->h_length, std::endian::big ),
-                                 .h_addr_list = common::ensure_endianness( addrListPtr, std::endian::big ) };
+    guest::hostent guestHostent{
+        .h_name = common::ensure_endianness( namePtr, std::endian::big ),
+        .h_aliases = common::ensure_endianness( aliasesPtr, std::endian::big ),
+        .h_addrtype = common::ensure_endianness( static_cast<std::int32_t>( ret->h_addrtype ), std::endian::big ),
+        .h_length = common::ensure_endianness( static_cast<std::int32_t>( ret->h_length ), std::endian::big ),
+        .h_addr_list = common::ensure_endianness( addrListPtr, std::endian::big ) };
 
     void *hostentHost{
         reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( sizeof( guest::hostent ) ) ) ) };

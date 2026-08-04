@@ -5,9 +5,8 @@
  **/
 
 #include "../../include/debug/CGdbServer.hpp"
-#include "../../include/debug/CDebugger.hpp"
-#include "../../include/mem/CMemory.hpp"
 #include "../../include/Common.hpp"
+#include "../../include/debug/CDebugger.hpp"
 #include "../../include/debug/PlatformSocket.hpp"
 #include <algorithm>
 #include <chrono>
@@ -41,29 +40,26 @@ bool CGdbServer::start()
 
     if (!platform::socket_stack_init())
     {
-        std::cerr << "GDB server: Failed to initialize socket stack" << std::endl;
+        std::cerr << "[GDB server] Failed to initialize socket stack" << std::endl;
         return false;
     }
 
-    // Create socket
     m_server_socket = socket( AF_INET, SOCK_STREAM, 0 );
     if (m_server_socket == platform::Invalid_Socket)
     {
-        std::cerr << "GDB server: Failed to create socket" << std::endl;
+        std::cerr << "[GDB server] Failed to create socket" << std::endl;
         platform::socket_stack_cleanup();
         return false;
     }
 
-    // Set socket options
     if (!platform::set_reuse_addr( m_server_socket ))
     {
-        std::cerr << "GDB server: Failed to set socket options" << std::endl;
+        std::cerr << "[GDB server] Failed to set socket options" << std::endl;
         platform::close_socket( m_server_socket );
         platform::socket_stack_cleanup();
         return false;
     }
 
-    // Bind socket
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
@@ -71,16 +67,15 @@ bool CGdbServer::start()
 
     if (bind( m_server_socket, reinterpret_cast<sockaddr *>( &server_addr ), sizeof( server_addr ) ) < 0)
     {
-        std::cerr << "GDB server: Failed to bind to port " << m_port << std::endl;
+        std::cerr << "[GDB server] Failed to bind to port " << m_port << std::endl;
         platform::close_socket( m_server_socket );
         platform::socket_stack_cleanup();
         return false;
     }
 
-    // Listen
     if (listen( m_server_socket, 1 ) < 0)
     {
-        std::cerr << "GDB server: Failed to listen" << std::endl;
+        std::cerr << "[GDB server] Failed to listen" << std::endl;
         platform::close_socket( m_server_socket );
         platform::socket_stack_cleanup();
         return false;
@@ -89,8 +84,9 @@ bool CGdbServer::start()
     m_running.store( true );
     m_server_thread = std::make_unique<std::thread>( &CGdbServer::server_loop, this );
 
-    std::cout << "GDB server listening on port " << m_port << std::endl;
-    std::cout << "In IDA Pro: Debugger -> Attach -> Remote GDB debugger -> localhost:" << m_port << std::endl;
+    std::cout << "[GDB server] Listening on port " << m_port << std::endl;
+    std::cout << "[GDB server] In IDA Pro: Debugger -> Attach -> Remote GDB debugger -> localhost:" << m_port
+              << std::endl;
 
     return true;
 }
@@ -121,7 +117,7 @@ void CGdbServer::stop()
 
     platform::socket_stack_cleanup();
 
-    std::cout << "GDB server stopped" << std::endl;
+    std::cout << "[GDB server] Stopped" << std::endl;
 }
 
 bool CGdbServer::is_running() const
@@ -132,7 +128,10 @@ bool CGdbServer::is_running() const
 void CGdbServer::set_packet_logging( bool enable )
 {
     m_log_packets.store( enable );
-    std::cerr << "[GDB] Packet logging " << ( enable ? "enabled" : "disabled" ) << std::endl;
+    if (enable)
+    {
+        std::cerr << "[GDB server] Packet logging enabled" << std::endl;
+    }
 }
 
 void CGdbServer::notify_breakpoint( uint32_t address )
@@ -191,9 +190,9 @@ void CGdbServer::server_loop()
             continue;
         }
 
-        std::cout << "GDB client connected" << std::endl;
+        std::cout << "[GDB server] Client connected" << std::endl;
         handle_client();
-        std::cout << "GDB client disconnected" << std::endl;
+        std::cout << "[GDB server] Client disconnected" << std::endl;
 
         if (m_client_socket != platform::Invalid_Socket)
         {
@@ -314,7 +313,7 @@ std::string CGdbServer::receive_packet()
             m_state.store( DebugState::Stopped );
             m_stop_reason.store( StopReason::Interrupt );
             if (m_log_packets.load())
-                std::cerr << "[GDB] RX: <interrupt 0x03>" << std::endl;
+                std::cerr << "[GDB server] RX: <interrupt 0x03>" << std::endl;
             send_packet( "S02" ); // SIGINT
             return "";
         }
@@ -346,14 +345,14 @@ std::string CGdbServer::receive_packet()
     {
         send_ack();
         if (m_log_packets.load())
-            std::cerr << "[GDB] RX: " << packet << std::endl;
+            std::cerr << "[GDB server] RX: " << packet << std::endl;
         return packet;
     }
     else
     {
         send_nak();
         if (m_log_packets.load())
-            std::cerr << "[GDB] RX: <bad checksum, packet dropped>" << std::endl;
+            std::cerr << "[GDB server] RX: <bad checksum, packet dropped>" << std::endl;
         return "";
     }
 }
@@ -371,7 +370,7 @@ void CGdbServer::send_packet( const std::string &data )
     std::string packet = oss.str();
 
     if (m_log_packets.load())
-        std::cerr << "[GDB] TX: " << data << std::endl;
+        std::cerr << "[GDB server] TX: " << data << std::endl;
 
     platform::send_bytes( m_client_socket, packet.c_str(), packet.length() );
 
