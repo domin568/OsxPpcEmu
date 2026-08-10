@@ -5,11 +5,11 @@
  **/
 #pragma once
 
+#include "Expected.hpp"
 #include "HookContext.hpp"
 
 #include <array>
 #include <cstddef>
-#include <expected>
 #include <string>
 #include <unicorn/unicorn.h>
 
@@ -49,7 +49,7 @@ class CHookManager
     CHookManager( CHookManager &&other ) noexcept;
     CHookManager &operator=( CHookManager &&other ) noexcept;
 
-    std::expected<void, std::string> install_all( HookContext &ctx, std::uint64_t textStart, std::uint64_t textEnd );
+    compat::expected<void, std::string> install_all( HookContext &ctx, std::uint64_t textStart, std::uint64_t textEnd );
 
   private:
     static constexpr std::size_t Hook_Count{ static_cast<std::size_t>( HookId::Count ) };
@@ -58,7 +58,7 @@ class CHookManager
     std::array<uc_hook, Hook_Count> m_handles{};
     std::array<bool, Hook_Count> m_installed{};
 
-    std::expected<void, std::string> install( HookId id, int type, void *callback, std::uint64_t begin,
+    compat::expected<void, std::string> install( HookId id, int type, void *callback, std::uint64_t begin,
                                               std::uint64_t end, std::string_view name );
     void teardown();
 };

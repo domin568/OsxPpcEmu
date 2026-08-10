@@ -5,9 +5,9 @@
  **/
 #include "../../include/mem/CMemory.hpp"
 #include "../../include/Common.hpp"
+#include "../../include/Expected.hpp"
 #include <cstddef>
 #include <cstring>
-#include <expected>
 #include <iostream>
 #include <mutex>
 #include <ostream>
@@ -22,17 +22,17 @@
 
 namespace memory
 {
-std::expected<CMemory, Error> CMemory::init( uc_engine *uc, size_t size )
+compat::expected<CMemory, Error> CMemory::init( uc_engine *uc, size_t size )
 {
 #ifdef _WIN32
     void *ptr = VirtualAlloc( nullptr, size, MEM_RESERVE, PAGE_NOACCESS );
     if (!ptr)
-        return std::unexpected{
+        return compat::unexpected{
             Error{ Error::Type::Map_Error, "Could not reserve virtual memory for 32 bit guest process (WIN32)" } };
 #else
     void *ptr{ mmap( nullptr, size, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0 ) };
     if (ptr == MAP_FAILED)
-        return std::unexpected{
+        return compat::unexpected{
             Error{ Error::Type::Map_Error, "Could not reserve virtual memory for 32 bit guest process (POSIX)" } };
 #endif
     std::size_t pageSize{ get_system_page_size() };

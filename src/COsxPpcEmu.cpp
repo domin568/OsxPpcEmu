@@ -40,59 +40,59 @@ void COsxPpcEmu::init_debugger()
 }
 #endif
 
-std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, const std::span<const std::string> env,
+compat::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, const std::span<const std::string> env,
                                                    common::HeapMode heapMode )
 {
     if (argc < 2 || argv == nullptr || env.data() == nullptr)
-        return std::unexpected( Error{ Error::Type::Bad_Arguments, "Could not parse command line arguments" } );
+        return compat::unexpected( Error{ Error::Type::Bad_Arguments, "Could not parse command line arguments" } );
 
     const std::vector<std::string> args( argv, argv + argc );
     const std::string &emuTarget{ args[1] };
     if (!std::filesystem::exists( emuTarget ))
-        return std::unexpected( Error{ Error::Type::FileNotFound, "File not found." } );
+        return compat::unexpected( Error{ Error::Type::FileNotFound, "File not found." } );
 
     uc_err err{};
     uc_engine *uc{};
     uc_mode ppcMode{ static_cast<uc_mode>( UC_MODE_PPC32 | UC_MODE_BIG_ENDIAN ) };
     err = uc_open( UC_ARCH_PPC, ppcMode, &uc );
     if (err != UC_ERR_OK)
-        return std::unexpected( Error{ Error::Type::UnicornOpenError, "Could not create ppc32 unicorn emulator." } );
+        return compat::unexpected( Error{ Error::Type::UnicornOpenError, "Could not create ppc32 unicorn emulator." } );
 
     if (!enable_floating_point_ops( uc ))
     {
         uc_close( uc );
-        return std::unexpected( Error{ Error::Type::UnicornOpenError, "Could not enable floating-point operations." } );
+        return compat::unexpected( Error{ Error::Type::UnicornOpenError, "Could not enable floating-point operations." } );
     }
 
-    std::expected<loader::CMachoLoader, loader::Error> loader{ loader::CMachoLoader::init( emuTarget ) };
+    compat::expected<loader::CMachoLoader, loader::Error> loader{ loader::CMachoLoader::init( emuTarget ) };
     if (!loader)
-        return std::unexpected{ Error{ Error::Type::ImageLoaderError, std::move( loader.error().message ) } };
+        return compat::unexpected{ Error{ Error::Type::ImageLoaderError, std::move( loader.error().message ) } };
 
-    std::expected<memory::CMemory, memory::Error> memory{
+    compat::expected<memory::CMemory, memory::Error> memory{
         memory::CMemory::init( uc, common::Guest_Virtual_Memory_Size ) };
     if (!memory)
-        return std::unexpected( Error{ Error::Type::MemoryError, std::move( memory.error().message ) } );
+        return compat::unexpected( Error{ Error::Type::MemoryError, std::move( memory.error().message ) } );
 
     if (!memory->initialize_heap( heapMode ))
-        return std::unexpected( Error{ Error::Type::MemoryError, "Could not initialize guest heap." } );
+        return compat::unexpected( Error{ Error::Type::MemoryError, "Could not initialize guest heap." } );
 
     if (!loader->map_image_memory( uc, *memory ))
-        return std::unexpected( Error{ Error::Type::ImageLoaderError, "Could not map image memory." } );
+        return compat::unexpected( Error{ Error::Type::ImageLoaderError, "Could not map image memory." } );
 
     if (!loader->set_unix_thread( uc ))
-        return std::unexpected{ Error{ Error::Type::ImageLoaderError, "Could not set Unix thread context." } };
+        return compat::unexpected{ Error{ Error::Type::ImageLoaderError, "Could not set Unix thread context." } };
 
-    std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, loader::Error>
+    compat::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, loader::Error>
         staticImports{ loader->get_imports() }; // imports from parsed MachO file
     if (!staticImports)
-        return std::unexpected( Error{ Error::Type::ImageLoaderError, std::move( staticImports.error().message ) } );
+        return compat::unexpected( Error{ Error::Type::ImageLoaderError, std::move( staticImports.error().message ) } );
 
-    const std::expected<void, std::string> importSetup{ import::setup::build_import_table( *staticImports, *memory ) };
+    const compat::expected<void, std::string> importSetup{ import::setup::build_import_table( *staticImports, *memory ) };
     if (!importSetup)
-        return std::unexpected( Error{ Error::Type::ImportRedirectionError, importSetup.error() } );
+        return compat::unexpected( Error{ Error::Type::ImportRedirectionError, importSetup.error() } );
 
     if (!set_stack( uc, args, env, *memory ))
-        return std::unexpected(
+        return compat::unexpected(
             Error{ Error::Type::StackInitializationError, "Stack initialization error (argc, argv, envp)." } );
 
     return COsxPpcEmu{ uc, std::move( *loader ), std::move( *memory ) };
@@ -177,7 +177,7 @@ bool COsxPpcEmu::set_args_on_stack( const std::span<const std::string> args, con
     const auto targetArgsView{ args | std::views::drop( 1 ) };
     const std::vector<std::string> targetArgs( targetArgsView.begin(), targetArgsView.end() );
 
-    const std::expected<emu::detail::StackImage, std::string> image{ emu::detail::build_stack_image(
+    const compat::expected<emu::detail::StackImage, std::string> image{ emu::detail::build_stack_image(
         targetArgs, env, common::Stack_Dyld_Region_Start_Address, common::Stack_Dyld_Region_Size ) };
     if (!image)
     {

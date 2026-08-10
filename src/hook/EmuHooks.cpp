@@ -152,7 +152,7 @@ void CHookManager::teardown()
     }
 }
 
-std::expected<void, std::string> CHookManager::install( HookId id, int type, void *callback, std::uint64_t begin,
+compat::expected<void, std::string> CHookManager::install( HookId id, int type, void *callback, std::uint64_t begin,
                                                         std::uint64_t end, std::string_view name )
 {
     const std::size_t i{ static_cast<std::size_t>( id ) };
@@ -161,13 +161,13 @@ std::expected<void, std::string> CHookManager::install( HookId id, int type, voi
     {
         std::ostringstream oss;
         oss << "could not install " << name << " hook: uc_err=" << static_cast<int>( err );
-        return std::unexpected( oss.str() );
+        return compat::unexpected( oss.str() );
     }
     m_installed[i] = true;
     return {};
 }
 
-std::expected<void, std::string> CHookManager::install_all( HookContext &ctx, std::uint64_t textStart,
+compat::expected<void, std::string> CHookManager::install_all( HookContext &ctx, std::uint64_t textStart,
                                                             std::uint64_t textEnd )
 {
     m_ctx = &ctx; // TODO COsxPpcEmu is moved at least once, need to fix that

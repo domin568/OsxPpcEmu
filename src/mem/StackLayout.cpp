@@ -14,12 +14,12 @@ void write_u32_be( std::span<std::uint8_t> buf, std::size_t offset, std::uint32_
     std::memcpy( buf.data() + offset, &be, sizeof( be ) );
 }
 
-std::expected<StackImage, std::string> build_stack_image( std::span<const std::string> targetArgs,
+compat::expected<StackImage, std::string> build_stack_image( std::span<const std::string> targetArgs,
                                                           std::span<const std::string> env, std::uint32_t stackBase,
                                                           std::size_t maxSize )
 {
     if (targetArgs.empty())
-        return std::unexpected( "no guest program arguments (targetArgs is empty; exec_path would be null)" );
+        return compat::unexpected( "no guest program arguments (targetArgs is empty; exec_path would be null)" );
 
     // ── offsets ──────────────────────────────────────────────────────────
     constexpr std::size_t argcOffset{ 0 };
@@ -76,7 +76,7 @@ std::expected<StackImage, std::string> build_stack_image( std::span<const std::s
     std::memcpy( image.bytes.data() + stringAreaOffset, stringArea.data(), stringArea.size() );
 
     if (image.bytes.size() > maxSize)
-        return std::unexpected( "initial stack image (0x" + std::to_string( image.bytes.size() ) +
+        return compat::unexpected( "initial stack image (0x" + std::to_string( image.bytes.size() ) +
                                 " bytes) does not fit in dyld stack region (0x" + std::to_string( maxSize ) +
                                 " bytes)" );
 

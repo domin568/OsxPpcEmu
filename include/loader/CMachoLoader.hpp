@@ -6,8 +6,8 @@
 #pragma once
 #include "../Common.hpp"
 #include "CMemory.hpp"
+#include "Expected.hpp"
 #include <LIEF/MachO.hpp>
-#include <expected>
 #include <optional>
 #include <unicorn/unicorn.h>
 
@@ -37,10 +37,10 @@ class CMachoLoader
         TEXT,
     };
 
-    static std::expected<CMachoLoader, Error> init( const std::string &path );
+    static compat::expected<CMachoLoader, Error> init( const std::string &path );
     bool map_image_memory( uc_engine *uc, memory::CMemory &mem );
     bool set_unix_thread( uc_engine *uc );
-    std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, Error> get_imports();
+    compat::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, Error> get_imports();
     std::vector<uint32_t> get_static_constructors();
     uint32_t get_ep();
     std::optional<std::pair<uint64_t, uint64_t>> get_text_segment_va_range();

@@ -7,9 +7,9 @@
 
 #include "CMemory.hpp"
 #include "Common.hpp"
+#include "Expected.hpp"
 #include "ImportDispatch.hpp"
 
-#include <expected>
 #include <span>
 #include <string>
 #include <utility>
@@ -28,20 +28,20 @@ using StaticImport = std::pair<std::string, std::pair<std::uint32_t, common::Imp
  * fills the slots reachable only through dyld_func_lookup, and initialises
  * __DefaultRuneLocale.
  */
-std::expected<void, std::string> build_import_table( std::span<const StaticImport> staticImports,
+compat::expected<void, std::string> build_import_table( std::span<const StaticImport> staticImports,
                                                      memory::CMemory &mem );
 
 // ── exposed for unit tests / reuse ──────────────────────────────────────
-std::expected<void, std::string> write_unknown_import_entry( memory::CMemory &mem );
-std::expected<void, std::string> redirect_static_imports( std::span<const StaticImport> staticImports,
+compat::expected<void, std::string> write_unknown_import_entry( memory::CMemory &mem );
+compat::expected<void, std::string> redirect_static_imports( std::span<const StaticImport> staticImports,
                                                           memory::CMemory &mem );
-std::expected<void, std::string> write_dynamic_import_entries( memory::CMemory &mem );
-std::expected<void, std::string> init_default_rune_locale( std::span<const StaticImport> staticImports,
+compat::expected<void, std::string> write_dynamic_import_entries( memory::CMemory &mem );
+compat::expected<void, std::string> init_default_rune_locale( std::span<const StaticImport> staticImports,
                                                            memory::CMemory &mem );
 
-std::expected<void, std::string> write_import_entry( memory::CMemory &mem, std::uint32_t entryAddress,
+compat::expected<void, std::string> write_import_entry( memory::CMemory &mem, std::uint32_t entryAddress,
                                                      const Runtime_Import_Table_Entry &entry );
-std::expected<void, std::string> write_import_pointer( memory::CMemory &mem, std::uint32_t gotSlotAddress,
+compat::expected<void, std::string> write_import_pointer( memory::CMemory &mem, std::uint32_t gotSlotAddress,
                                                        std::uint32_t importEntryAddress );
 
 } // namespace import::setup

@@ -6,9 +6,9 @@
 #pragma once
 
 #include "Common.hpp"
+#include "Expected.hpp"
 
 #include <cstdint>
-#include <expected>
 #include <span>
 #include <string>
 #include <vector>
@@ -60,7 +60,7 @@ void write_u32_be( std::span<std::uint8_t> buf, std::size_t offset, std::uint32_
  * argv[0]) and must be non-empty — `exec_path` is always argv[0]'s string address.
  *
  */
-std::expected<StackImage, std::string> build_stack_image( std::span<const std::string> targetArgs,
+compat::expected<StackImage, std::string> build_stack_image( std::span<const std::string> targetArgs,
                                                           std::span<const std::string> env, std::uint32_t stackBase,
                                                           std::size_t maxSize );
 

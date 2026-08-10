@@ -6,7 +6,7 @@
 #pragma once
 #include "CHeap.hpp"
 #include "Common.hpp"
-#include <expected>
+#include "Expected.hpp"
 #include <string>
 #include <unicorn/unicorn.h>
 
@@ -27,7 +27,7 @@ class CMemory
     using MemoryRange = std::pair<size_t, size_t>;
 
   public:
-    static std::expected<CMemory, Error> init( uc_engine *uc, size_t size );
+    static compat::expected<CMemory, Error> init( uc_engine *uc, size_t size );
     ~CMemory();
     CMemory( const CMemory & ) = delete;
     CMemory &operator=( const CMemory & ) = delete;

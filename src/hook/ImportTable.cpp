@@ -33,46 +33,46 @@ constexpr std::uint32_t got_target_address( std::uint32_t entryAddress, common::
 
 } // namespace
 
-std::expected<void, std::string> write_import_pointer( memory::CMemory &mem, std::uint32_t gotSlotAddress,
+compat::expected<void, std::string> write_import_pointer( memory::CMemory &mem, std::uint32_t gotSlotAddress,
                                                        std::uint32_t importEntryAddress )
 {
     if (!mem.check( gotSlotAddress, sizeof( importEntryAddress ) ))
-        return std::unexpected( "cannot write import pointer at " + to_hex( gotSlotAddress ) +
+        return compat::unexpected( "cannot write import pointer at " + to_hex( gotSlotAddress ) +
                                 " (unmapped or out of bounds)" );
     const std::uint32_t be{ common::ensure_endianness( importEntryAddress, std::endian::big ) };
     mem.write( gotSlotAddress, &be, sizeof( be ) );
     return {};
 }
 
-std::expected<void, std::string> write_import_entry( memory::CMemory &mem, std::uint32_t entryAddress,
+compat::expected<void, std::string> write_import_entry( memory::CMemory &mem, std::uint32_t entryAddress,
                                                      const Runtime_Import_Table_Entry &entry )
 {
     if (entry.ptrToData != 0)
     {
         if (!mem.check( entryAddress, sizeof( entry.ptrToData ) ))
-            return std::unexpected( "cannot write import entry pointer at " + to_hex( entryAddress ) );
+            return compat::unexpected( "cannot write import entry pointer at " + to_hex( entryAddress ) );
         const std::uint32_t be{ common::ensure_endianness( entry.ptrToData, std::endian::big ) };
         mem.write( entryAddress, &be, sizeof( be ) );
     }
     const std::uint32_t dataAddress{ entryAddress + Import_Entry_Data_Offset };
     if (!mem.check( dataAddress, entry.data.size() ))
-        return std::unexpected( "cannot write import entry data at " + to_hex( dataAddress ) );
+        return compat::unexpected( "cannot write import entry data at " + to_hex( dataAddress ) );
     mem.write( dataAddress, entry.data.data(), entry.data.size() );
     return {};
 }
 
-std::expected<void, std::string> write_unknown_import_entry( memory::CMemory &mem )
+compat::expected<void, std::string> write_unknown_import_entry( memory::CMemory &mem )
 {
     const Runtime_Import_Table_Entry unknownImportEntry{
         .ptrToData = common::Import_Dispatch_Table_Address + Import_Entry_Data_Offset, // points in memory
         .data{ data::Blr_Opcode },                                                    // <- here
     };
     if (auto res{ write_import_entry( mem, common::Import_Dispatch_Table_Address, unknownImportEntry ) }; !res)
-        return std::unexpected( "could not write first API dispatch entry (unknown API): " + res.error() );
+        return compat::unexpected( "could not write first API dispatch entry (unknown API): " + res.error() );
     return {};
 }
 
-std::expected<void, std::string> redirect_static_imports( std::span<const StaticImport> staticImports,
+compat::expected<void, std::string> redirect_static_imports( std::span<const StaticImport> staticImports,
                                                           memory::CMemory &mem )
 {
     for (const auto &[name, addressAndType] : staticImports)
@@ -84,10 +84,10 @@ std::expected<void, std::string> redirect_static_imports( std::span<const Static
         const std::uint32_t entryAddress{ knownImport ? import_entry_address( *idx )
                                                        : common::Import_Dispatch_Table_Address };
         if (entryAddress + Import_Entry_Size > common::Import_Dispatch_Table_Address + Import_Table_Size)
-            return std::unexpected( "not enough mapped memory for API trampoline for " + name );
+            return compat::unexpected( "not enough mapped memory for API trampoline for " + name );
 
         if (auto res{ write_import_pointer( mem, gotSlotAddress, got_target_address( entryAddress, type ) ) }; !res)
-            return std::unexpected( "could not update pointer to API dispatch entry for " + name + " at " +
+            return compat::unexpected( "could not update pointer to API dispatch entry for " + name + " at " +
                                     to_hex( entryAddress ) + ": " + res.error() );
 
         if (knownImport)
@@ -100,20 +100,20 @@ std::expected<void, std::string> redirect_static_imports( std::span<const Static
                 .data{ All_Imports[*idx].second.data },
             };
             if (auto res{ write_import_entry( mem, entryAddress, knownImportEntry ) }; !res)
-                return std::unexpected( "could not write API dispatch entry for " + name + " at " +
+                return compat::unexpected( "could not write API dispatch entry for " + name + " at " +
                                         to_hex( entryAddress ) + ": " + res.error() );
         }
     }
     return {};
 }
 
-std::expected<void, std::string> write_dynamic_import_entries( memory::CMemory &mem )
+compat::expected<void, std::string> write_dynamic_import_entries( memory::CMemory &mem )
 {
     for (const std::string_view s : Dynamic_Imports_Names)
     {
         const std::optional<std::size_t> idx{ find_known_import( s ) };
         if (!idx)
-            return std::unexpected( "missing dynamic import entry for " + std::string{ s } );
+            return compat::unexpected( "missing dynamic import entry for " + std::string{ s } );
 
         const std::uint32_t entryAddress{ import_entry_address( *idx ) };
         const Runtime_Import_Table_Entry knownImportEntry{
@@ -121,13 +121,13 @@ std::expected<void, std::string> write_dynamic_import_entries( memory::CMemory &
             .data{ All_Imports[*idx].second.data },
         };
         if (auto res{ write_import_entry( mem, entryAddress, knownImportEntry ) }; !res)
-            return std::unexpected( "could not write API dispatch entry for " + std::string{ s } + " at " +
+            return compat::unexpected( "could not write API dispatch entry for " + std::string{ s } + " at " +
                                     to_hex( entryAddress ) + ": " + res.error() );
     }
     return {};
 }
 
-std::expected<void, std::string> init_default_rune_locale( std::span<const StaticImport> staticImports,
+compat::expected<void, std::string> init_default_rune_locale( std::span<const StaticImport> staticImports,
                                                            memory::CMemory &mem )
 {
     const auto importIt{ std::ranges::find_if(
@@ -138,22 +138,22 @@ std::expected<void, std::string> init_default_rune_locale( std::span<const Stati
 
     const std::uint32_t runeLocaleAddr{ mem.heap_alloc( data::Default_Rune_Locale.size() ) };
     if (runeLocaleAddr == 0)
-        return std::unexpected( "could not allocate memory for __DefaultRuneLocale" );
+        return compat::unexpected( "could not allocate memory for __DefaultRuneLocale" );
 
     if (!mem.check( runeLocaleAddr, data::Default_Rune_Locale.size() ))
-        return std::unexpected( "could not write __DefaultRuneLocale table at " + to_hex( runeLocaleAddr ) );
+        return compat::unexpected( "could not write __DefaultRuneLocale table at " + to_hex( runeLocaleAddr ) );
     mem.write( runeLocaleAddr, data::Default_Rune_Locale.data(), data::Default_Rune_Locale.size() );
 
     if (auto res{ write_import_pointer( mem, symbolAddress, runeLocaleAddr ) }; !res)
-        return std::unexpected( "could not write __DefaultRuneLocale pointer: " + res.error() );
+        return compat::unexpected( "could not write __DefaultRuneLocale pointer: " + res.error() );
     return {};
 }
 
-std::expected<void, std::string> build_import_table( std::span<const StaticImport> staticImports,
+compat::expected<void, std::string> build_import_table( std::span<const StaticImport> staticImports,
                                                      memory::CMemory &mem )
 {
     if (!mem.commit( common::Import_Dispatch_Table_Address, common::page_align_up( Import_Table_Size ), UC_PROT_ALL ))
-        return std::unexpected( "could not map import entries memory" );
+        return compat::unexpected( "could not map import entries memory" );
 
     // first import is always "unknown API" entry at 0xF0000000
     if (auto res{ write_unknown_import_entry( mem ) }; !res)

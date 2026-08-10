@@ -5,6 +5,7 @@
  **/
 #pragma once
 #include "../include/Common.hpp"
+#include "../include/Expected.hpp"
 #include "../include/hook/EmuHooks.hpp"
 #include "../include/hook/HookContext.hpp"
 #include "../include/hook/ImportDispatch.hpp"
@@ -14,7 +15,6 @@
 #include "../include/debug/CGdbServer.hpp"
 #endif
 
-#include <expected>
 #include <unicorn/unicorn.h>
 
 namespace emu
@@ -39,7 +39,7 @@ struct Error
 class COsxPpcEmu
 {
   public:
-    static std::expected<COsxPpcEmu, Error> init( int argc, const char **argv, std::span<const std::string> env,
+    static compat::expected<COsxPpcEmu, Error> init( int argc, const char **argv, std::span<const std::string> env,
                                                   common::HeapMode heapMode = common::Heap_Default_Mode );
     bool run();
 #ifdef DEBUGGER_ENABLED

@@ -34,20 +34,20 @@ CMachoLoader::CMachoLoader( std::unique_ptr<LIEF::MachO::Binary> executable ) : 
 {
 }
 
-std::expected<CMachoLoader, Error> CMachoLoader::init( const std::string &path )
+compat::expected<CMachoLoader, Error> CMachoLoader::init( const std::string &path )
 {
     if (!std::filesystem::exists( path ))
-        return std::unexpected{ Error{ Error::Type::FileNotFound, "File not found." } };
+        return compat::unexpected{ Error{ Error::Type::FileNotFound, "File not found." } };
 
     const LIEF::MachO::ParserConfig conf{ LIEF::MachO::ParserConfig::deep() };
     std::unique_ptr<LIEF::MachO::FatBinary> fat{ LIEF::MachO::Parser::parse( path, conf ) };
 
     if (fat->size() > 1)
-        return std::unexpected{ Error{ Error::Type::FatMacho, "FAT MachO binaries are not supported" } };
+        return compat::unexpected{ Error{ Error::Type::FatMacho, "FAT MachO binaries are not supported" } };
 
     std::unique_ptr<LIEF::MachO::Binary> ppcBinary{ fat->take( LIEF::MachO::Header::CPU_TYPE::POWERPC ) };
     if (!ppcBinary)
-        return std::unexpected{ Error{ Error::Type::NotPowerPc, "Only PowerPC binaries are supported." } };
+        return compat::unexpected{ Error{ Error::Type::NotPowerPc, "Only PowerPC binaries are supported." } };
 
     CMachoLoader loader{ std::move( ppcBinary ) };
     return loader;
@@ -145,13 +145,13 @@ bool CMachoLoader::set_unix_thread( uc_engine *uc )
 
 // __nl_symbol_ptr and __la_symbol_ptr are sections that contains 4 byte addresses
 // we want to overwrite all the pointers to point to our stub that dispatches all API calls
-std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, Error> CMachoLoader::
+compat::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>>, Error> CMachoLoader::
     get_imports()
 {
     std::vector<std::pair<std::string, std::pair<uint32_t, common::ImportType>>> imports{};
 
     if (!m_executable->has_dynamic_symbol_command())
-        return std::unexpected{ Error{ Error::Type::Missing_Dynamic_Bind_Command,
+        return compat::unexpected{ Error{ Error::Type::Missing_Dynamic_Bind_Command,
                                        "Missing Dynamic Bind Command needed to parse imports." } };
 
     for (const LIEF::MachO::Section &s : m_executable->sections())
@@ -163,7 +163,7 @@ std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::Imp
             size_t symbolCount{ s.size() >> 2 }; // no alignment there
             uint32_t indirectSymbolsIdx{ s.reserved1() };
             if (indirectSymbolsIdx + symbolCount > m_executable->dynamic_symbol_command()->indirect_symbols().size())
-                return std::unexpected{ Error{ Error::Type::Bad_Indirect_Symbols,
+                return compat::unexpected{ Error{ Error::Type::Bad_Indirect_Symbols,
                                                "Indirect symbol idx is greater than indirect symbol size." } };
 
             const common::ImportType importType{ s.name() == Non_Lazy_Symbols_Ptr_Section_Name
@@ -182,7 +182,7 @@ std::expected<std::vector<std::pair<std::string, std::pair<uint32_t, common::Imp
         else if (s.name() == Dyld_Symbol_Ptr_Section_Name)
         {
             if (s.size() < 8)
-                return std::unexpected{
+                return compat::unexpected{
                     Error{ Error::Type::Bad_Dyld_Section, "__dyld section should be at least 8 bytes in size." } };
             size_t symbolCount{ Dyld_Section_Symbol_Count };
             imports.push_back(

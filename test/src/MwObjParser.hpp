@@ -14,7 +14,7 @@
 #include <bit>
 #include <cstdint>
 #include <cstring>
-#include <expected>
+#include "Expected.hpp"
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -136,7 +136,7 @@ inline bool is_data_hunk( HunkType t )
     }
 }
 
-inline std::expected<RelocationType, std::string> xref_reloc_type( HunkType t )
+inline compat::expected<RelocationType, std::string> xref_reloc_type( HunkType t )
 {
     switch (t)
     {
@@ -161,7 +161,7 @@ inline std::expected<RelocationType, std::string> xref_reloc_type( HunkType t )
     case HunkType::XrefLo16BitIl:
         return RelocationType::Lo16Il;
     default:
-        return std::unexpected( "not an xref hunk type" );
+        return compat::unexpected( "not an xref hunk type" );
     }
 }
 
@@ -301,25 +301,25 @@ class ByteReader
         return m_data.size();
     }
 
-    std::expected<void, std::string> seek( std::size_t pos )
+    compat::expected<void, std::string> seek( std::size_t pos )
     {
         if (pos > m_data.size())
-            return std::unexpected( "seek out of range" );
+            return compat::unexpected( "seek out of range" );
         m_pos = pos;
         return {};
     }
 
-    std::expected<std::uint8_t, std::string> u8()
+    compat::expected<std::uint8_t, std::string> u8()
     {
         if (m_pos + 1 > m_data.size())
-            return std::unexpected( "u8: out of range at " + std::to_string( m_pos ) );
+            return compat::unexpected( "u8: out of range at " + std::to_string( m_pos ) );
         return m_data[m_pos++];
     }
 
-    std::expected<std::uint16_t, std::string> u16()
+    compat::expected<std::uint16_t, std::string> u16()
     {
         if (m_pos + 2 > m_data.size())
-            return std::unexpected( "u16: out of range at " + std::to_string( m_pos ) );
+            return compat::unexpected( "u16: out of range at " + std::to_string( m_pos ) );
         std::uint16_t v{};
         std::memcpy( &v, &m_data[m_pos], 2 );
         m_pos += 2;
@@ -328,10 +328,10 @@ class ByteReader
         return v;
     }
 
-    std::expected<std::uint32_t, std::string> u32()
+    compat::expected<std::uint32_t, std::string> u32()
     {
         if (m_pos + 4 > m_data.size())
-            return std::unexpected( "u32: out of range at " + std::to_string( m_pos ) );
+            return compat::unexpected( "u32: out of range at " + std::to_string( m_pos ) );
         std::uint32_t v{};
         std::memcpy( &v, &m_data[m_pos], 4 );
         m_pos += 4;
@@ -340,31 +340,31 @@ class ByteReader
         return v;
     }
 
-    std::expected<std::int32_t, std::string> i32()
+    compat::expected<std::int32_t, std::string> i32()
     {
         auto v{ u32() };
         if (!v)
-            return std::unexpected( v.error() );
+            return compat::unexpected( v.error() );
         return static_cast<std::int32_t>( *v );
     }
 
-    std::expected<std::vector<std::uint8_t>, std::string> bytes( std::size_t n )
+    compat::expected<std::vector<std::uint8_t>, std::string> bytes( std::size_t n )
     {
         if (m_pos + n > m_data.size())
-            return std::unexpected( "bytes(" + std::to_string( n ) + "): out of range at " + std::to_string( m_pos ) );
+            return compat::unexpected( "bytes(" + std::to_string( n ) + "): out of range at " + std::to_string( m_pos ) );
         std::vector<std::uint8_t> out( m_data.begin() + static_cast<long>( m_pos ),
                                        m_data.begin() + static_cast<long>( m_pos + n ) );
         m_pos += n;
         return out;
     }
 
-    std::expected<std::string, std::string> cstring()
+    compat::expected<std::string, std::string> cstring()
     {
         std::string out;
         while (true)
         {
             if (m_pos >= m_data.size())
-                return std::unexpected( "cstring: unterminated at end of file" );
+                return compat::unexpected( "cstring: unterminated at end of file" );
             const char c{ static_cast<char>( m_data[m_pos++] ) };
             if (c == '\0')
                 break;
@@ -373,13 +373,13 @@ class ByteReader
         return out;
     }
 
-    std::expected<void, std::string> skip_align( std::size_t sizeJustRead )
+    compat::expected<void, std::string> skip_align( std::size_t sizeJustRead )
     {
         const std::size_t padding{ ( 4 - ( sizeJustRead % 4 ) ) % 4 };
         if (padding == 0)
             return {};
         if (m_pos + padding > m_data.size())
-            return std::unexpected( "skip_align: out of range" );
+            return compat::unexpected( "skip_align: out of range" );
         m_pos += padding;
         return {};
     }
@@ -397,13 +397,13 @@ namespace detail
 #define MWOBJ_TRY( var, expr )                                                                                         \
     auto var##_res{ ( expr ) };                                                                                        \
     if (!var##_res)                                                                                                    \
-        return std::unexpected( var##_res.error() );                                                                   \
+        return compat::unexpected( var##_res.error() );                                                                   \
     auto &var                                                                                                          \
     {                                                                                                                  \
         *var##_res                                                                                                     \
     }
 
-inline std::expected<FileHeader, std::string> parse_file_header( ByteReader &r )
+inline compat::expected<FileHeader, std::string> parse_file_header( ByteReader &r )
 {
     FileHeader h{};
     MWOBJ_TRY( magicBytes, r.bytes( 8 ) );
@@ -431,7 +431,7 @@ inline std::expected<FileHeader, std::string> parse_file_header( ByteReader &r )
     return h;
 }
 
-inline std::expected<ObjectHeader, std::string> parse_object_header( ByteReader &r )
+inline compat::expected<ObjectHeader, std::string> parse_object_header( ByteReader &r )
 {
     ObjectHeader h{};
     MWOBJ_TRY( magicBytes, r.bytes( 4 ) );
@@ -459,11 +459,11 @@ inline std::expected<ObjectHeader, std::string> parse_object_header( ByteReader 
     return h;
 }
 
-inline std::expected<std::vector<NameEntry>, std::string> parse_name_table( ByteReader &r, std::size_t offset,
+inline compat::expected<std::vector<NameEntry>, std::string> parse_name_table( ByteReader &r, std::size_t offset,
                                                                             std::size_t endOffset )
 {
     if (auto s{ r.seek( offset ) }; !s)
-        return std::unexpected( s.error() );
+        return compat::unexpected( s.error() );
     std::vector<NameEntry> names;
     while (r.tell() < endOffset)
     {
@@ -479,11 +479,11 @@ inline std::expected<std::vector<NameEntry>, std::string> parse_name_table( Byte
     return names;
 }
 
-inline std::expected<std::string, std::string> resolve_name( const std::vector<NameEntry> &names,
+inline compat::expected<std::string, std::string> resolve_name( const std::vector<NameEntry> &names,
                                                              std::uint32_t oneBasedIdx )
 {
     if (oneBasedIdx == 0 || oneBasedIdx > names.size())
-        return std::unexpected( "name index " + std::to_string( oneBasedIdx ) + " out of range (" +
+        return compat::unexpected( "name index " + std::to_string( oneBasedIdx ) + " out of range (" +
                                 std::to_string( names.size() ) + " names)" );
     return names[oneBasedIdx - 1].name;
 }
@@ -495,21 +495,21 @@ class HunkParser
     {
     }
 
-    std::expected<void, std::string> parse( std::size_t endOffset, ObjectFile &out )
+    compat::expected<void, std::string> parse( std::size_t endOffset, ObjectFile &out )
     {
         while (m_r.tell() < endOffset)
         {
             MWOBJ_TRY( opcodeBytes, m_r.bytes( 2 ) );
             const int typeVal{ static_cast<int>( opcodeBytes[1] ) - OpcodeBase };
             if (typeVal < 0 || typeVal > static_cast<int>( HunkType::XrefLo16BitIl ))
-                return std::unexpected( "unknown hunk opcode 0x" + to_hex( opcodeBytes[0] ) + to_hex( opcodeBytes[1] ) +
+                return compat::unexpected( "unknown hunk opcode 0x" + to_hex( opcodeBytes[0] ) + to_hex( opcodeBytes[1] ) +
                                         " at offset " + std::to_string( m_r.tell() - 2 ) );
             const auto hunkType{ static_cast<HunkType>( typeVal ) };
             out.hunkOrder.push_back( hunkType );
             if (is_load_hunk( hunkType ))
                 m_lastLoadHunk = hunkType;
 
-            std::expected<void, std::string> res;
+            compat::expected<void, std::string> res;
             switch (hunkType)
             {
             case HunkType::Start:
@@ -576,13 +576,13 @@ class HunkParser
                 if (auto relocType{ xref_reloc_type( hunkType ) }; relocType)
                     res = parse_xref( *relocType, out );
                 else
-                    return std::unexpected( "unhandled hunk type at offset " + std::to_string( m_r.tell() - 2 ) );
+                    return compat::unexpected( "unhandled hunk type at offset " + std::to_string( m_r.tell() - 2 ) );
                 break;
             default:
-                return std::unexpected( "unknown hunk type at offset " + std::to_string( m_r.tell() - 2 ) );
+                return compat::unexpected( "unknown hunk type at offset " + std::to_string( m_r.tell() - 2 ) );
             }
             if (!res)
-                return std::unexpected( res.error() );
+                return compat::unexpected( res.error() );
         }
         return {};
     }
@@ -594,22 +594,22 @@ class HunkParser
         return { digits[b >> 4], digits[b & 0xF] };
     }
 
-    std::expected<void, std::string> skip( std::size_t n )
+    compat::expected<void, std::string> skip( std::size_t n )
     {
         auto res{ m_r.bytes( n ) };
         if (!res)
-            return std::unexpected( res.error() );
+            return compat::unexpected( res.error() );
         return {};
     }
 
-    std::expected<void, std::string> raw_hunk( HunkType type, std::size_t payloadSize, ObjectFile &out )
+    compat::expected<void, std::string> raw_hunk( HunkType type, std::size_t payloadSize, ObjectFile &out )
     {
         MWOBJ_TRY( payload, m_r.bytes( payloadSize ) );
         out.rawHunks.push_back( RawHunk{ type, std::move( payload ) } );
         return {};
     }
 
-    std::expected<void, std::string> parse_code( SymbolScope scope, ObjectFile &out )
+    compat::expected<void, std::string> parse_code( SymbolScope scope, ObjectFile &out )
     {
         MWOBJ_TRY( classIdx, m_r.u8() );
         MWOBJ_TRY( align, m_r.u8() );
@@ -621,7 +621,7 @@ class HunkParser
         const std::uint64_t offsetInFile{ m_r.tell() };
         MWOBJ_TRY( raw, m_r.bytes( codeSize ) );
         if (auto s{ m_r.skip_align( codeSize ) }; !s)
-            return std::unexpected( s.error() );
+            return compat::unexpected( s.error() );
 
         CodeEntry entry{};
         entry.name = name;
@@ -637,7 +637,7 @@ class HunkParser
         return {};
     }
 
-    std::expected<void, std::string> parse_idata( SymbolScope scope, ObjectFile &out )
+    compat::expected<void, std::string> parse_idata( SymbolScope scope, ObjectFile &out )
     {
         MWOBJ_TRY( classIdx, m_r.u8() );
         MWOBJ_TRY( align, m_r.u8() );
@@ -649,7 +649,7 @@ class HunkParser
         const std::uint64_t offsetInFile{ m_r.tell() };
         MWOBJ_TRY( raw, m_r.bytes( dataSize ) );
         if (auto s{ m_r.skip_align( dataSize ) }; !s)
-            return std::unexpected( s.error() );
+            return compat::unexpected( s.error() );
 
         DataEntry entry{};
         entry.name = name;
@@ -666,7 +666,7 @@ class HunkParser
         return {};
     }
 
-    std::expected<void, std::string> parse_udata( SymbolScope scope, ObjectFile &out )
+    compat::expected<void, std::string> parse_udata( SymbolScope scope, ObjectFile &out )
     {
         MWOBJ_TRY( classIdx, m_r.u8() );
         MWOBJ_TRY( align, m_r.u8() );
@@ -690,7 +690,7 @@ class HunkParser
         return {};
     }
 
-    std::expected<void, std::string> parse_xref( RelocationType relocType, ObjectFile &out )
+    compat::expected<void, std::string> parse_xref( RelocationType relocType, ObjectFile &out )
     {
         MWOBJ_TRY( classIdx, m_r.u8() );
         MWOBJ_TRY( unk, m_r.u8() );
@@ -708,19 +708,19 @@ class HunkParser
         if (is_code_hunk( m_lastLoadHunk ))
         {
             if (out.code.empty())
-                return std::unexpected( "xref with no preceding code entry" );
+                return compat::unexpected( "xref with no preceding code entry" );
             out.code.back().relocs.push_back( std::move( reloc ) );
         }
         else if (is_data_hunk( m_lastLoadHunk ))
         {
             if (out.data.empty())
-                return std::unexpected( "xref with no preceding data entry" );
+                return compat::unexpected( "xref with no preceding data entry" );
             out.data.back().relocs.push_back( std::move( reloc ) );
         }
         return {};
     }
 
-    std::expected<void, std::string> parse_import( ObjectFile &out )
+    compat::expected<void, std::string> parse_import( ObjectFile &out )
     {
         MWOBJ_TRY( classIdx, m_r.u8() );
         MWOBJ_TRY( unk, m_r.u8() );
@@ -731,7 +731,7 @@ class HunkParser
         return {};
     }
 
-    std::expected<void, std::string> parse_method_ref( ObjectFile &out )
+    compat::expected<void, std::string> parse_method_ref( ObjectFile &out )
     {
         MWOBJ_TRY( nameIdx, m_r.u32() );
         MWOBJ_TRY( count, m_r.u16() );
@@ -749,7 +749,7 @@ class HunkParser
         return {};
     }
 
-    std::expected<void, std::string> parse_class_def( ObjectFile &out )
+    compat::expected<void, std::string> parse_class_def( ObjectFile &out )
     {
         MWOBJ_TRY( nameIdx, m_r.u32() );
         MWOBJ_TRY( unk, m_r.u16() );
@@ -777,56 +777,56 @@ class HunkParser
 
 } // namespace detail
 
-inline std::expected<std::vector<std::uint8_t>, std::string> read_whole_file( const std::filesystem::path &path )
+inline compat::expected<std::vector<std::uint8_t>, std::string> read_whole_file( const std::filesystem::path &path )
 {
     std::ifstream f( path, std::ios::binary );
     if (!f)
-        return std::unexpected( "cannot open file: " + path.string() );
+        return compat::unexpected( "cannot open file: " + path.string() );
     return std::vector<std::uint8_t>( std::istreambuf_iterator<char>( f ), std::istreambuf_iterator<char>() );
 }
 
-inline std::expected<ObjectFile, std::string> parse( const std::filesystem::path &path )
+inline compat::expected<ObjectFile, std::string> parse( const std::filesystem::path &path )
 {
     auto bytesRes{ read_whole_file( path ) };
     if (!bytesRes)
-        return std::unexpected( bytesRes.error() );
+        return compat::unexpected( bytesRes.error() );
 
     ByteReader r{ std::move( *bytesRes ) };
 
     if (r.size() < Magic.size())
-        return std::unexpected( "file too small to contain MWOBPPC magic: " + path.string() );
+        return compat::unexpected( "file too small to contain MWOBPPC magic: " + path.string() );
     {
         auto magicPeek{ r.bytes( Magic.size() ) };
         if (!magicPeek)
-            return std::unexpected( magicPeek.error() );
+            return compat::unexpected( magicPeek.error() );
         if (!std::equal( magicPeek->begin(), magicPeek->end(), Magic.begin() ))
-            return std::unexpected( "not an MWOBPPC file: " + path.string() );
+            return compat::unexpected( "not an MWOBPPC file: " + path.string() );
     }
     if (auto s{ r.seek( 0 ) }; !s)
-        return std::unexpected( s.error() );
+        return compat::unexpected( s.error() );
 
     ObjectFile out{};
 
     auto fileHdrRes{ detail::parse_file_header( r ) };
     if (!fileHdrRes)
-        return std::unexpected( fileHdrRes.error() );
+        return compat::unexpected( fileHdrRes.error() );
     out.fileHdr = *fileHdrRes;
 
     if (out.fileHdr.filePathOffset > 0)
     {
         if (auto s{ r.seek( out.fileHdr.filePathOffset ) }; !s)
-            return std::unexpected( s.error() );
+            return compat::unexpected( s.error() );
         auto pathRes{ r.cstring() };
         if (!pathRes)
-            return std::unexpected( pathRes.error() );
+            return compat::unexpected( pathRes.error() );
         out.embeddedPath = *pathRes;
     }
 
     if (auto s{ r.seek( out.fileHdr.objOffset ) }; !s)
-        return std::unexpected( s.error() );
+        return compat::unexpected( s.error() );
     auto objHdrRes{ detail::parse_object_header( r ) };
     if (!objHdrRes)
-        return std::unexpected( objHdrRes.error() );
+        return compat::unexpected( objHdrRes.error() );
     out.objHdr = *objHdrRes;
 
     const std::size_t objEnd{ out.fileHdr.objOffset + out.objHdr.objSizeWithHeader };
@@ -834,14 +834,14 @@ inline std::expected<ObjectFile, std::string> parse( const std::filesystem::path
 
     auto namesRes{ detail::parse_name_table( r, objEnd, r.size() ) };
     if (!namesRes)
-        return std::unexpected( namesRes.error() );
+        return compat::unexpected( namesRes.error() );
     out.names = std::move( *namesRes );
 
     if (auto s{ r.seek( hunksStart ) }; !s)
-        return std::unexpected( s.error() );
+        return compat::unexpected( s.error() );
     detail::HunkParser hunkParser{ r, out.names };
     if (auto s{ hunkParser.parse( objEnd, out ) }; !s)
-        return std::unexpected( s.error() );
+        return compat::unexpected( s.error() );
 
     return out;
 }

@@ -87,7 +87,7 @@ class CHeap
         return m_mode;
     }
 
-    // CMemory may move (e.g. std::expected's converting constructor); CHeap keeps a back
+    // CMemory may move (e.g. compat::expected's converting constructor); CHeap keeps a back
     // pointer to it and must be re-pointed at the new owner after such a move.
     void rebind( CMemory *owner );
 
