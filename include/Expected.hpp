@@ -68,23 +68,25 @@ template <class T, class E> class expected
     using value_type = T;
     using error_type = E;
 
-    constexpr expected( const T &value ) : m_storage( std::in_place_index<1>, value ), m_hasValue( true )
+    constexpr expected() requires std::is_default_constructible_v<T> : m_storage( std::in_place_index<1> )
     {
     }
 
-    constexpr expected( T &&value ) : m_storage( std::in_place_index<1>, std::move( value ) ), m_hasValue( true )
+    constexpr expected( const T &value ) : m_storage( std::in_place_index<1>, value )
+    {
+    }
+
+    constexpr expected( T &&value ) : m_storage( std::in_place_index<1>, std::move( value ) )
     {
     }
 
     template <class G> requires std::is_constructible_v<E, const G &>
-    constexpr expected( const unexpected<G> &error ) : m_storage( std::in_place_index<2>, error.error() ),
-                                                       m_hasValue( false )
+    constexpr expected( const unexpected<G> &error ) : m_storage( std::in_place_index<2>, error.error() )
     {
     }
 
     template <class G> requires std::is_constructible_v<E, G &&>
-    constexpr expected( unexpected<G> &&error ) : m_storage( std::in_place_index<2>, std::move( error.error() ) ),
-                                                  m_hasValue( false )
+    constexpr expected( unexpected<G> &&error ) : m_storage( std::in_place_index<2>, std::move( error.error() ) )
     {
     }
 
@@ -96,12 +98,12 @@ template <class T, class E> class expected
 
     constexpr bool has_value() const noexcept
     {
-        return m_hasValue;
+        return m_storage.index() == 1;
     }
 
     constexpr explicit operator bool() const noexcept
     {
-        return m_hasValue;
+        return has_value();
     }
 
     constexpr T &value() &
@@ -166,7 +168,6 @@ template <class T, class E> class expected
 
   private:
     std::variant<std::monostate, T, E> m_storage;
-    bool m_hasValue{};
 };
 
 template <class E> class expected<void, E>
