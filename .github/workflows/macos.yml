@@ -29,9 +29,16 @@ jobs:
 
       - name: Configure CMake
         run: |
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            OSX_ARCH="x86_64"
+          else
+            OSX_ARCH="arm64"
+          fi
+          
           cmake -B build -S . \
             -DCMAKE_BUILD_TYPE=Debug \
             -DENABLE_COVERAGE=ON \
+            -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCH" \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
 
