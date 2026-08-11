@@ -1,0 +1,91 @@
+  ```yaml
+  name: Windows Build
+
+  on:
+    workflow_dispatch:
+
+  jobs:
+    build:
+      name: Windows / ${{ matrix.compiler }}
+      runs-on: windows-latest
+
+      strategy:
+        fail-fast: false
+        matrix:
+          include:
+            - compiler: msvc
+              triplet: x64-windows
+              generator: "Visual Studio 18 2026"
+
+            - compiler: clang
+              triplet: x64-windows
+              generator: "Ninja"
+
+            - compiler: mingw
+              triplet: x64-mingw
+              generator: "Ninja"
+
+      steps:
+        - name: Checkout Repository
+          uses: actions/checkout@v4
+
+        - name: Install LLVM and Clang
+          if: matrix.compiler == 'clang'
+          uses: KyleMayes/install-llvm-action@v2
+          with:
+            version: '22.1.8'
+
+        - name: Setup MSYS2
+          if: matrix.compiler == 'mingw'
+          uses: msys2/setup-msys2@v2
+          with:
+            msystem: UCRT64
+            update: true
+            install: >-
+              mingw-w64-ucrt-x86_64-gcc
+              mingw-w64-ucrt-x86_64-gcc-libs
+              mingw-w64-ucrt-x86_64-binutils
+
+        - name: Setup vcpkg
+          uses: lukka/run-vcpkg@v11
+
+        - name: Configure CMake (MSVC)
+          if: matrix.compiler == 'msvc'
+          shell: pwsh
+          run: |
+            cmake -B build -S . `
+              -G "Visual Studio 18 2026" `
+              -A x64 `
+              -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+              -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+
+        - name: Configure CMake (Clang)
+          if: matrix.compiler == 'clang'
+          shell: pwsh
+          run: |
+            cmake -B build -S . `
+              -G "Ninja" `
+              -DCMAKE_C_COMPILER=clang `
+              -DCMAKE_CXX_COMPILER=clang++ `
+              -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+              -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+
+        - name: Configure CMake (MinGW)
+          if: matrix.compiler == 'mingw'
+          shell: pwsh
+          run: |
+            $env:PATH = "C:\msys64\ucrt64\bin;$env:PATH"
+            
+            cmake -B build -S . `
+              -G "Ninja" `
+              -DCMAKE_C_COMPILER=gcc `
+              -DCMAKE_CXX_COMPILER=g++ `
+              -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+              -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+
+        - name: Build Project
+          run: cmake --build build --config Release --parallel
+
+        - name: Run Tests
+          run: |
+            ctest --test-dir build -C Release --output-on-failure

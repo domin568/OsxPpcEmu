@@ -1,0 +1,62 @@
+name: Linux Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.arch }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            compiler: gcc
+            runner: ubuntu-latest
+            triplet: x64-linux
+            cxx: g++
+          - arch: x64
+            compiler: clang
+            runner: ubuntu-latest
+            triplet: x64-linux
+            cxx: clang++-22
+          - arch: arm64
+            compiler: gcc
+            runner: ubuntu-latest-arm
+            triplet: arm64-linux
+            cxx: g++
+          - arch: arm64
+            compiler: clang
+            runner: ubuntu-latest-arm
+            triplet: arm64-linux
+            cxx: clang++-22
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Clang 22
+        if: contains(matrix.compiler, 'clang')
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 22
+
+      - name: Setup vcpkg and Cache
+        uses: lukka/run-vcpkg@v11
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+
+      - name: Build Project
+        run: cmake --build build --config Release -j$(nproc)
+
+      - name: Run Tests
+        run: |
+          ctest --test-dir build -C Release --output-on-failure

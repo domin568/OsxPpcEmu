@@ -24,8 +24,6 @@ jobs:
 
       - name: Setup vcpkg and Cache
         uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: '9e593bb18ea69cc5095e012465dcd675a822ed0d'
 
       - name: Configure CMake
         run: |
@@ -59,13 +57,13 @@ jobs:
           IGNORE_PATTERN="vcpkg_installed|_deps|build/|/usr/|/Applications/"
 
           echo "=== COVERAGE SUMMARY ==="
-          xcrun llvm-cov report ./build/OsxPpcEmuTest \
-            -object=./build/OsxPpcEmuE2E \
+          xcrun llvm-cov report ./build/test/OsxPpcEmuTest \
+            -object=./build/test/OsxPpcEmuE2E \
             -instr-profile=coverage.profdata \
             -ignore-filename-regex="$IGNORE_PATTERN"
 
-          xcrun llvm-cov show ./build/OsxPpcEmuTest \
-            -object=./build/OsxPpcEmuE2E \
+          xcrun llvm-cov show ./build/test/OsxPpcEmuTest \
+            -object=./build/test/OsxPpcEmuE2E \
             -instr-profile=coverage.profdata \
             -ignore-filename-regex="$IGNORE_PATTERN" \
             -format=html \
