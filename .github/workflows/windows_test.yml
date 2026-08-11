@@ -21,7 +21,7 @@ jobs:
             generator: "Ninja"
 
           - compiler: mingw
-            triplet: x64-mingw
+            triplet: x64-mingw-dynamic
             generator: "Ninja"
 
     steps:
@@ -32,7 +32,7 @@ jobs:
         if: matrix.compiler == 'clang'
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: '22.1.8'
+          version: '21'
 
       - name: Setup MSYS2
         if: matrix.compiler == 'mingw'
@@ -77,7 +77,6 @@ jobs:
           
           cmake -B build -S . `
             -G "Ninja" `
-            -DCMAKE_C_COMPILER=gcc `
             -DCMAKE_CXX_COMPILER=g++ `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
