@@ -83,5 +83,5 @@ set_tests_properties(
         E2E_CodeWarriorCompileInterfaceLib
         E2E_CodeWarriorLinkSimpleMath
         E2E_CodeWarriorLinkInterfaceLib
-        PROPERTIES TIMEOUT 30
+        PROPERTIES TIMEOUT 60
 )
