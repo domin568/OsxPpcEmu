@@ -1,4 +1,4 @@
-name: macOS CMake Build, Test
+name: macOS Build, Test
 
 on:
   workflow_dispatch:
