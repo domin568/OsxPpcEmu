@@ -1,10 +1,7 @@
 name: macOS CMake Build, Test & Coverage
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build-test-coverage:
@@ -44,14 +41,32 @@ jobs:
 
       - name: Run Tests with CTest
         env:
-          LLVM_PROFILE_FILE: "coverage-%p.profraw"
+          LLVM_PROFILE_FILE: "${{ github.workspace }}/coverage-%p.profraw"
         run: |
           ctest --test-dir build -C Debug --output-on-failure
 
       - name: Process & Report Code Coverage
         run: |
-          xcrun llvm-profdata merge -sparse coverage-*.profraw -o coverage.profdata
-          xcrun llvm-cov report ./build/unit_tests -instr-profile=coverage.profdata
-          xcrun llvm-cov export ./build/unit_tests \
+          xcrun llvm-profdata merge -sparse ${{ github.workspace }}/coverage-*.profraw -o coverage.profdata
+          
+          IGNORE_PATTERN="vcpkg_installed|_deps|build/|/usr/|/Applications/"
+
+          echo "=== COVERAGE SUMMARY ==="
+          xcrun llvm-cov report ./build/OsxPpcEmuTest \
+            -object=./build/OsxPpcEmuE2E \
             -instr-profile=coverage.profdata \
-            -format=lcov > coverage.lcov
+            -ignore-filename-regex="$IGNORE_PATTERN"
+
+          xcrun llvm-cov show ./build/OsxPpcEmuTest \
+            -object=./build/OsxPpcEmuE2E \
+            -instr-profile=coverage.profdata \
+            -ignore-filename-regex="$IGNORE_PATTERN" \
+            -format=html \
+            -output-dir=coverage_html
+
+      - name: Upload HTML Coverage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ matrix.arch }}
+          path: coverage_html
+          retention-days: 14
