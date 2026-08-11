@@ -1,0 +1,50 @@
+name: macOS CMake Build, Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-test-coverage:
+    name: macOS (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            triplet: x64-osx
+            arch: x64
+          - os: macos-latest
+            triplet: arm64-osx
+            arch: arm64
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg and Cache
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: '9e593bb18ea69cc5095e012465dcd675a822ed0d'
+
+      - name: Configure CMake
+        run: |
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            OSX_ARCH="x86_64"
+          else
+            OSX_ARCH="arm64"
+          fi
+          
+          cmake -B build -S . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCH" \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+
+      - name: Build Project
+        run: |
+          cmake --build build --config Release --parallel
+
+      - name: Run Tests with CTest
+        run: |
+          ctest --test-dir build -C Release --output-on-failure
