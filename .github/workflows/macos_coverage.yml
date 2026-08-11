@@ -1,4 +1,4 @@
-name: macOS CMake Build, Test, Coverage
+name: macOS Build, Test, Coverage
 
 on:
   workflow_dispatch:
