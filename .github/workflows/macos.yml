@@ -28,12 +28,7 @@ jobs:
       - name: Setup vcpkg and Cache
         uses: lukka/run-vcpkg@v11
         with:
-          vcpkgGitCommitId: '2026.07.29'
-          runVcpkgInstall: false
-
-      - name: Install vcpkg Dependencies
-        run: |
-          $VCPKG_ROOT/vcpkg install lief unicorn gtest:${{ matrix.triplet }}
+          vcpkgGitCommitId: '9e593bb18ea69cc5095e012465dcd675a822ed0d'
 
       - name: Configure CMake
         run: |
