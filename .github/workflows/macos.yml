@@ -36,7 +36,7 @@ jobs:
           fi
           
           cmake -B build -S . \
-            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_BUILD_TYPE=Release \
             -DENABLE_COVERAGE=ON \
             -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCH" \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
@@ -44,13 +44,13 @@ jobs:
 
       - name: Build Project
         run: |
-          cmake --build build --config Debug --parallel
+          cmake --build build --config Release --parallel
 
       - name: Run Tests with CTest
         env:
           LLVM_PROFILE_FILE: "${{ github.workspace }}/coverage-%p.profraw"
         run: |
-          ctest --test-dir build -C Debug --output-on-failure
+          ctest --test-dir build -C Release --output-on-failure
 
       - name: Process & Report Code Coverage
         run: |
