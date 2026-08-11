@@ -1,0 +1,62 @@
+name: macOS CMake Build, Test & Coverage
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-test-coverage:
+    name: macOS (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            triplet: x64-osx
+            arch: x64
+          - os: macos-latest
+            triplet: arm64-osx
+            arch: arm64
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg and Cache
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: '2026.07.29'
+          runVcpkgInstall: false
+
+      - name: Install vcpkg Dependencies
+        run: |
+          $VCPKG_ROOT/vcpkg install lief unicorn gtest:${{ matrix.triplet }}
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DENABLE_COVERAGE=ON \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+
+      - name: Build Project
+        run: |
+          cmake --build build --config Debug --parallel
+
+      - name: Run Tests with CTest
+        env:
+          LLVM_PROFILE_FILE: "coverage-%p.profraw"
+        run: |
+          ctest --test-dir build -C Debug --output-on-failure
+
+      - name: Process & Report Code Coverage
+        run: |
+          xcrun llvm-profdata merge -sparse coverage-*.profraw -o coverage.profdata
+          xcrun llvm-cov report ./build/unit_tests -instr-profile=coverage.profdata
+          xcrun llvm-cov export ./build/unit_tests \
+            -instr-profile=coverage.profdata \
+            -format=lcov > coverage.lcov
