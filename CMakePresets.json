@@ -1,0 +1,470 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      }
+    },
+    {
+      "name": "cfg-release",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "cfg-debug",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "feat-debugger",
+      "hidden": true,
+      "cacheVariables": {
+        "ENABLE_DEBUGGER": "ON"
+      }
+    },
+    {
+      "name": "plt-win-x64-mingw",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic"
+      }
+    },
+    {
+      "name": "plt-win-x64-msvc",
+      "hidden": true,
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
+    },
+    {
+      "name": "plt-win-arm64-msvc",
+      "hidden": true,
+      "generator": "Visual Studio 18 2026",
+      "architecture": "ARM64",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "arm64-windows"
+      }
+    },
+    {
+      "name": "plt-win-x64-clang",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
+    },
+    {
+      "name": "plt-mac-x64",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "x86_64",
+        "VCPKG_TARGET_TRIPLET": "x64-osx"
+      }
+    },
+    {
+      "name": "plt-mac-arm64",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "VCPKG_TARGET_TRIPLET": "arm64-osx"
+      }
+    },
+    {
+      "name": "plt-lin-x64-gcc",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "VCPKG_TARGET_TRIPLET": "x64-linux"
+      }
+    },
+    {
+      "name": "plt-lin-x64-clang",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "VCPKG_TARGET_TRIPLET": "x64-linux"
+      }
+    },
+    {
+      "name": "plt-lin-arm64-gcc",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "VCPKG_TARGET_TRIPLET": "arm64-linux"
+      }
+    },
+    {
+      "name": "plt-lin-arm64-clang",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "VCPKG_TARGET_TRIPLET": "arm64-linux"
+      }
+    },
+    {
+      "name": "win-x64-mingw-release",
+      "inherits": [
+        "base",
+        "plt-win-x64-mingw",
+        "cfg-release"
+      ]
+    },
+    {
+      "name": "win-x64-mingw-debug",
+      "inherits": [
+        "base",
+        "plt-win-x64-mingw",
+        "cfg-debug"
+      ]
+    },
+    {
+      "name": "win-x64-mingw-release-debugger",
+      "inherits": [
+        "base",
+        "plt-win-x64-mingw",
+        "cfg-release",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "win-x64-mingw-debug-debugger",
+      "inherits": [
+        "base",
+        "plt-win-x64-mingw",
+        "cfg-debug",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "win-x64-msvc-release",
+      "inherits": [
+        "base",
+        "plt-win-x64-msvc",
+        "cfg-release"
+      ]
+    },
+    {
+      "name": "win-x64-msvc-debug",
+      "inherits": [
+        "base",
+        "plt-win-x64-msvc",
+        "cfg-debug"
+      ]
+    },
+    {
+      "name": "win-x64-msvc-release-debugger",
+      "inherits": [
+        "base",
+        "plt-win-x64-msvc",
+        "cfg-release",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "win-x64-msvc-debug-debugger",
+      "inherits": [
+        "base",
+        "plt-win-x64-msvc",
+        "cfg-debug",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "win-arm64-msvc-release",
+      "inherits": [
+        "base",
+        "plt-win-arm64-msvc",
+        "cfg-release"
+      ]
+    },
+    {
+      "name": "win-arm64-msvc-debug",
+      "inherits": [
+        "base",
+        "plt-win-arm64-msvc",
+        "cfg-debug"
+      ]
+    },
+    {
+      "name": "win-arm64-msvc-release-debugger",
+      "inherits": [
+        "base",
+        "plt-win-arm64-msvc",
+        "cfg-release",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "win-arm64-msvc-debug-debugger",
+      "inherits": [
+        "base",
+        "plt-win-arm64-msvc",
+        "cfg-debug",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "win-x64-clang-release",
+      "inherits": [
+        "base",
+        "plt-win-x64-clang",
+        "cfg-release"
+      ]
+    },
+    {
+      "name": "win-x64-clang-debug",
+      "inherits": [
+        "base",
+        "plt-win-x64-clang",
+        "cfg-debug"
+      ]
+    },
+    {
+      "name": "win-x64-clang-release-debugger",
+      "inherits": [
+        "base",
+        "plt-win-x64-clang",
+        "cfg-release",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "win-x64-clang-debug-debugger",
+      "inherits": [
+        "base",
+        "plt-win-x64-clang",
+        "cfg-debug",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "mac-x64-release",
+      "inherits": [
+        "base",
+        "plt-mac-x64",
+        "cfg-release"
+      ]
+    },
+    {
+      "name": "mac-x64-debug",
+      "inherits": [
+        "base",
+        "plt-mac-x64",
+        "cfg-debug"
+      ]
+    },
+    {
+      "name": "mac-x64-release-debugger",
+      "inherits": [
+        "base",
+        "plt-mac-x64",
+        "cfg-release",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "mac-x64-debug-debugger",
+      "inherits": [
+        "base",
+        "plt-mac-x64",
+        "cfg-debug",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "mac-arm64-release",
+      "inherits": [
+        "base",
+        "plt-mac-arm64",
+        "cfg-release"
+      ]
+    },
+    {
+      "name": "mac-arm64-debug",
+      "inherits": [
+        "base",
+        "plt-mac-arm64",
+        "cfg-debug"
+      ]
+    },
+    {
+      "name": "mac-arm64-release-debugger",
+      "inherits": [
+        "base",
+        "plt-mac-arm64",
+        "cfg-release",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "mac-arm64-debug-debugger",
+      "inherits": [
+        "base",
+        "plt-mac-arm64",
+        "cfg-debug",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "lin-x64-gcc-release",
+      "inherits": [
+        "base",
+        "plt-lin-x64-gcc",
+        "cfg-release"
+      ]
+    },
+    {
+      "name": "lin-x64-gcc-debug",
+      "inherits": [
+        "base",
+        "plt-lin-x64-gcc",
+        "cfg-debug"
+      ]
+    },
+    {
+      "name": "lin-x64-gcc-release-debugger",
+      "inherits": [
+        "base",
+        "plt-lin-x64-gcc",
+        "cfg-release",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "lin-x64-gcc-debug-debugger",
+      "inherits": [
+        "base",
+        "plt-lin-x64-gcc",
+        "cfg-debug",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "lin-x64-clang-release",
+      "inherits": [
+        "base",
+        "plt-lin-x64-clang",
+        "cfg-release"
+      ]
+    },
+    {
+      "name": "lin-x64-clang-debug",
+      "inherits": [
+        "base",
+        "plt-lin-x64-clang",
+        "cfg-debug"
+      ]
+    },
+    {
+      "name": "lin-x64-clang-release-debugger",
+      "inherits": [
+        "base",
+        "plt-lin-x64-clang",
+        "cfg-release",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "lin-x64-clang-debug-debugger",
+      "inherits": [
+        "base",
+        "plt-lin-x64-clang",
+        "cfg-debug",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "lin-arm64-gcc-release",
+      "inherits": [
+        "base",
+        "plt-lin-arm64-gcc",
+        "cfg-release"
+      ]
+    },
+    {
+      "name": "lin-arm64-gcc-debug",
+      "inherits": [
+        "base",
+        "plt-lin-arm64-gcc",
+        "cfg-debug"
+      ]
+    },
+    {
+      "name": "lin-arm64-gcc-release-debugger",
+      "inherits": [
+        "base",
+        "plt-lin-arm64-gcc",
+        "cfg-release",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "lin-arm64-gcc-debug-debugger",
+      "inherits": [
+        "base",
+        "plt-lin-arm64-gcc",
+        "cfg-debug",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "lin-arm64-clang-release",
+      "inherits": [
+        "base",
+        "plt-lin-arm64-clang",
+        "cfg-release"
+      ]
+    },
+    {
+      "name": "lin-arm64-clang-debug",
+      "inherits": [
+        "base",
+        "plt-lin-arm64-clang",
+        "cfg-debug"
+      ]
+    },
+    {
+      "name": "lin-arm64-clang-release-debugger",
+      "inherits": [
+        "base",
+        "plt-lin-arm64-clang",
+        "cfg-release",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "lin-arm64-clang-debug-debugger",
+      "inherits": [
+        "base",
+        "plt-lin-arm64-clang",
+        "cfg-debug",
+        "feat-debugger"
+      ]
+    }
+  ]
+}

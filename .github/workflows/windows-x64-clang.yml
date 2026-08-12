@@ -1,0 +1,31 @@
+name: Windows x64 Clang Build, Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Windows x64 Clang
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: '21'
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+
+      - name: Configure CMake
+        shell: pwsh
+        run: cmake --preset win-x64-clang-release
+
+      - name: Build Project
+        run: cmake --build build/win-x64-clang-release --config Release --parallel
+
+      - name: Run Tests
+        run: ctest --test-dir build/win-x64-clang-release -C Release --output-on-failure

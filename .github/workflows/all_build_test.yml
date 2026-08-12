@@ -1,10 +1,10 @@
-name: Windows Build, Test
+name: All platforms Build, Test
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  windows:
     name: Windows / ${{ matrix.compiler }} ${{ matrix.cmake_arch || '' }}
     runs-on: windows-latest
 
@@ -15,14 +15,11 @@ jobs:
           - compiler: msvc
             preset: win-x64-msvc-release
             cmake_arch: x64
-
           - compiler: msvc
             preset: win-arm64-msvc-release
             cmake_arch: ARM64
-
           - compiler: clang
             preset: win-x64-clang-release
-
           - compiler: mingw
             preset: win-x64-mingw-release
 
@@ -82,4 +79,84 @@ jobs:
           if ("${{ matrix.compiler }}" -eq "mingw") {
             $env:PATH = "C:\msys64\ucrt64\bin;$env:PATH"
           }
+          ctest --test-dir build/${{ matrix.preset }} -C Release --output-on-failure
+
+  macos:
+    name: macOS (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            arch: x64
+            preset: mac-x64-release
+          - os: macos-latest
+            arch: arm64
+            preset: mac-arm64-release
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg and Cache
+        uses: lukka/run-vcpkg@v11
+
+      - name: Configure CMake
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build Project
+        run: |
+          cmake --build build/${{ matrix.preset }} --config Release --parallel
+
+      - name: Run Tests with CTest
+        run: |
+          ctest --test-dir build/${{ matrix.preset }} -C Release --output-on-failure
+
+  linux:
+    name: Linux ${{ matrix.arch }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            compiler: gcc
+            runner: ubuntu-latest
+            preset: lin-x64-gcc-release
+          - arch: x64
+            compiler: clang
+            runner: ubuntu-latest
+            preset: lin-x64-clang-release
+          - arch: arm64
+            compiler: gcc
+            runner: ubuntu-26.04-arm
+            preset: lin-arm64-gcc-release
+          - arch: arm64
+            compiler: clang
+            runner: ubuntu-26.04-arm
+            preset: lin-arm64-clang-release
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Clang 22
+        if: contains(matrix.compiler, 'clang')
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 22
+
+      - name: Setup vcpkg and Cache
+        uses: lukka/run-vcpkg@v11
+
+      - name: Configure CMake
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build Project
+        run: cmake --build build/${{ matrix.preset }} --config Release -j$(nproc)
+
+      - name: Run Tests
+        run: |
           ctest --test-dir build/${{ matrix.preset }} -C Release --output-on-failure

@@ -8,19 +8,72 @@ declarations are based on dyld 46.16 / Mac OS X 10.4 SDK.
 Under the hood it uses Unicorn Engine (https://github.com/unicorn-engine/unicorn) for emulation. All API calls are
 redirected and resolved by host.
 
-At the moment it was tested only against Metrowerks CodeWarrior 9.0 for Mac OS X, CLI, mwpefcc, mwpefld on
-arm64-apple-darwin25.1.0 host. Other host platforms are not yet fully tested at the time. No GUI support. The project is
-in the early development stage. 100% API coverage is not guaranteed.
-
 Debug configuration has debugger (interactive or gdb server). Release just emulates the binary.
 
-Project needs c++ 23 compiler (tested with apple clang-1700.6.4.2).
-
-If emulator has unimplemented API call it could look like this in stdout
+If emulator has unimplemented API call it could look like this in stdout (in Debug build)
 
 ```bash
 ┌─ 0xf0000004 (unknown) <- 0x213c <- 0x199c <- 0x1900f
 ```
+
+## Building the Project
+
+Requires CMake and a C++23 compiler. The project is configured through
+[CMake presets](CMakePresets.json). Dependencies are managed with [vcpkg](https://github.com/microsoft/vcpkg).
+
+### Installing vcpkg
+
+```bash
+git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+~/vcpkg/bootstrap-vcpkg.sh      # macOS / Linux
+# ~/vcpkg/bootstrap-vcpkg.bat   # Windows
+
+export VCPKG_ROOT="$HOME/vcpkg"        # macOS / Linux
+# $env:VCPKG_ROOT = "C:\vcpkg"         # Windows PowerShell
+```
+
+Dependencies from [`vcpkg.json`](vcpkg.json) are installed automatically on first configure.
+
+### Configuring, Building and Testing
+
+```bash
+cmake --preset <preset-name>
+cmake --build build/<preset-name>
+ctest --test-dir build/<preset-name> --output-on-failure
+```
+
+Preset names follow the pattern `<platform>-<config>[-debugger]`, where:
+
+- `<platform>` selects the OS, architecture and compiler/toolchain. Presets default to the Ninja generator
+  wherever possible (MSVC presets use the Visual Studio generator instead):
+
+  | Platform          | OS      | Arch  | Compiler / Generator                    |
+    |-------------------|---------|-------|------------------------------------------|
+  | `win-x64-mingw`   | Windows | x64   | MinGW g++ (Ninja)                        |
+  | `win-x64-msvc`    | Windows | x64   | MSVC (Visual Studio 18 2026)              |
+  | `win-arm64-msvc`  | Windows | arm64 | MSVC (Visual Studio 18 2026)              |
+  | `win-x64-clang`   | Windows | x64   | clang++ (Ninja)                          |
+  | `mac-x64`         | macOS   | x64   | AppleClang (Ninja)                       |
+  | `mac-arm64`       | macOS   | arm64 | AppleClang (Ninja)                       |
+  | `lin-x64-gcc`     | Linux   | x64   | g++ (Ninja)                              |
+  | `lin-x64-clang`   | Linux   | x64   | clang++ (Ninja)                          |
+  | `lin-arm64-gcc`   | Linux   | arm64 | g++ (Ninja)                              |
+  | `lin-arm64-clang` | Linux   | arm64 | clang++ (Ninja)                          |
+
+- `<config>` is either `release` (`CMAKE_BUILD_TYPE=Release`) or `debug` (`CMAKE_BUILD_TYPE=Debug`).
+- an optional trailing `-debugger` suffix additionally sets `ENABLE_DEBUGGER=ON`, compiling in the interactive/GDB
+  debugger support described below.
+
+For example:
+
+```bash
+cmake --preset lin-x64-gcc-debug-debugger
+cmake --build build/lin-x64-gcc-debug-debugger -j$(nproc)
+ctest --test-dir build/lin-x64-gcc-debug-debugger --output-on-failure
+```
+
+Every platform has 4 presets (`release`, `debug`, `release-debugger`, `debug-debugger`), giving 40 presets in total.
+Binary output for each preset lands in its own `build/<preset-name>` directory.
 
 # Quick Start Guide
 

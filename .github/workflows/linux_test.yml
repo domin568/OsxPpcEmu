@@ -14,23 +14,19 @@ jobs:
           - arch: x64
             compiler: gcc
             runner: ubuntu-latest
-            triplet: x64-linux
-            cxx: g++
+            preset: lin-x64-gcc-release
           - arch: x64
             compiler: clang
             runner: ubuntu-latest
-            triplet: x64-linux
-            cxx: clang++-22
+            preset: lin-x64-clang-release
           - arch: arm64
             compiler: gcc
-            runner: ubuntu-latest-arm
-            triplet: arm64-linux
-            cxx: g++
+            runner: ubuntu-26.04-arm
+            preset: lin-arm64-gcc-release
           - arch: arm64
             compiler: clang
-            runner: ubuntu-latest-arm
-            triplet: arm64-linux
-            cxx: clang++-22
+            runner: ubuntu-26.04-arm
+            preset: lin-arm64-clang-release
 
     steps:
       - name: Checkout Repository
@@ -47,16 +43,11 @@ jobs:
         uses: lukka/run-vcpkg@v11
 
       - name: Configure CMake
-        run: |
-          cmake -B build -S . \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+        run: cmake --preset ${{ matrix.preset }}
 
       - name: Build Project
-        run: cmake --build build --config Release -j$(nproc)
+        run: cmake --build build/${{ matrix.preset }} -j$(nproc)
 
       - name: Run Tests
         run: |
-          ctest --test-dir build -C Release --output-on-failure
+          ctest --test-dir build/${{ matrix.preset }} --output-on-failure

@@ -1,0 +1,45 @@
+name: Windows x64 MinGW Build, Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Windows x64 MinGW
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gcc-libs
+            mingw-w64-ucrt-x86_64-binutils
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          $env:PATH = "C:\msys64\ucrt64\bin;$env:PATH"
+
+          cmake --preset win-x64-mingw-release
+
+      - name: Build Project
+        shell: pwsh
+        run: |
+          $env:PATH = "C:\msys64\ucrt64\bin;$env:PATH"
+          cmake --build build/win-x64-mingw-release --config Release --parallel
+
+      - name: Run Tests
+        shell: pwsh
+        run: |
+          $env:PATH = "C:\msys64\ucrt64\bin;$env:PATH"
+          ctest --test-dir build/win-x64-mingw-release -C Release --output-on-failure

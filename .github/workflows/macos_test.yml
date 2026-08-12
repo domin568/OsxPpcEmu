@@ -12,11 +12,11 @@ jobs:
       matrix:
         include:
           - os: macos-26
-            triplet: x64-osx
             arch: x64
+            preset: mac-x64-release
           - os: macos-latest
-            triplet: arm64-osx
             arch: arm64
+            preset: mac-arm64-release
 
     steps:
       - name: Checkout Repository
@@ -26,23 +26,12 @@ jobs:
         uses: lukka/run-vcpkg@v11
 
       - name: Configure CMake
-        run: |
-          if [ "${{ matrix.arch }}" = "x64" ]; then
-            OSX_ARCH="x86_64"
-          else
-            OSX_ARCH="arm64"
-          fi
-          
-          cmake -B build -S . \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCH" \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+        run: cmake --preset ${{ matrix.preset }}
 
       - name: Build Project
         run: |
-          cmake --build build --config Release --parallel
+          cmake --build build/${{ matrix.preset }} --parallel
 
       - name: Run Tests with CTest
         run: |
-          ctest --test-dir build -C Release --output-on-failure
+          ctest --test-dir build/${{ matrix.preset }} --output-on-failure

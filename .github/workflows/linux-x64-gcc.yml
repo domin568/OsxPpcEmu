@@ -1,0 +1,25 @@
+name: Linux x64 GCC Build, Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Linux x64 GCC
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg and Cache
+        uses: lukka/run-vcpkg@v11
+
+      - name: Configure CMake
+        run: cmake --preset lin-x64-gcc-release
+
+      - name: Build Project
+        run: cmake --build build/lin-x64-gcc-release -j$(nproc)
+
+      - name: Run Tests
+        run: ctest --test-dir build/lin-x64-gcc-release --output-on-failure

@@ -12,11 +12,11 @@ jobs:
       matrix:
         include:
           - os: macos-26
-            triplet: x64-osx
             arch: x64
+            preset: mac-x64-release
           - os: macos-latest
-            triplet: arm64-osx
             arch: arm64
+            preset: mac-arm64-release
 
     steps:
       - name: Checkout Repository
@@ -26,29 +26,17 @@ jobs:
         uses: lukka/run-vcpkg@v11
 
       - name: Configure CMake
-        run: |
-          if [ "${{ matrix.arch }}" = "x64" ]; then
-            OSX_ARCH="x86_64"
-          else
-            OSX_ARCH="arm64"
-          fi
-          
-          cmake -B build -S . \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DENABLE_COVERAGE=ON \
-            -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCH" \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+        run: cmake --preset ${{ matrix.preset }} -DENABLE_COVERAGE=ON
 
       - name: Build Project
         run: |
-          cmake --build build --config Release --parallel
+          cmake --build build/${{ matrix.preset }} --parallel
 
       - name: Run Tests with CTest
         env:
           LLVM_PROFILE_FILE: "${{ github.workspace }}/coverage-%p.profraw"
         run: |
-          ctest --test-dir build -C Release --output-on-failure
+          ctest --test-dir build/${{ matrix.preset }} --output-on-failure
 
       - name: Process & Report Code Coverage
         run: |
@@ -57,13 +45,13 @@ jobs:
           IGNORE_PATTERN="vcpkg_installed|_deps|build/|/usr/|/Applications/"
 
           echo "=== COVERAGE SUMMARY ==="
-          xcrun llvm-cov report ./build/test/OsxPpcEmuTest \
-            -object=./build/test/OsxPpcEmuE2E \
+          xcrun llvm-cov report ./build/${{ matrix.preset }}/test/OsxPpcEmuTest \
+            -object=./build/${{ matrix.preset }}/test/OsxPpcEmuE2E \
             -instr-profile=coverage.profdata \
             -ignore-filename-regex="$IGNORE_PATTERN"
 
-          xcrun llvm-cov show ./build/test/OsxPpcEmuTest \
-            -object=./build/test/OsxPpcEmuE2E \
+          xcrun llvm-cov show ./build/${{ matrix.preset }}/test/OsxPpcEmuTest \
+            -object=./build/${{ matrix.preset }}/test/OsxPpcEmuE2E \
             -instr-profile=coverage.profdata \
             -ignore-filename-regex="$IGNORE_PATTERN" \
             -format=html \

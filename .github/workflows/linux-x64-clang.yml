@@ -1,0 +1,31 @@
+name: Linux x64 Clang Build, Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Linux x64 Clang
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Clang 22
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 22
+
+      - name: Setup vcpkg and Cache
+        uses: lukka/run-vcpkg@v11
+
+      - name: Configure CMake
+        run: cmake --preset lin-x64-clang-release
+
+      - name: Build Project
+        run: cmake --build build/lin-x64-clang-release -j$(nproc)
+
+      - name: Run Tests
+        run: ctest --test-dir build/lin-x64-clang-release --output-on-failure

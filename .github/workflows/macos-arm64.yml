@@ -1,0 +1,25 @@
+name: macOS ARM64 Build, Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: macOS ARM64
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg and Cache
+        uses: lukka/run-vcpkg@v11
+
+      - name: Configure CMake
+        run: cmake --preset mac-arm64-release
+
+      - name: Build Project
+        run: cmake --build build/mac-arm64-release --parallel
+
+      - name: Run Tests
+        run: ctest --test-dir build/mac-arm64-release --output-on-failure
