@@ -45,7 +45,7 @@
       }
     },
     {
-      "name": "plt-win-x64-msvc",
+      "name": "plt-win-x64-msvc26",
       "hidden": true,
       "generator": "Visual Studio 18 2026",
       "architecture": "x64",
@@ -54,9 +54,27 @@
       }
     },
     {
-      "name": "plt-win-arm64-msvc",
+      "name": "plt-win-arm64-msvc26",
       "hidden": true,
       "generator": "Visual Studio 18 2026",
+      "architecture": "ARM64",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "arm64-windows"
+      }
+    },
+    {
+      "name": "plt-win-x64-msvc22",
+      "hidden": true,
+      "generator": "Visual Studio 18 2022",
+      "architecture": "x64",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
+    },
+    {
+      "name": "plt-win-arm64-msvc22",
+      "hidden": true,
+      "generator": "Visual Studio 18 2022",
       "architecture": "ARM64",
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "arm64-windows"
@@ -67,7 +85,6 @@
       "hidden": true,
       "generator": "Ninja",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
         "CMAKE_CXX_COMPILER": "clang++",
         "VCPKG_TARGET_TRIPLET": "x64-windows"
       }
@@ -161,69 +178,137 @@
       ]
     },
     {
-      "name": "win-x64-msvc-release",
+      "name": "win-x64-msvc26-release",
       "inherits": [
         "base",
-        "plt-win-x64-msvc",
+        "plt-win-x64-msvc26",
         "cfg-release"
       ]
     },
     {
-      "name": "win-x64-msvc-debug",
+      "name": "win-x64-msvc26-debug",
       "inherits": [
         "base",
-        "plt-win-x64-msvc",
+        "plt-win-x64-msvc26",
         "cfg-debug"
       ]
     },
     {
-      "name": "win-x64-msvc-release-debugger",
+      "name": "win-x64-msvc26-release-debugger",
       "inherits": [
         "base",
-        "plt-win-x64-msvc",
+        "plt-win-x64-msvc26",
         "cfg-release",
         "feat-debugger"
       ]
     },
     {
-      "name": "win-x64-msvc-debug-debugger",
+      "name": "win-x64-msvc26-debug-debugger",
       "inherits": [
         "base",
-        "plt-win-x64-msvc",
+        "plt-win-x64-msvc26",
         "cfg-debug",
         "feat-debugger"
       ]
     },
     {
-      "name": "win-arm64-msvc-release",
+      "name": "win-arm64-msvc26-release",
       "inherits": [
         "base",
-        "plt-win-arm64-msvc",
+        "plt-win-arm64-msvc26",
         "cfg-release"
       ]
     },
     {
-      "name": "win-arm64-msvc-debug",
+      "name": "win-arm64-msvc26-debug",
       "inherits": [
         "base",
-        "plt-win-arm64-msvc",
+        "plt-win-arm64-msvc26",
         "cfg-debug"
       ]
     },
     {
-      "name": "win-arm64-msvc-release-debugger",
+      "name": "win-arm64-msvc26-release-debugger",
       "inherits": [
         "base",
-        "plt-win-arm64-msvc",
+        "plt-win-arm64-msvc26",
         "cfg-release",
         "feat-debugger"
       ]
     },
     {
-      "name": "win-arm64-msvc-debug-debugger",
+      "name": "win-arm64-msvc26-debug-debugger",
       "inherits": [
         "base",
-        "plt-win-arm64-msvc",
+        "plt-win-arm64-msvc26",
+        "cfg-debug",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "win-x64-msvc22-release",
+      "inherits": [
+        "base",
+        "plt-win-x64-msvc22",
+        "cfg-release"
+      ]
+    },
+    {
+      "name": "win-x64-msvc22-debug",
+      "inherits": [
+        "base",
+        "plt-win-x64-msvc22",
+        "cfg-debug"
+      ]
+    },
+    {
+      "name": "win-x64-msvc22-release-debugger",
+      "inherits": [
+        "base",
+        "plt-win-x64-msvc22",
+        "cfg-release",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "win-x64-msvc22-debug-debugger",
+      "inherits": [
+        "base",
+        "plt-win-x64-msvc22",
+        "cfg-debug",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "win-arm64-msvc22-release",
+      "inherits": [
+        "base",
+        "plt-win-arm64-msvc22",
+        "cfg-release"
+      ]
+    },
+    {
+      "name": "win-arm64-msvc22-debug",
+      "inherits": [
+        "base",
+        "plt-win-arm64-msvc22",
+        "cfg-debug"
+      ]
+    },
+    {
+      "name": "win-arm64-msvc22-release-debugger",
+      "inherits": [
+        "base",
+        "plt-win-arm64-msvc22",
+        "cfg-release",
+        "feat-debugger"
+      ]
+    },
+    {
+      "name": "win-arm64-msvc22-debug-debugger",
+      "inherits": [
+        "base",
+        "plt-win-arm64-msvc22",
         "cfg-debug",
         "feat-debugger"
       ]
