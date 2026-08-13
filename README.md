@@ -21,15 +21,17 @@ If emulator has unimplemented API call it could look like this in stdout (in Deb
 Requires CMake and a C++23 compiler. The project is configured through
 [CMake presets](CMakePresets.json). Dependencies are managed with [vcpkg](https://github.com/microsoft/vcpkg).
 
+```bash
+git clone https://github.com/domin568/OsxPpcEmu.git
+cd OsxPpcEmu
+```
+
 ### Installing vcpkg
 
 ```bash
 git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
 ~/vcpkg/bootstrap-vcpkg.sh      # macOS / Linux
 # ~/vcpkg/bootstrap-vcpkg.bat   # Windows
-
-export VCPKG_ROOT="$HOME/vcpkg"        # macOS / Linux
-# $env:VCPKG_ROOT = "C:\vcpkg"         # Windows PowerShell
 ```
 
 Dependencies from [`vcpkg.json`](vcpkg.json) are installed automatically on first configure.
@@ -44,11 +46,11 @@ ctest --test-dir build/<preset-name> --output-on-failure
 
 Preset names follow the pattern `<platform>-<config>[-debugger]`, where:
 
-- `<platform>` selects the OS, architecture and compiler/toolchain. Presets default to the Ninja generator
-  wherever possible (MSVC presets use the Visual Studio generator instead):
+- `<platform>` selects the OS, architecture and compiler/toolchain. Presets default to the Ninja generator wherever
+  possible (MSVC presets use the Visual Studio generator instead):
 
   | Platform          | OS      | Arch  | Compiler / Generator                    |
-    |-------------------|---------|-------|------------------------------------------|
+          |-------------------|---------|-------|------------------------------------------|
   | `win-x64-mingw`   | Windows | x64   | MinGW g++ (Ninja)                        |
   | `win-x64-msvc`    | Windows | x64   | MSVC (Visual Studio 18 2026)              |
   | `win-arm64-msvc`  | Windows | arm64 | MSVC (Visual Studio 18 2026)              |
