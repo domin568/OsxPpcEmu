@@ -65,7 +65,7 @@
     {
       "name": "plt-win-x64-msvc22",
       "hidden": true,
-      "generator": "Visual Studio 18 2022",
+      "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "x64-windows"
@@ -74,7 +74,7 @@
     {
       "name": "plt-win-arm64-msvc22",
       "hidden": true,
-      "generator": "Visual Studio 18 2022",
+      "generator": "Visual Studio 17 2022",
       "architecture": "ARM64",
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "arm64-windows"
