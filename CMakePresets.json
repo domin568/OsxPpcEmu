@@ -68,7 +68,8 @@
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x64-windows"
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "VCPKG_PLATFORM_TOOLSET": "v143"
       }
     },
     {
@@ -77,7 +78,8 @@
       "generator": "Visual Studio 17 2022",
       "architecture": "ARM64",
       "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "arm64-windows"
+        "VCPKG_TARGET_TRIPLET": "arm64-windows",
+        "VCPKG_PLATFORM_TOOLSET": "v143"
       }
     },
     {
