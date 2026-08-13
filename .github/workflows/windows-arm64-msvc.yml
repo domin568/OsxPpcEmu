@@ -17,10 +17,10 @@ jobs:
 
       - name: Configure CMake
         shell: pwsh
-        run: cmake --preset win-arm64-msvc-release
+        run: cmake --preset win-arm64-msvc26-release
 
       - name: Build Project
-        run: cmake --build build/win-arm64-msvc-release --config Release --parallel
+        run: cmake --build build/win-arm64-msvc26-release --config Release --parallel
 
       - name: Run Tests
-        run: ctest --test-dir build/win-arm64-msvc-release -C Release --output-on-failure
+        run: ctest --test-dir build/win-arm64-msvc26-release -C Release --output-on-failure
