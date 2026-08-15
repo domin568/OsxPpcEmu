@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 project(OsxPpcEmu LANGUAGES C CXX)
 
 if (MSVC)
-    add_compile_options(/MP)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "CRT option")
+    add_compile_options(/MP /utf-8 /Zc:preprocessor)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif ()
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,8 +25,8 @@ set(SOURCE_FILES
         src/shims/carbon/CarbonShims.cpp
         src/shims/dyld/DyldShims.cpp
         src/shims/libc/LibcShims.cpp
-        src/shims/AbiTranslate.cpp
-        src/shims/FsTranslate.cpp
+        src/platform/AbiTranslate.cpp
+        src/platform/FsTranslate.cpp
         third_party/printf/printf.c
         third_party/scanf/scanf.c
 )
@@ -48,16 +48,22 @@ set(HEADER_FILES
         include/debug/PlatformSocket.hpp
         include/PpcStructures.hpp
         include/shims/ShimContext.hpp
-        include/shims/AbiTranslate.hpp
-        include/shims/FsTranslate.hpp
         include/shims/carbon/CarbonShims.hpp
         include/shims/dyld/DyldShims.hpp
         include/shims/libc/LibcShims.hpp
+        include/platform/AbiTranslate.hpp
+        include/platform/FsTranslate.hpp
         third_party/printf/printf.h
         third_party/scanf/scanf.h
 )
 
-option(ENABLE_DEBUGGER "Enable built-in PPC debugger and GDB server" OFF)
+if(WIN32)
+    list(APPEND HEADER_FILES
+        include/platform/PosixCompat.hpp
+    )
+endif()
+
+option(DEBUGGER_ENABLED "Enable built-in PPC debugger and GDB server" OFF)
 
 add_library(OsxPpcEmuLib STATIC ${SOURCE_FILES} ${HEADER_FILES})
 target_include_directories(OsxPpcEmuLib PUBLIC
@@ -67,7 +73,17 @@ target_include_directories(OsxPpcEmuLib PUBLIC
         ${CMAKE_SOURCE_DIR}/include/hook
         ${CMAKE_SOURCE_DIR}/include/loader
 )
-target_compile_definitions(OsxPpcEmuLib PRIVATE $<$<BOOL:${ENABLE_DEBUGGER}>:DEBUGGER_ENABLED>)
+target_compile_definitions(OsxPpcEmuLib PRIVATE $<$<BOOL:${DEBUGGER_ENABLED}>:DEBUGGER_ENABLED>)
+
+if (WIN32)
+    target_compile_definitions(OsxPpcEmuLib PUBLIC
+            NOMINMAX
+            WIN32_LEAN_AND_MEAN
+            _CRT_SECURE_NO_WARNINGS
+            _CRT_NONSTDC_NO_WARNINGS
+            _CRT_SECURE_NO_DEPRECATE
+    )
+endif ()
 
 find_package(PkgConfig QUIET)
 
@@ -107,7 +123,19 @@ elseif (PkgConfig_FOUND)
         target_link_libraries(OsxPpcEmuLib PUBLIC unicorn)
     endif ()
 else ()
-    message(STATUS "Unicorn not found; using FetchContent")
+    message(STATUS "pkg-config not found; searching for Unicorn library directly")
+    find_library(UNICORN_LIBRARY NAMES unicorn)
+    find_path(UNICORN_INCLUDE_DIR NAMES unicorn/unicorn.h)
+    if (UNICORN_LIBRARY AND UNICORN_INCLUDE_DIR)
+        add_library(Unicorn::Unicorn INTERFACE IMPORTED)
+        set_target_properties(Unicorn::Unicorn PROPERTIES
+                INTERFACE_INCLUDE_DIRECTORIES "${UNICORN_INCLUDE_DIR}"
+                INTERFACE_LINK_LIBRARIES "${UNICORN_LIBRARY}"
+        )
+        target_link_libraries(OsxPpcEmuLib PUBLIC Unicorn::Unicorn)
+    else ()
+        message(FATAL_ERROR "Unicorn library not found")
+    endif ()
 endif ()
 
 find_package(LIEF CONFIG QUIET)
@@ -149,13 +177,13 @@ endif ()
 find_package(Threads REQUIRED)
 target_link_libraries(OsxPpcEmuLib PUBLIC Threads::Threads)
 
-if (WIN32 AND ENABLE_DEBUGGER)
+if (WIN32)
     target_link_libraries(OsxPpcEmuLib PUBLIC ws2_32)
 endif ()
 
 add_executable(${EXECUTABLE_NAME} src/main.cpp)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE OsxPpcEmuLib)
-target_compile_definitions(${EXECUTABLE_NAME} PRIVATE $<$<BOOL:${ENABLE_DEBUGGER}>:DEBUGGER_ENABLED>)
+target_compile_definitions(${EXECUTABLE_NAME} PRIVATE $<$<BOOL:${DEBUGGER_ENABLED}>:DEBUGGER_ENABLED>)
 
 include(CTest)
 enable_testing()

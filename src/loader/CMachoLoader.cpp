@@ -42,6 +42,10 @@ std::expected<CMachoLoader, Error> CMachoLoader::init( const std::string &path )
     const LIEF::MachO::ParserConfig conf{ LIEF::MachO::ParserConfig::deep() };
     std::unique_ptr<LIEF::MachO::FatBinary> fat{ LIEF::MachO::Parser::parse( path, conf ) };
 
+    if (!fat)
+        return std::unexpected{
+            Error{ Error::Type::FatMacho, "LIEF failed to parse the Mach-O file (parse returned null)." } };
+
     if (fat->size() > 1)
         return std::unexpected{ Error{ Error::Type::FatMacho, "FAT MachO binaries are not supported" } };
 

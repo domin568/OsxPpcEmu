@@ -4,6 +4,8 @@
  * Brief:     GDB Remote Serial Protocol server implementation
  **/
 
+#ifdef DEBUGGER_ENABLED
+
 #include "../../include/debug/CGdbServer.hpp"
 #include "../../include/Common.hpp"
 #include "../../include/debug/CDebugger.hpp"
@@ -14,8 +16,6 @@
 #include <iostream>
 #include <sstream>
 #include <vector>
-
-#ifdef DEBUGGER_ENABLED
 
 namespace gdb
 {

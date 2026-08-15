@@ -11,6 +11,9 @@
 #include <iostream>
 #include <string_view>
 #include <vector>
+#ifdef _WIN32
+#include "../include/platform/PosixCompat.hpp"
+#endif
 
 namespace
 {
@@ -26,6 +29,9 @@ constexpr std::string_view Heap_Mode_Flag_Prefix{ "--heap-mode=" };
 
 int main( int argc, const char *argv[] )
 {
+#ifdef _WIN32
+    init_crt_posix_error_semantics();
+#endif
     if (argc < 2)
     {
         std::cerr << "Usage: " << argv[0] << " [--heap-mode=bump|quarantine|real] <executable> [args]" << std::endl;

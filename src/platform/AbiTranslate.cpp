@@ -3,7 +3,7 @@
  * Created:   02.08.2026
  * Brief:     Guest (Darwin/Mac OS X 10.4) <-> host ABI constant translation
  **/
-#include "shims/AbiTranslate.hpp"
+#include "platform/AbiTranslate.hpp"
 #include <cerrno>
 #include <fcntl.h>
 
@@ -33,7 +33,8 @@ int darwin_oflags_to_host( std::int32_t darwinFlags )
             hostFlags |= hostBit;
     } };
 
-    map( Darwin_O_NONBLOCK, O_NONBLOCK );
+    // TODO O_NONBLOCK has no exact host equivalent when the host is Windows, it's simply dropped.
+    //map( Darwin_O_NONBLOCK, O_NONBLOCK );
     map( Darwin_O_APPEND, O_APPEND );
     map( Darwin_O_CREAT, O_CREAT );
     map( Darwin_O_TRUNC, O_TRUNC );
@@ -160,22 +161,22 @@ std::int32_t host_errno_to_darwin( int hostErrno )
     case ENOSR:
         return 98;
 #endif
-    case EREMOTE:
-        return 71;
+    //case EREMOTE:
+    //    return 71;
 #ifdef ENOLINK
     case ENOLINK:
         return 97;
 #endif
     case EPROTO:
         return 100;
-    case EMULTIHOP:
-        return 95;
+    //case EMULTIHOP:
+    //    return 95;
     case EBADMSG:
         return 94;
     case EILSEQ:
         return 92;
-    case EUSERS:
-        return 68;
+    //case EUSERS:
+    //    return 68;
     case ENOTSOCK:
         return 38;
     case EDESTADDRREQ:
@@ -220,10 +221,10 @@ std::int32_t host_errno_to_darwin( int hostErrno )
         return 56;
     case ENOTCONN:
         return 57;
-    case ESHUTDOWN:
-        return 58;
-    case ETOOMANYREFS:
-        return 59;
+    //case ESHUTDOWN:
+    //    return 58;
+    //case ETOOMANYREFS:
+    //    return 59;
     case ETIMEDOUT:
         return 60;
     case ECONNREFUSED:
@@ -238,10 +239,10 @@ std::int32_t host_errno_to_darwin( int hostErrno )
         return 37;
     case EINPROGRESS:
         return 36;
-    case ESTALE:
-        return 70;
-    case EDQUOT:
-        return 69;
+    //case ESTALE:
+    //    return 70;
+    //case EDQUOT:
+    //    return 69;
     case ECANCELED:
         return 89;
     case EOVERFLOW:

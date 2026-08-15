@@ -4,7 +4,7 @@
  * Brief:     Guest (Darwin/Mac OS X 10.4) case insensitive FS <-> host FS translation layer
  **/
 
-#include "shims/FsTranslate.hpp"
+#include "platform/FsTranslate.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
@@ -13,8 +13,35 @@ namespace fs = std::filesystem;
 namespace fs_translate
 {
 
+#ifdef _WIN32
+namespace
+{
+// "/c/a/b" (or "/c") -> "C:\a\b". Returns nullopt when the path is not in MSYS drive form.
+std::optional<fs::path> from_guest_drive_form( const std::string &p )
+{
+    if (p.size() < 2 || p[0] != '/' || !std::isalpha( static_cast<unsigned char>( p[1] ) ))
+        return std::nullopt;
+    if (p.size() > 2 && p[2] != '/')
+        return std::nullopt;
+
+    std::string host{ std::string{ p[1] } + ":\\" };
+    if (p.size() > 3)
+        host += p.substr( 3 );
+    std::ranges::replace( host, '/', '\\' );
+    return fs::path{ host };
+}
+} // namespace
+#endif
+
 fs::path translate_path( fs::path path )
 {
+    /*
+#ifdef _WIN32
+    // Undo to_guest_path(): the guest hands back the POSIX spelling we gave it.
+    if (const auto host{ from_guest_drive_form( path.generic_string() ) })
+        path = *host;
+#endif
+    */
     if (fs::exists( path ) || !is_filesystem_case_sensitive)
         return path;
 

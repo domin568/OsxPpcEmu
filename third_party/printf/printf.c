@@ -654,7 +654,7 @@ void _putchar( char character )
 }
 
 // internal vsnprintf
-static int _vsnprintf( out_fct_type out, char *buffer, const size_t maxlen, const char *format, const uint64_t *args )
+static int printf__vsnprintf_impl( out_fct_type out, char *buffer, const size_t maxlen, const char *format, const uint64_t *args )
 {
     const uint64_t *cur_arg = args;
     unsigned int flags, width, precision, n;
@@ -1022,36 +1022,36 @@ static int _vsnprintf( out_fct_type out, char *buffer, const size_t maxlen, cons
 int printf_( const char *format, const uint64_t *args )
 {
     char buffer[1];
-    const int ret = _vsnprintf( _out_char, buffer, (size_t)-1, format, args );
+    const int ret = printf__vsnprintf_impl( _out_char, buffer, (size_t)-1, format, args );
     return ret;
 }
 
 int sprintf_( char *buffer, const char *format, const uint64_t *args )
 {
-    const int ret = _vsnprintf( _out_buffer, buffer, (size_t)-1, format, args );
+    const int ret = printf__vsnprintf_impl( _out_buffer, buffer, (size_t)-1, format, args );
     return ret;
 }
 
 int snprintf_( char *buffer, size_t count, const char *format, const uint64_t *args )
 {
-    const int ret = _vsnprintf( _out_buffer, buffer, count, format, args );
+    const int ret = printf__vsnprintf_impl( _out_buffer, buffer, count, format, args );
     return ret;
 }
 
 int vprintf_( const char *format, const uint64_t *args )
 {
     char buffer[1];
-    return _vsnprintf( _out_char, buffer, (size_t)-1, format, args );
+    return printf__vsnprintf_impl( _out_char, buffer, (size_t)-1, format, args );
 }
 
 int vsnprintf_( char *buffer, size_t count, const char *format, const uint64_t *args )
 {
-    return _vsnprintf( _out_buffer, buffer, count, format, args );
+    return printf__vsnprintf_impl( _out_buffer, buffer, count, format, args );
 }
 
 int fctprintf( void ( *out )( char character, void *arg ), void *arg, const char *format, const uint64_t *args )
 {
     const out_fct_wrap_type out_fct_wrap = { out, arg };
-    const int ret = _vsnprintf( _out_fct, (char *)(uintptr_t)&out_fct_wrap, (size_t)-1, format, args );
+    const int ret = printf__vsnprintf_impl( _out_fct, (char *)(uintptr_t)&out_fct_wrap, (size_t)-1, format, args );
     return ret;
 }

@@ -1,8 +1,5 @@
-/samples
 .DS_Store
 /build
-/cmake-build-debug
-/thirdparty
 /.idea
 /resources
-/proj_msvc
+/vcpkg

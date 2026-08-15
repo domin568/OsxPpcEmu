@@ -128,7 +128,7 @@ class MwpefldE2E : public ::testing::Test
                          << "). See test/test_files/e2e/MANIFEST.txt for what's required.";
 
 #ifdef DEBUGGER_ENABLED
-        GTEST_SKIP() << "E2E test requires a release build with ENABLE_DEBUGGER=OFF "
+        GTEST_SKIP() << "E2E test requires a release build with DEBUGGER_ENABLED=OFF "
                         "(debug build blocks on the interactive debugger prompt).";
 #endif
         m_sandbox = make_unique_sandbox_dir( "osxppcemu_e2e" );

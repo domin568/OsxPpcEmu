@@ -32,7 +32,7 @@
       "name": "feat-debugger",
       "hidden": true,
       "cacheVariables": {
-        "ENABLE_DEBUGGER": "ON"
+        "DEBUGGER_ENABLED": "ON"
       }
     },
     {
@@ -40,7 +40,8 @@
       "hidden": true,
       "generator": "Ninja",
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_C_COMPILER": "x86_64-w64-mingw32-gcc",
+        "CMAKE_CXX_COMPILER": "x86_64-w64-mingw32-g++",
         "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic"
       }
     },

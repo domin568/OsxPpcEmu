@@ -9,16 +9,19 @@
 #include "PpcStructures.hpp"
 #include "shims/ShimContext.hpp"
 #include <array>
-#include <dirent.h>
 #include <numeric>
-#include <sys/fcntl.h>
+#include <fcntl.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <unordered_map>
 #include <vector>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #include <sys/xattr.h>
+#elif defined( _WIN32 )
+#include "platform/PosixCompat.hpp"
+#else
+#include <dirent.h>
+#include <unistd.h>
 #endif
 
 namespace import::callback
@@ -1006,7 +1009,13 @@ bool FSGetCatalogInfo( ShimContext &ctx )
         if (haveStat && !isDir)
         {
             const std::uint64_t logSize{ static_cast<std::uint64_t>( st.st_size ) };
+#ifdef _WIN32
+            // MSVC's struct stat has no st_blocks; approximate physical size by rounding
+            // the logical size up to the nearest 512-byte sector.
+            const std::uint64_t physSize{ ( logSize + 511u ) / 512u * 512u };
+#else
             const std::uint64_t physSize{ static_cast<std::uint64_t>( st.st_blocks ) * 512u };
+#endif
             if (whichInfo & 0x00004000) // kFSCatInfoDataSizes
             {
                 put64( 104, logSize );

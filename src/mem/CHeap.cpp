@@ -84,7 +84,7 @@ std::size_t CHeap::small_bin_index( std::size_t chunkSize )
 std::size_t CHeap::chunk_size_for_payload( std::size_t payloadSize )
 {
     const std::size_t aligned{ common::align_up( payloadSize, common::Heap_Alignment ) };
-    return std::max( aligned + common::Heap_Header_Size, common::Heap_Min_Chunk_Size );
+    return std::max<std::size_t>( aligned + common::Heap_Header_Size, common::Heap_Min_Chunk_Size );
 }
 
 void CHeap::bin_insert( std::uint32_t chunkVa, std::size_t chunkSize )
@@ -150,7 +150,7 @@ bool CHeap::grow( std::size_t additionalNeeded )
     if (delta == 0)
         delta = common::Heap_Commit_Granularity;
     const std::size_t remaining{ m_maxSize - m_committedSize };
-    delta = std::min( delta, remaining );
+    delta = std::min<std::size_t>( delta, remaining );
     if (delta == 0)
         return false;
     if (!m_owner->commit( m_baseVa + m_committedSize, delta, UC_PROT_ALL ))
@@ -272,7 +272,7 @@ std::uint32_t CHeap::alloc( std::size_t size )
 
     const ChunkHeader finalHeader{ read_header( va ) };
     m_stats.bytesInUse += finalHeader.size - common::Heap_Header_Size;
-    m_stats.peakBytesInUse = std::max( m_stats.peakBytesInUse, m_stats.bytesInUse );
+    m_stats.peakBytesInUse = std::max<std::uint64_t>( m_stats.peakBytesInUse, m_stats.bytesInUse );
     return va + static_cast<std::uint32_t>( common::Heap_Header_Size );
 }
 
@@ -511,7 +511,7 @@ std::uint32_t CHeap::realloc( std::uint32_t guestPtr, std::size_t size )
     if (newPtr == 0)
         return 0;
     const std::size_t oldPayload{ h.size - common::Heap_Header_Size };
-    const std::size_t copySize{ std::min( oldPayload, size ) };
+    const std::size_t copySize{ std::min<std::size_t>( oldPayload, size ) };
     std::memcpy( host( newPtr ), host( guestPtr ), copySize );
     free( guestPtr );
     return newPtr;

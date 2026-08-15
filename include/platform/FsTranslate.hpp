@@ -6,11 +6,13 @@
 
 #pragma once
 #include <filesystem>
+#include <string>
 
 namespace fs = std::filesystem;
 namespace fs_translate
 {
 fs::path translate_path( fs::path path );
+std::string to_guest_path( const fs::path &hostPath ); // No-op on POSIX hosts.
 
 inline static const bool is_filesystem_case_sensitive{ []() -> bool {
     const fs::path temp_file{ fs::temp_directory_path() / "case_test" };

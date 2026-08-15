@@ -9,29 +9,54 @@
 #include "COsxPpcEmu.hpp"
 #include "ImportDispatch.hpp"
 #include "PpcStructures.hpp"
-#include "shims/AbiTranslate.hpp"
-#include "shims/FsTranslate.hpp"
+#include "platform/AbiTranslate.hpp"
+#include "platform/FsTranslate.hpp"
 #include "shims/ShimContext.hpp"
 #include <array>
 #include <climits>
 #include <cstdio>
-#include <dirent.h>
 #include <limits>
-#include <netdb.h>
 #include <numeric>
 #include <span>
 #include <string_view>
-#include <sys/fcntl.h>
+#include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/times.h>
-#include <unistd.h>
-#include <utime.h>
 #include <vector>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
+#elif defined( _WIN32 )
+#include "platform/PosixCompat.hpp"
+#include <windows.h>
+#include <winsock2.h>
+#else
+#include <netdb.h>
+#include <unistd.h>
+#include <utime.h>
 #endif
 #include <cassert>
 #include <locale.h>
+#ifndef _WIN32
+#include <dirent.h>
+#endif
+
+#if defined(_WIN32) && defined(DEBUGGER_ENABLED)
+namespace
+{
+struct WinsockInit
+{
+    WinsockInit()
+    {
+        WSADATA wsaData{};
+        ::WSAStartup( MAKEWORD( 2, 2 ), &wsaData );
+    }
+    ~WinsockInit()
+    {
+        ::WSACleanup();
+    }
+};
+const WinsockInit g_winsockInit{};
+} // namespace
+#endif
 
 namespace import::callback
 {
@@ -50,8 +75,15 @@ static void fill_guest_stat( guest::stat *guestStat, const struct stat &hostStat
     guestStat->st_gid = be( static_cast<std::uint32_t>( hostStat.st_gid ) );
     guestStat->st_rdev = be( static_cast<std::int32_t>( hostStat.st_rdev ) );
     guestStat->st_size = be( static_cast<std::int64_t>( hostStat.st_size ) );
+#if defined( _WIN32 )
+    // MSVC's struct stat has no st_blocks/st_blksize; fabricate POSIX-like values.
+    guestStat->st_blksize = be( static_cast<std::int32_t>( 4096 ) );
+    guestStat->st_blocks =
+        be( static_cast<std::int64_t>( ( static_cast<std::int64_t>( hostStat.st_size ) + 511 ) / 512 ) );
+#else
     guestStat->st_blocks = be( static_cast<std::int64_t>( hostStat.st_blocks ) );
     guestStat->st_blksize = be( static_cast<std::int32_t>( hostStat.st_blksize ) );
+#endif
 
 #if defined( __APPLE__ )
     guestStat->st_atimespec.tv_sec = be( static_cast<std::uint32_t>( hostStat.st_atimespec.tv_sec ) );
@@ -60,6 +92,14 @@ static void fill_guest_stat( guest::stat *guestStat, const struct stat &hostStat
     guestStat->st_mtimespec.tv_nsec = be( static_cast<std::uint32_t>( hostStat.st_mtimespec.tv_nsec ) );
     guestStat->st_ctimespec.tv_sec = be( static_cast<std::uint32_t>( hostStat.st_ctimespec.tv_sec ) );
     guestStat->st_ctimespec.tv_nsec = be( static_cast<std::uint32_t>( hostStat.st_ctimespec.tv_nsec ) );
+#elif defined( _WIN32 )
+    // MSVC's struct stat only has second-granularity st_atime/st_mtime/st_ctime; nsec is always 0.
+    guestStat->st_atimespec.tv_sec = be( static_cast<std::uint32_t>( hostStat.st_atime ) );
+    guestStat->st_atimespec.tv_nsec = 0;
+    guestStat->st_mtimespec.tv_sec = be( static_cast<std::uint32_t>( hostStat.st_mtime ) );
+    guestStat->st_mtimespec.tv_nsec = 0;
+    guestStat->st_ctimespec.tv_sec = be( static_cast<std::uint32_t>( hostStat.st_ctime ) );
+    guestStat->st_ctimespec.tv_nsec = 0;
 #else
     guestStat->st_atimespec.tv_sec = be( static_cast<std::uint32_t>( hostStat.st_atim.tv_sec ) );
     guestStat->st_atimespec.tv_nsec = be( static_cast<std::uint32_t>( hostStat.st_atim.tv_nsec ) );
@@ -419,6 +459,8 @@ bool execve( ShimContext &ctx )
     std::uint32_t emuPathSize{ sizeof( emuPath ) };
 #ifdef __APPLE__
     bool resolved{ _NSGetExecutablePath( emuPath, &emuPathSize ) == 0 };
+#elif defined( _WIN32 )
+    bool resolved{ ::GetModuleFileNameA( nullptr, emuPath, static_cast<DWORD>( sizeof( emuPath ) ) ) != 0 };
 #else
     ssize_t len{ ::readlink( "/proc/self/exe", emuPath, sizeof( emuPath ) - 1 ) };
     bool resolved{ len != -1 };
@@ -1564,7 +1606,7 @@ bool umask( ShimContext &ctx )
         return false;
     const auto [mask] = *args;
 
-    mode_t ret{ ::umask( static_cast<mode_t>( mask ) ) };
+    const mode_t ret{ static_cast<mode_t>( ::umask( static_cast<mode_t>( mask ) ) ) };
     uint32_t retGuest = static_cast<uint32_t>( ret );
 
     return ctx.ret( retGuest );
@@ -1596,11 +1638,25 @@ bool localtime( ShimContext &ctx )
         set_guest_errno( ctx.mem, EOVERFLOW );
         return ctx.ret( 0u );
     }
+#ifdef _WIN32
+    // MSVC's struct tm has neither tm_gmtoff nor tm_zone
+    ::_tzset();
+    long tzSeconds{ 0 };
+    ::_get_timezone( &tzSeconds );
+    long dstBias{ 0 };
+    if (ret->tm_isdst > 0)
+        ::_get_dstbias( &dstBias );
+    const std::int32_t gmtoff{ static_cast<std::int32_t>( -tzSeconds - dstBias ) };
+    const char *zoneName{ _tzname[ret->tm_isdst > 0 ? 1 : 0] };
+#else
+    const std::int32_t gmtoff{ static_cast<std::int32_t>( ret->tm_gmtoff ) };
+    const char *zoneName{ ret->tm_zone };
+#endif
     void *zone_ptr{ nullptr };
-    if (ret->tm_zone != nullptr)
+    if (zoneName != nullptr)
     {
-        zone_ptr = reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( ::strlen( ret->tm_zone ) + 1 ) ) );
-        ::memcpy( zone_ptr, ret->tm_zone, ::strlen( ret->tm_zone ) + 1 );
+        zone_ptr = reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( ::strlen( zoneName ) + 1 ) ) );
+        ::memcpy( zone_ptr, zoneName, ::strlen( zoneName ) + 1 );
     }
     guest::tm tmGuest{
         .tm_sec = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_sec ), std::endian::big ),
@@ -1612,7 +1668,7 @@ bool localtime( ShimContext &ctx )
         .tm_wday = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_wday ), std::endian::big ),
         .tm_yday = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_yday ), std::endian::big ),
         .tm_isdst = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_isdst ), std::endian::big ),
-        .tm_gmtoff = common::ensure_endianness( static_cast<std::int32_t>( ret->tm_gmtoff ), std::endian::big ),
+        .tm_gmtoff = common::ensure_endianness( gmtoff, std::endian::big ),
         .tm_zone = ctx.mem->to_guest( zone_ptr ) };
     void *retPtrHost{ reinterpret_cast<void *>( ctx.mem->to_host( ctx.mem->heap_alloc( sizeof( guest::tm ) ) ) ) };
     ::memcpy( retPtrHost, &tmGuest, sizeof( guest::tm ) );
@@ -1717,7 +1773,11 @@ bool gethostname( ShimContext &ctx )
         return false;
     const auto [name, namelen] = *args;
 
+#ifdef _WIN32
+    int ret{ ::gethostname( name, static_cast<int>( namelen ) ) };
+#else
     int ret{ ::gethostname( name, namelen ) };
+#endif
 
     if (ret == -1)
     {

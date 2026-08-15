@@ -18,7 +18,7 @@ If emulator has unimplemented API call it could look like this in stdout (in Deb
 
 ## Building the Project
 
-Requires CMake and a C++23 compiler. The project is configured through
+Requires CMake and a C++23 compiler. Default build system is Ninja for anything except MSVC. The project is configured through
 [CMake presets](CMakePresets.json). Dependencies are managed with [vcpkg](https://github.com/microsoft/vcpkg).
 
 ```bash
@@ -63,7 +63,7 @@ Preset names follow the pattern `<platform>-<config>[-debugger]`, where:
   | `lin-arm64-clang` | Linux   | arm64 | clang++ (Ninja)                          |
 
 - `<config>` is either `release` (`CMAKE_BUILD_TYPE=Release`) or `debug` (`CMAKE_BUILD_TYPE=Debug`).
-- an optional trailing `-debugger` suffix additionally sets `ENABLE_DEBUGGER=ON`, compiling in the interactive/GDB
+- an optional trailing `-debugger` suffix additionally sets `DEBUGGER_ENABLED=ON`, compiling in the interactive/GDB
   debugger support described below.
 
 For example:

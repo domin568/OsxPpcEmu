@@ -7,7 +7,7 @@
 
 #include "CMachoLoader.hpp"
 #include "Common.hpp"
-#include "shims/AbiTranslate.hpp"
+#include "platform/AbiTranslate.hpp"
 #include "shims/ShimContext.hpp"
 #include "shims/carbon/CarbonShims.hpp"
 #include "shims/dyld/DyldShims.hpp"
