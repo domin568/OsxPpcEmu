@@ -15,16 +15,17 @@
 #include <array>
 #include <climits>
 #include <cstdio>
+#include <fcntl.h>
 #include <limits>
 #include <numeric>
 #include <span>
 #include <string_view>
-#include <fcntl.h>
 #include <sys/stat.h>
 #include <vector>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
-#elif defined( _WIN32 )
+#endif
+#if defined( _WIN32 )
 #include "platform/PosixCompat.hpp"
 #include <windows.h>
 #include <winsock2.h>
@@ -39,7 +40,7 @@
 #include <dirent.h>
 #endif
 
-#if defined(_WIN32) && defined(DEBUGGER_ENABLED)
+#if defined( _WIN32 ) && defined( DEBUGGER_ENABLED )
 namespace
 {
 struct WinsockInit

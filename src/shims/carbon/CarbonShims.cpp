@@ -9,8 +9,8 @@
 #include "PpcStructures.hpp"
 #include "shims/ShimContext.hpp"
 #include <array>
-#include <numeric>
 #include <fcntl.h>
+#include <numeric>
 #include <sys/stat.h>
 #include <unordered_map>
 #include <vector>
@@ -19,7 +19,8 @@
 #include <sys/xattr.h>
 #elif defined( _WIN32 )
 #include "platform/PosixCompat.hpp"
-#else
+#endif
+#ifndef _WIN32
 #include <dirent.h>
 #include <unistd.h>
 #endif
