@@ -12,7 +12,11 @@ namespace fs = std::filesystem;
 namespace fs_translate
 {
 fs::path translate_path( fs::path path );
-std::string to_guest_path( const fs::path &hostPath ); // No-op on POSIX hosts.
+std::optional<std::string> msys_to_host_path( const std::string &p );
+std::optional<std::string> host_to_msys_path( const std::string &p );
+
+// regex convert windows paths inside string to msys
+std::string host_path_list_to_msys( const std::string &value );
 
 inline static const bool is_filesystem_case_sensitive{ []() -> bool {
     const fs::path temp_file{ fs::temp_directory_path() / "case_test" };

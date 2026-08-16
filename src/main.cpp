@@ -55,8 +55,8 @@ int main( int argc, const char *argv[] )
     }
 
     // Strip leading emulator flags (currently only --heap-mode=...) before the target path.
-    std::vector<const char *> filteredArgv{};
-    filteredArgv.push_back( argv[0] );
+    std::vector<std::string> guestArgv{};
+    guestArgv.emplace_back( argv[0] );
     int firstGuestArgIdx{ 1 };
     for (; firstGuestArgIdx < argc; ++firstGuestArgIdx)
     {
@@ -75,23 +75,21 @@ int main( int argc, const char *argv[] )
         heapMode = *parsed;
         heapModeExplicit = true;
     }
-    for (int i{ firstGuestArgIdx }; i < argc; ++i)
-        filteredArgv.push_back( argv[i] );
-
-    if (filteredArgv.size() < 2)
+    if (firstGuestArgIdx >= argc)
     {
-        std::cerr << "Usage: " << argv[0] << " [--heap-mode=bump|quarantine|real] <executable> [args]" << std::endl;
+        std::cerr << "No executable specified." << std::endl;
         return -1;
     }
+    for (int i{ firstGuestArgIdx }; i < argc; ++i)
+        guestArgv.emplace_back( argv[i] );
 
-    std::cout << "[OsxPpcEmu] Emulating " << filteredArgv[1] << std::endl;
+    std::cout << "[OsxPpcEmu] Emulating " << argv[1] << std::endl;
     if (heapModeExplicit && heapMode != common::Heap_Default_Mode)
         std::cout << "[OsxPpcEmu] Heap mode: " << common::heap_mode_name( heapMode ) << std::endl;
     const std::array<std::string, 1> guestEnv{ "EXAMPLE=1" };
 
     std::chrono::high_resolution_clock::time_point start{ std::chrono::high_resolution_clock::now() };
-    std::expected<emu::COsxPpcEmu, emu::Error> emu{ emu::COsxPpcEmu::init(
-        static_cast<int>( filteredArgv.size() ), filteredArgv.data(), guestEnv, heapMode ) };
+    std::expected<emu::COsxPpcEmu, emu::Error> emu{ emu::COsxPpcEmu::init(guestArgv, guestEnv, heapMode ) };
     if (!emu)
     {
         std::cerr << emu.error().message << std::endl;

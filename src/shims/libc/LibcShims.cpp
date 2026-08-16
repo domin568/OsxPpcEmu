@@ -22,6 +22,8 @@
 #include <string_view>
 #include <sys/stat.h>
 #include <vector>
+#include <ranges>
+#include <iostream>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
@@ -1101,11 +1103,21 @@ bool getcwd( ShimContext &ctx )
         return false;
     const auto [buf, size] = *args;
     char *ret{ ::getcwd( buf, size ) };
-
     if (ret == nullptr)
     {
         set_guest_errno( ctx.mem, errno );
     }
+#ifdef _WIN32
+    else
+    {
+        const auto msys_path{ fs_translate::host_to_msys_path(ret) };
+        assert(msys_path.has_value());
+        assert(msys_path->size() < size);
+        ::memcpy( buf, msys_path->c_str(), msys_path->size() );
+        buf[msys_path->size()] = '\0';
+        ret = buf;
+    }
+#endif
 
     uint32_t retGuest{ ret != nullptr ? ctx.mem->to_guest( ret ) : 0 };
     return ctx.ret( retGuest );
@@ -1240,8 +1252,17 @@ bool getenv( ShimContext &ctx )
     }
     else if (ret != nullptr)
     {
-        char *heap_ptr{ reinterpret_cast<char *>( ctx.mem->to_host( ctx.mem->heap_alloc( ::strlen( ret ) + 1 ) ) ) };
+        char *heap_ptr{};
+#ifndef _WIN32
+        heap_ptr = reinterpret_cast<char *>( ctx.mem->to_host( ctx.mem->heap_alloc( ::strlen( ret ) + 1 ) ) );
         ::memcpy( heap_ptr, ret, ::strlen( ret ) + 1 );
+#else _WIN32
+        // Convert to MSYS path
+        const std::string guest_value{ fs_translate::host_path_list_to_msys( ret ) };
+        heap_ptr = reinterpret_cast<char *>( ctx.mem->to_host( ctx.mem->heap_alloc( guest_value.size() + 1 ) ) );
+        ::memcpy( heap_ptr, guest_value.data(), guest_value.size() );
+        heap_ptr[guest_value.size()] = '\0';
+#endif
         retGuest = ctx.mem->to_guest( heap_ptr );
     }
     return ctx.ret( retGuest );

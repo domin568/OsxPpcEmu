@@ -27,6 +27,7 @@ add_executable(OsxPpcEmuTest
         src/test_import_table.cpp
         src/test_heap.cpp
         src/test_thirdparty_format.cpp
+        src/test_fs_translate.cpp
 )
 
 target_include_directories(OsxPpcEmuTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -46,6 +47,7 @@ add_test(NAME OsxPpcEmuTestImportTable COMMAND OsxPpcEmuTest --gtest_filter=Impo
 add_test(NAME OsxPpcEmuTestHeap COMMAND OsxPpcEmuTest --gtest_filter=HeapFixture.*)
 add_test(NAME OsxPpcEmuTestThirdPartyPrintf COMMAND OsxPpcEmuTest --gtest_filter=ThirdPartyPrintf.*)
 add_test(NAME OsxPpcEmuTestThirdPartyScanf COMMAND OsxPpcEmuTest --gtest_filter=ThirdPartyScanf.*)
+add_test(NAME OsxPpcEmuTestFsTranslate COMMAND OsxPpcEmuTest --gtest_filter=FsTranslate*:TranslatePathFixture.*)
 
 add_executable(OsxPpcEmuE2E
         src/test_e2e_mwpefld.cpp

@@ -39,7 +39,7 @@ struct Error
 class COsxPpcEmu
 {
   public:
-    static std::expected<COsxPpcEmu, Error> init( int argc, const char **argv, std::span<const std::string> env,
+    static std::expected<COsxPpcEmu, Error> init( std::span<const std::string> args, std::span<const std::string> env,
                                                   common::HeapMode heapMode = common::Heap_Default_Mode );
     bool run();
 #ifdef DEBUGGER_ENABLED

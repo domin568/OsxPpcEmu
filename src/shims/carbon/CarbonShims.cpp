@@ -7,7 +7,9 @@
 #include "COsxPpcEmu.hpp"
 #include "ImportDispatch.hpp"
 #include "PpcStructures.hpp"
+#include "platform/FsTranslate.hpp"
 #include "shims/ShimContext.hpp"
+#include <algorithm>
 #include <array>
 #include <fcntl.h>
 #include <numeric>
@@ -732,9 +734,13 @@ bool FSPathMakeRef( ShimContext &ctx )
         return write_result( bdNamErr );
 
     // Resolve to a canonical absolute path on the host (mirrors canonpath() in CarbonLib).
+    const std::string hostPath{ fs_translate::translate_path( path ).string() };
     char resolved[PATH_MAX]{};
-    if (::realpath( path, resolved ) == nullptr)
+    if (::realpath( hostPath.c_str(), resolved ) == nullptr)
         return write_result( fnfErr );
+#ifdef _WIN32
+    std::replace( resolved, resolved + ::strnlen( resolved, sizeof( resolved ) ), '\\', '/' );
+#endif
 
     struct stat st{};
     if (::lstat( resolved, &st ) != 0)

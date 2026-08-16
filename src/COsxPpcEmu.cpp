@@ -11,6 +11,8 @@
 #include "../include/loader/CMachoLoader.hpp"
 #include "../include/mem/CMemory.hpp"
 #include "../include/mem/StackLayout.hpp"
+#include "platform/FsTranslate.hpp"
+
 #include <filesystem>
 #include <iostream>
 #include <ranges>
@@ -40,13 +42,12 @@ void COsxPpcEmu::init_debugger()
 }
 #endif
 
-std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, const std::span<const std::string> env,
+std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( std::span<const std::string> args, const std::span<const std::string> env,
                                                    common::HeapMode heapMode )
 {
-    if (argc < 2 || argv == nullptr || env.data() == nullptr)
+    if (args.size() < 2 || env.data() == nullptr)
         return std::unexpected( Error{ Error::Type::Bad_Arguments, "Could not parse command line arguments" } );
 
-    const std::vector<std::string> args( argv, argv + argc );
     const std::string &emuTarget{ args[1] };
     if (!std::filesystem::exists( emuTarget ))
         return std::unexpected( Error{ Error::Type::FileNotFound, "File not found." } );
@@ -91,7 +92,24 @@ std::expected<COsxPpcEmu, Error> COsxPpcEmu::init( int argc, const char **argv, 
     if (!importSetup)
         return std::unexpected( Error{ Error::Type::ImportRedirectionError, importSetup.error() } );
 
+#ifdef _WIN32
+    const auto msys_executable_path{ fs_translate::host_to_msys_path( emuTarget ) };
+    if (!msys_executable_path.has_value())
+        return std::unexpected( Error{ Error::Type::Bad_Arguments, "Could not convert executable path to MSYS format." } );
+    std::vector<std::string> argsWithMsysPath{ args.begin(), args.end() };
+    argsWithMsysPath[1] = *msys_executable_path;
+
+    for (std::size_t i{ 2 }; i < argsWithMsysPath.size(); ++i)
+        argsWithMsysPath[i] = fs_translate::host_path_list_to_msys( argsWithMsysPath[i] );
+
+    std::vector<std::string> envWithMsysPaths{ env.begin(), env.end() };
+    for (std::string &e : envWithMsysPaths)
+        e = fs_translate::host_path_list_to_msys( e );
+
+    if (!set_stack( uc, argsWithMsysPath, envWithMsysPaths, *memory ))
+#else
     if (!set_stack( uc, args, env, *memory ))
+#endif
         return std::unexpected(
             Error{ Error::Type::StackInitializationError, "Stack initialization error (argc, argv, envp)." } );
 

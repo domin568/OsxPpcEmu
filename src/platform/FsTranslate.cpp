@@ -8,16 +8,16 @@
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
+#include <regex>
 
 namespace fs = std::filesystem;
 namespace fs_translate
 {
 
 #ifdef _WIN32
-namespace
-{
+
 // "/c/a/b" (or "/c") -> "C:\a\b". Returns nullopt when the path is not in MSYS drive form.
-std::optional<fs::path> from_guest_drive_form( const std::string &p )
+std::optional<std::string> msys_to_host_path( const std::string &p )
 {
     if (p.size() < 2 || p[0] != '/' || !std::isalpha( static_cast<unsigned char>( p[1] ) ))
         return std::nullopt;
@@ -28,20 +28,48 @@ std::optional<fs::path> from_guest_drive_form( const std::string &p )
     if (p.size() > 3)
         host += p.substr( 3 );
     std::ranges::replace( host, '/', '\\' );
-    return fs::path{ host };
+    return host;
 }
-} // namespace
+
+std::optional<std::string> host_to_msys_path( const std::string &p )
+{
+    if (p.size() < 3 || !std::isalpha( static_cast<unsigned char>( p[0] ) ) || p[1] != ':' || p[2] != '\\')
+        return std::nullopt;
+
+    std::string msys{ "/" + std::string{ static_cast<char>( std::tolower( static_cast<unsigned char>( p[0] ) ) ) } };
+    if (p.size() > 3)
+        msys += p.substr( 2 );
+    std::ranges::replace( msys, '\\', '/' );
+    return msys;
+}
+
+std::string host_path_list_to_msys( const std::string &value )
+{
+    static const std::regex driveRe{ R"([A-Za-z]:(?:\\[^:;]*)?)" };
+    std::string result{};
+    result.reserve( value.size() );
+    std::size_t last{ 0 };
+    for (auto it{ std::sregex_iterator( value.begin(), value.end(), driveRe ) }; it != std::sregex_iterator(); ++it)
+    {
+        const auto &m{ *it };
+        result.append( value, last, static_cast<std::size_t>( m.position() ) - last );
+        if (const auto msys{ host_to_msys_path( m.str() ) })
+            result += *msys;
+        else
+            result += m.str();
+        last = static_cast<std::size_t>( m.position() ) + static_cast<std::size_t>( m.length() );
+    }
+    result.append( value, last, std::string::npos );
+    return result;
+}
 #endif
 
 fs::path translate_path( fs::path path )
 {
-    /*
 #ifdef _WIN32
-    // Undo to_guest_path(): the guest hands back the POSIX spelling we gave it.
-    if (const auto host{ from_guest_drive_form( path.generic_string() ) })
+    if (const auto host{ msys_to_host_path( path.generic_string() ) })
         path = *host;
 #endif
-    */
     if (fs::exists( path ) || !is_filesystem_case_sensitive)
         return path;
 
