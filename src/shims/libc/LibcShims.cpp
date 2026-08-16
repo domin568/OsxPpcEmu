@@ -61,6 +61,23 @@ const WinsockInit g_winsockInit{};
 } // namespace
 #endif
 
+namespace
+{
+/*
+ Darwin streams are always raw byte streams; the MSVC CRT defaults to text mode, which rewrites
+ '\n' as "\r\n" on write and strips '\r' on read. That silently corrupts binary artifacts the
+ guest produces, so append 'b' to any guest mode string that lacks
+ it. On POSIX hosts 'b' is a documented no-op, so the same code path is used everywhere.
+ */
+std::string force_binary_mode( const char *mode )
+{
+    std::string result{ mode != nullptr ? mode : "" };
+    if (result.find( 'b' ) == std::string::npos)
+        result.push_back( 'b' );
+    return result;
+}
+} // namespace
+
 namespace import::callback
 {
 
@@ -582,7 +599,7 @@ bool fopen( ShimContext &ctx )
     const auto [filename, mode] = *args;
 
     const auto translated_filename{ fs_translate::translate_path( filename ) };
-    FILE *ret{ ::fopen( translated_filename.string().c_str(), mode ) };
+    FILE *ret{ ::fopen( translated_filename.string().c_str(), force_binary_mode( mode ).c_str() ) };
 
     if (ret == nullptr)
     {

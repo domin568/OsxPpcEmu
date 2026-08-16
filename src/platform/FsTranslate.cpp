@@ -6,13 +6,67 @@
 
 #include "platform/FsTranslate.hpp"
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <iostream>
 #include <regex>
+#include <string>
+
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 namespace fs_translate
 {
+
+namespace
+{
+
+long current_pid()
+{
+#ifdef _WIN32
+    return static_cast<long>( ::_getpid() );
+#else
+    return static_cast<long>( ::getpid() );
+#endif
+}
+
+bool probe_filesystem_case_sensitivity()
+{
+    std::error_code ec{};
+    const fs::path tempDir{ fs::temp_directory_path( ec ) };
+    if (ec || tempDir.empty())
+        return false; // no usable temp dir (e.g. no TMP/TEMP on Windows) - assume insensitive
+
+    static std::atomic<unsigned long> counter{ 0 };
+    const std::string unique{ std::to_string( current_pid() ) + "_" + std::to_string( ++counter ) };
+
+    const fs::path lower{ tempDir / ( "osxppcemu_case_probe_" + unique ) };
+    const fs::path upper{ tempDir / ( "OSXPPCEMU_CASE_PROBE_" + unique ) };
+
+    fs::remove_all( lower, ec );
+    fs::remove_all( upper, ec );
+
+    if (!fs::create_directory( lower, ec ) || ec)
+        return false; // could not probe - assume insensitive
+
+    const bool caseSensitive{ !fs::exists( upper, ec ) };
+
+    fs::remove_all( lower, ec );
+    return caseSensitive;
+}
+
+} // namespace
+
+bool is_filesystem_case_sensitive()
+{
+    // Function-local static: initialised on first use and thread-safe per [stmt.dcl]/4.
+    static const bool caseSensitive{ probe_filesystem_case_sensitivity() };
+    return caseSensitive;
+}
 
 #ifdef _WIN32
 
@@ -70,9 +124,11 @@ fs::path translate_path( fs::path path )
     if (const auto host{ msys_to_host_path( path.generic_string() ) })
         path = *host;
 #endif
-    if (fs::exists( path ) || !is_filesystem_case_sensitive)
+    std::error_code ec{};
+    if (fs::exists( path, ec ) || !is_filesystem_case_sensitive())
         return path;
 
+    const fs::path original{ path };
     if (path.is_relative())
     {
         path = fs::path( "." ) / path;
@@ -83,26 +139,26 @@ fs::path translate_path( fs::path path )
     for (const auto &part : path)
     {
         fs::path check{ result / part };
-        if (fs::exists( check ))
+        if (fs::exists( check, ec ))
         {
             result = check;
             continue;
         }
 
         bool found{ false };
-        for (const auto &entry : fs::directory_iterator( result ))
+        for (fs::directory_iterator it{ result, ec }, end{}; !ec && it != end; it.increment( ec ))
         {
             const bool case_insensitive_match{
-                std::ranges::equal( entry.path().filename().string(), part.string(), lower_pred ) };
+                std::ranges::equal( it->path().filename().string(), part.string(), lower_pred ) };
             if (case_insensitive_match)
             {
-                result /= entry;
+                result /= it->path().filename();
                 found = true;
                 break;
             }
         }
         if (!found)
-            return path; // if not found then return original path
+            return original; // if not found then return original path
     }
     return result;
 }

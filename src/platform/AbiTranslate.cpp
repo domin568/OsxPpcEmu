@@ -28,6 +28,12 @@ int darwin_oflags_to_host( std::int32_t darwinFlags )
     // O_RDONLY/O_WRONLY/O_RDWR (0/1/2) are identical on every POSIX host.
     int hostFlags{ darwinFlags & 0x3 };
 
+#ifdef _O_BINARY
+    // Force binary mode unconditionally so host I/O matches guest semantics.
+    // CLRF -> LF on Windows
+    hostFlags |= _O_BINARY;
+#endif
+
     const auto map{ [&]( std::int32_t darwinBit, int hostBit ) {
         if (darwinFlags & darwinBit)
             hostFlags |= hostBit;

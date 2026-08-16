@@ -240,7 +240,7 @@ TEST_F( TranslatePathFixture, ConvertsMsysPathToExistingHostFile )
 
 TEST_F( TranslatePathFixture, ResolvesCaseMismatchOnCaseSensitiveFilesystem )
 {
-    if (!fs_translate::is_filesystem_case_sensitive)
+    if (!fs_translate::is_filesystem_case_sensitive())
         GTEST_SKIP() << "Host filesystem is case-insensitive, skipping test";
 
     const fs::path actual{ sandbox / "CaseTest.TXT" };
@@ -256,7 +256,7 @@ TEST_F( TranslatePathFixture, ResolvesCaseMismatchOnCaseSensitiveFilesystem )
 
 TEST_F( TranslatePathFixture, ResolvesCaseMismatchAcrossNestedDirectoriesOnCaseSensitiveFilesystem )
 {
-    if (!fs_translate::is_filesystem_case_sensitive)
+    if (!fs_translate::is_filesystem_case_sensitive())
         GTEST_SKIP() << "Host filesystem is case-insensitive, skipping test";
 
     const fs::path actualDir{ sandbox / "SubDir" };
@@ -274,7 +274,7 @@ TEST_F( TranslatePathFixture, ResolvesCaseMismatchAcrossNestedDirectoriesOnCaseS
 
 TEST_F( TranslatePathFixture, ReturnsOriginalPathWhenNoCaseInsensitiveMatchExistsOnCaseSensitiveFilesystem )
 {
-    if (!fs_translate::is_filesystem_case_sensitive)
+    if (!fs_translate::is_filesystem_case_sensitive())
         GTEST_SKIP() << "Host filesystem is case-insensitive, skipping test";
 
     // No entry named "nomatch.txt" exists under any casing.
@@ -285,7 +285,7 @@ TEST_F( TranslatePathFixture, ReturnsOriginalPathWhenNoCaseInsensitiveMatchExist
 
 TEST_F( TranslatePathFixture, ExactCaseMatchShortCircuitsOnCaseInsensitiveFilesystem )
 {
-    if (fs_translate::is_filesystem_case_sensitive)
+    if (fs_translate::is_filesystem_case_sensitive())
         GTEST_SKIP() << "Host filesystem is case-sensitive, skipping test";
 
     // On a case-insensitive filesystem, fs::exists() alone already matches regardless of

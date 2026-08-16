@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -35,8 +36,8 @@ struct ProcessResult
     std::string stderrText{};
 };
 
-// Runs `argv[0]` with the given arguments, working directory and an *explicit*
-// environment (the parent's environment is not inherited unless included in `env`).
+// Runs `argv[0]` with the given arguments, working directory and an *explicit* environment: the
+// parent's environment is not inherited, save for TMP on Windows (see the note in the body).
 // `env` entries must be in "KEY=VALUE" form. stdout/stderr are captured to files
 // under `cwd` and read back into the result.
 inline ProcessResult run_process( const std::vector<std::string> &argv, const std::filesystem::path &cwd,
@@ -55,9 +56,23 @@ inline ProcessResult run_process( const std::vector<std::string> &argv, const st
         cmdLine += '"' + a + '"';
     }
 
+    // TMP is neededd on windows for case sensitive fs check (it crashes because it cannot get temp folder)
+    static constexpr char tmpPrefix[]{ "TMP=" };
+    static constexpr std::size_t tmpPrefixLen{ sizeof( tmpPrefix ) - 1 };
+
     std::string envBlock;
+    bool callerDefinesTmp{ false };
     for (const std::string &e : env)
+    {
         envBlock += e + '\0';
+        if (e.size() >= tmpPrefixLen && ::_strnicmp( e.c_str(), tmpPrefix, tmpPrefixLen ) == 0)
+            callerDefinesTmp = true;
+    }
+    if (!callerDefinesTmp)
+    {
+        if (const char *value{ std::getenv( "TMP" ) })
+            envBlock += tmpPrefix + std::string{ value } + '\0';
+    }
     envBlock += '\0';
 
     SECURITY_ATTRIBUTES sa{ sizeof( SECURITY_ATTRIBUTES ), nullptr, TRUE };

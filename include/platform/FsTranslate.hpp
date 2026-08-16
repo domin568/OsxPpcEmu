@@ -6,6 +6,7 @@
 
 #pragma once
 #include <filesystem>
+#include <optional>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -18,14 +19,5 @@ std::optional<std::string> host_to_msys_path( const std::string &p );
 // regex convert windows paths inside string to msys
 std::string host_path_list_to_msys( const std::string &value );
 
-inline static const bool is_filesystem_case_sensitive{ []() -> bool {
-    const fs::path temp_file{ fs::temp_directory_path() / "case_test" };
-    const fs::path temp_file_upper{ fs::temp_directory_path() / "CASE_TEST" };
-    fs::remove( temp_file );
-    fs::remove( temp_file_upper );
-    fs::create_directory( temp_file );
-    const bool case_sensitive = !fs::exists( temp_file_upper );
-    fs::remove( temp_file );
-    return case_sensitive;
-}() };
+bool is_filesystem_case_sensitive();
 } // namespace fs_translate
