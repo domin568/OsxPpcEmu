@@ -215,16 +215,13 @@ bool COsxPpcEmu::set_args_on_stack( const std::span<const std::string> args, con
 
 bool COsxPpcEmu::enable_floating_point_ops( uc_engine *uc )
 {
-    uc_err err{};
     // Enable floating-point operations by setting the FP bit (bit 13) in MSR
     // MSR bits: FP=0x2000 (bit 13)
-    uint32_t msr = 0x2000;
-    err = uc_reg_write( uc, UC_PPC_REG_MSR, &msr );
-    if (err != UC_ERR_OK)
-    {
+    std::uint32_t msr{ 0 };
+    if (uc_reg_read( uc, UC_PPC_REG_MSR, &msr ) != UC_ERR_OK)
         return false;
-    }
-    return true;
+    msr |= 0x2000;
+    return uc_reg_write( uc, UC_PPC_REG_MSR, &msr ) == UC_ERR_OK;
 }
 
 } // namespace emu

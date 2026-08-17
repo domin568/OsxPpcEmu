@@ -37,7 +37,8 @@ struct ProcessResult
 };
 
 // Runs `argv[0]` with the given arguments, working directory and an *explicit* environment: the
-// parent's environment is not inherited, save for TMP on Windows (see the note in the body).
+// parent's environment is not inherited, save for a small set of host variables on Windows that
+// the process cannot start without (see the note in the body).
 // `env` entries must be in "KEY=VALUE" form. stdout/stderr are captured to files
 // under `cwd` and read back into the result.
 inline ProcessResult run_process( const std::vector<std::string> &argv, const std::filesystem::path &cwd,
@@ -56,22 +57,32 @@ inline ProcessResult run_process( const std::vector<std::string> &argv, const st
         cmdLine += '"' + a + '"';
     }
 
-    // TMP is neededd on windows for case sensitive fs check (it crashes because it cannot get temp folder)
-    static constexpr char tmpPrefix[]{ "TMP=" };
-    static constexpr std::size_t tmpPrefixLen{ sizeof( tmpPrefix ) - 1 };
+    // A few *host* variables must be forwarded, or the host process cannot start at all:
+    //   PATH        - how the Windows loader finds the toolchain runtime DLLs the emulator imports
+    //                 (MinGW: libstdc++-6.dll, libgcc_s_seh-1.dll, libwinpthread-1.dll). Those live
+    //                 in the toolchain's bin directory.
+    //   TMP / TEMP  - needed for the case sensitive fs check.
+    //   SystemRoot / SystemDrive - relied on by parts of the Win32 API (e.g. Winsock startup).
+    static constexpr const char *hostVarsToForward[]{ "PATH", "SystemRoot", "SystemDrive", "TMP", "TEMP" };
+
+    const auto callerDefines{ [&env]( const char *name ) {
+        const std::size_t nameLen{ std::strlen( name ) };
+        for (const std::string &e : env)
+            if (e.size() > nameLen && e[nameLen] == '=' && ::_strnicmp( e.c_str(), name, nameLen ) == 0)
+                return true;
+        return false;
+    } };
 
     std::string envBlock;
-    bool callerDefinesTmp{ false };
     for (const std::string &e : env)
-    {
         envBlock += e + '\0';
-        if (e.size() >= tmpPrefixLen && ::_strnicmp( e.c_str(), tmpPrefix, tmpPrefixLen ) == 0)
-            callerDefinesTmp = true;
-    }
-    if (!callerDefinesTmp)
+
+    for (const char *name : hostVarsToForward)
     {
-        if (const char *value{ std::getenv( "TMP" ) })
-            envBlock += tmpPrefix + std::string{ value } + '\0';
+        if (callerDefines( name ))
+            continue;
+        if (const char *value{ std::getenv( name ) })
+            envBlock += std::string{ name } + '=' + value + '\0';
     }
     envBlock += '\0';
 
