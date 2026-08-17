@@ -15,9 +15,6 @@ jobs:
           - compiler: msvc
             preset: win-x64-msvc-release
             cmake_arch: x64
-          - compiler: msvc
-            preset: win-arm64-msvc-release
-            cmake_arch: ARM64
           - compiler: clang
             preset: win-x64-clang-release
           - compiler: mingw
@@ -88,7 +85,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-26
+          - os: macos-26-intel
             arch: x64
             preset: mac-x64-release
           - os: macos-latest

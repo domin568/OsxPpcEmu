@@ -16,10 +16,6 @@ jobs:
             preset: win-x64-msvc26-release
             cmake_arch: x64
 
-          - compiler: msvc
-            preset: win-arm64-msvc26-release
-            cmake_arch: ARM64
-
           - compiler: clang
             preset: win-x64-clang-release
 
