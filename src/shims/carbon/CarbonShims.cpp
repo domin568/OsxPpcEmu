@@ -214,7 +214,7 @@ bool FSpOpenResFile( ShimContext &ctx )
         break;
     }
 
-    const int fd{ ::open( rsrcPath.c_str(), oflags ) };
+    const int fd{ ::open( rsrcPath.c_str(), abi_translate::darwin_oflags_to_host(oflags) ) };
     if (fd < 0)
     {
         g_resError = ( errno == EACCES || errno == EPERM ) ? opWrErr : resFNotFound;
@@ -289,7 +289,8 @@ static std::uint32_t load_one_resource( memory::CMemory *mem, int fd, std::uint3
     }
 
     std::vector<std::uint8_t> map( mapLen );
-    if (::pread( fd, map.data(), mapLen, mapOff ) != static_cast<ssize_t>( mapLen ))
+    ssize_t mapReadRet{ ::pread( fd, map.data(), mapLen, mapOff )  };
+    if (mapReadRet != static_cast<ssize_t>( mapLen ))
     {
         g_resError = kMapReadErr;
         return 0;
