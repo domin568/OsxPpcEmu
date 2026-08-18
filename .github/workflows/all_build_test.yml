@@ -13,7 +13,7 @@ jobs:
       matrix:
         include:
           - compiler: msvc
-            preset: win-x64-msvc-release
+            preset: win-x64-msvc26-release
             cmake_arch: x64
           - compiler: clang
             preset: win-x64-clang-release
