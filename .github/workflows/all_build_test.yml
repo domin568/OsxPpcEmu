@@ -39,7 +39,7 @@ jobs:
         if: matrix.compiler == 'clang'
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: '22'
+          version: '21'
 
       - name: Setup MSYS2
         if: matrix.compiler == 'mingw'
