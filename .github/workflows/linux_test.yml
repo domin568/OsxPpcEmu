@@ -13,11 +13,11 @@ jobs:
         include:
           - arch: x64
             compiler: gcc
-            runner: ubuntu-latest
+            runner: ubuntu-26.04
             preset: lin-x64-gcc-release
           - arch: x64
             compiler: clang
-            runner: ubuntu-latest
+            runner: ubuntu-26.04
             preset: lin-x64-clang-release
           - arch: arm64
             compiler: gcc

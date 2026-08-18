@@ -3,6 +3,9 @@ name: All platforms Build, Test
 on:
   workflow_dispatch:
 
+env:
+  VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg_cache,readwrite"
+
 jobs:
   windows:
     name: Windows / ${{ matrix.compiler }} ${{ matrix.cmake_arch || '' }}
@@ -24,11 +27,19 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg_cache
+          key: vcpkg-${{ runner.os }}-${{ matrix.preset }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ matrix.preset }}-
+
       - name: Install LLVM and Clang
         if: matrix.compiler == 'clang'
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: '21'
+          version: '22'
 
       - name: Setup MSYS2
         if: matrix.compiler == 'mingw'
@@ -96,6 +107,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg_cache
+          key: vcpkg-${{ runner.os }}-${{ matrix.preset }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ matrix.preset }}-
+
       - name: Setup vcpkg and Cache
         uses: lukka/run-vcpkg@v11
 
@@ -119,11 +138,11 @@ jobs:
         include:
           - arch: x64
             compiler: gcc
-            runner: ubuntu-latest
+            runner: ubuntu-26.04
             preset: lin-x64-gcc-release
           - arch: x64
             compiler: clang
-            runner: ubuntu-latest
+            runner: ubuntu-26.04
             preset: lin-x64-clang-release
           - arch: arm64
             compiler: gcc
@@ -137,6 +156,14 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg_cache
+          key: vcpkg-${{ runner.os }}-${{ matrix.preset }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ matrix.preset }}-
 
       - name: Install Clang 22
         if: contains(matrix.compiler, 'clang')
